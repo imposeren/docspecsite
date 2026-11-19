@@ -2,7 +2,7 @@
 title: Versioning and releases
 summary: docspecsite releases are git tags vMAJOR.MINOR.PATCH on main, with MAJOR tied to incompatible changes in what other repos depend on; projects pin a tag for both the prek hook and the Docker image.
 layer: architecture
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 components: [distribution, deploy]

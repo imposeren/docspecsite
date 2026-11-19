@@ -2,7 +2,7 @@
 title: Set up your machine to contribute
 summary: One-time setup for working on docspecsite itself — Docker, uv, prek and the commit hooks — and the docker compose commands used every day.
 layer: guides
-status: specified
+status: implemented
 milestone: first-release
 priority: should
 components: [quality-gate, dev-environment]

@@ -1,0 +1,87 @@
+{#- The body of one code reference page (docs/architecture/docs-tooling.md#code-reference-referencecode).
+    Every href is already relative to the page; only Markdown HTML (``*_html``, ``html``) is passed as safe. -#}
+{% macro pieces(items) -%}
+{% for p in items %}{% if p.href is not none %}<a href="{{ p.href }}">{{ p.text }}</a>{% else %}{{ p.text }}{% endif %}{% endfor %}
+{%- endmacro %}
+{% macro docstring(sections, docs) -%}
+{% for section in sections -%}
+{% if section.rows -%}
+<table class="doc-section">
+<caption>{{ section.title }}</caption>
+<thead><tr>{% if section.named %}<th>Name</th>{% endif %}<th>Type</th><th>Description</th></tr></thead>
+<tbody>
+{% for row in section.rows -%}
+<tr>{% if section.named %}<td><code>{{ row.name }}</code></td>{% endif %}<td><code>{{ pieces(row.type) }}</code></td><td>{{ row.description_html|safe }}</td></tr>
+{% endfor -%}
+</tbody>
+</table>
+{% elif section.html -%}
+<div class="doc-text">
+{% if section.title %}<p class="doc-section-title">{{ section.title }}</p>
+{% endif -%}
+{{ section.html|safe }}</div>
+{% endif -%}
+{% endfor -%}
+{% if docs -%}
+<div class="docs-links">
+<p class="doc-section-title">Docs</p>
+<ul>
+{% for link in docs -%}
+<li>{{ pieces([link]) }}</li>
+{% endfor -%}
+</ul>
+</div>
+{% endif -%}
+{%- endmacro %}
+{% macro index_entries(members) -%}
+<ul>
+{% for member in members -%}
+<li><a href="#{{ member.anchor }}">{{ member.name }}</a>{% if member.members %}
+{{ index_entries(member.members) }}{% endif %}</li>
+{% endfor -%}
+</ul>
+{%- endmacro %}
+{% macro render_member(member) -%}
+<details open class="member {{ member.kind }}" id="{{ member.anchor }}">
+<summary><code class="signature">
+{%- for overload in member.overloads %}{{ pieces(overload) }}<br>{% endfor -%}
+{% for decorator in member.decorators %}<span class="decorator">{{ pieces(decorator) }}</span><br>{% endfor -%}
+{{ pieces(member.signature) }}</code>
+{%- if member.source %} <a class="source" href="{{ member.source }}">source</a>{% endif %}</summary>
+{{ docstring(member.sections, member.docs) }}
+{%- for child in member.members %}
+{{ render_member(child) }}
+{%- endfor %}
+{% for group in member.inherited -%}
+<div class="inherited">
+<p class="doc-section-title">Inherited from {{ pieces([group.base]) }}</p>
+<ul>
+{% for link in group.members -%}
+<li>{{ pieces([link]) }}</li>
+{% endfor -%}
+</ul>
+</div>
+{% endfor -%}
+</details>
+{%- endmacro %}
+<div class="module-doc">
+{{ docstring(sections, docs) }}
+{%- if source %}<p class="source"><a href="{{ source }}">source</a></p>
+{% endif -%}
+</div>
+{% if groups -%}
+<nav class="members">
+{% for group in groups -%}
+<p class="members-group">{{ group.title }}</p>
+{{ index_entries(group.members) }}
+{% endfor -%}
+</nav>
+{% for group in groups -%}
+<section class="member-group">
+<h2>{{ group.title }}</h2>
+{% for member in group.members -%}
+{{ render_member(member) }}
+{% endfor -%}
+</section>
+{% endfor -%}
+{% endif -%}

@@ -2,7 +2,7 @@
 title: Architecture decision records
 summary: Index of all ADRs in this repo, grouped by ID prefix — the template's BASE decisions and its Pyrefly option's PYRF decisions, then docspecsite's own DSS decisions — each recording one decision with context, options and consequences, and never renumbered.
 layer: architecture
-status: specified
+status: implemented
 components: []
 tags: [adr, overview]
 related:
@@ -35,7 +35,7 @@ Each line gives the ADR's `decision` and `status`, then its title ([meta/lifecyc
 
 ### DSS — docspecsite
 
-- [DSS-0001](DSS-0001-custom-per-doc-history-renderer.md) — accepted, specified — Custom static renderer with per-doc git history
-- [DSS-0002](DSS-0002-single-python-toolchain.md) — accepted, specified — One Python version and one uv project
-- [DSS-0003](DSS-0003-ruff-and-strict-pyrefly.md) — accepted, specified — Ruff for linting and formatting, strict Pyrefly for types
-- [DSS-0004](DSS-0004-pytest-for-tests.md) — accepted, specified — pytest for tests
+- [DSS-0001](DSS-0001-custom-per-doc-history-renderer.md) — accepted, implemented — Custom static renderer with per-doc git history
+- [DSS-0002](DSS-0002-single-python-toolchain.md) — accepted, implemented — One Python version and one uv project
+- [DSS-0003](DSS-0003-ruff-and-strict-pyrefly.md) — accepted, implemented — Ruff for linting and formatting, strict Pyrefly for types
+- [DSS-0004](DSS-0004-pytest-for-tests.md) — accepted, implemented — pytest for tests

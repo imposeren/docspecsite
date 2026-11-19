@@ -2,7 +2,7 @@
 title: "DSS-0004: pytest for tests"
 summary: docspecsite is tested with pytest, a development-only dependency, with tests in tests/ at the repo root that build throwaway docs trees and git repositories.
 layer: architecture
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 decision: accepted

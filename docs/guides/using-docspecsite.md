@@ -2,7 +2,7 @@
 title: Use docspecsite in a project
 summary: How a project adds docspecsite — the docs-check prek hook and the docs compose services, both pinned to one release tag, and docspecsite.toml — and how it upgrades to a new release.
 layer: guides
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 components: [distribution]

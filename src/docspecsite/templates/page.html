@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% macro link_list(links) -%}
+<ul>
+{% for link in links -%}
+<li><a href="{{ link.url|rel }}">{{ link.title }}</a>{% for cls, text in link.markers %}<span class="marker {{ cls }}">{{ text }}</span>{% endfor %}{% if link.summary %} <span class="summary">{{ link.summary }}</span>{% endif %}</li>
+{% endfor -%}
+</ul>
+{%- endmacro %}
+{#- A link to an index page; plain text when ``indexes`` is given and does not contain it. -#}
+{% macro index_link(cls, url, text) -%}
+{% if indexes is none or url in indexes -%}
+<a class="{{ cls }}" href="{{ url|rel_href }}">{{ text }}</a>
+{%- else -%}
+<span class="{{ cls }}">{{ text }}</span>
+{%- endif %}
+{%- endmacro %}
+{% macro panel(cls, heading, links) -%}
+{% if links -%}
+<aside class="{{ cls }}">
+<h2>{{ heading }}</h2>
+{{ link_list(links) }}
+</aside>
+{% endif -%}
+{%- endmacro %}
+{% block main %}
+{% if page.breadcrumb -%}
+<nav class="breadcrumb">
+{% for link in page.breadcrumb -%}
+<a href="{{ link.url|rel }}">{{ link.title }}</a><span class="sep">›</span>
+{% endfor -%}
+<span class="current">{{ page.title }}</span>
+</nav>
+{% endif -%}
+<header>
+{% if page.body_h1 is not none -%}
+{{ page.body_h1|safe }}
+{% else -%}
+<h1>{{ page.title }}</h1>
+{% endif -%}
+<div class="doc-info">
+{% if page.status -%}
+<span class="status status-{{ page.status }}">{{ page.status }}</span>
+{% endif -%}
+{% for component in page.components -%}
+{{ index_link("component", component|component_url, component) }}
+{% endfor -%}
+{% for tag in page.tags -%}
+{{ index_link("tag", tag|tag_url, "#" ~ tag) }}
+{% endfor -%}
+</div>
+{% if page.picker -%}
+<div class="versions">
+<select class="version-picker" aria-label="Version">
+{% for entry in page.picker -%}
+<option value="{{ entry.url|rel }}"{% if entry.current %} selected{% endif %}>{{ entry.label }}</option>
+{% endfor -%}
+</select>
+{% if page.diff_url -%}
+<a class="diff-link" href="{{ page.diff_url|rel }}">diff vs previous</a>
+{% endif -%}
+</div>
+{% endif -%}
+</header>
+{% if page.redirect -%}
+<div class="redirect-notice">
+<strong>{{ page.redirect.label }}</strong>
+{% if page.redirect.targets -%}
+{{ link_list(page.redirect.targets) }}
+{% endif -%}
+<p class="reason">{{ page.redirect.reason }}</p>
+</div>
+{% endif -%}
+<article class="body">
+{{ page.body_rest|safe }}
+</article>
+{% endblock %}
+{% block panels %}
+{% if page.children or page.related or page.backlinks or page.described_in -%}
+<div class="panels">
+{{ panel("children", page.children_heading, page.children) }}
+{{- panel("related", "Related", page.related) }}
+{{- panel("backlinks", "Linked from", page.backlinks) }}
+{{- panel("described-in", "Described in", page.described_in) }}
+</div>
+{% endif -%}
+{% endblock %}

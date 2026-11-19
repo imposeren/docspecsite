@@ -2,7 +2,7 @@
 title: Roadmap
 summary: docspecsite's milestones in order, each with its goal; docs refer to them in their `milestone` field.
 layer: root
-status: specified
+status: implemented
 components: []
 tags: [overview, roadmap]
 related:

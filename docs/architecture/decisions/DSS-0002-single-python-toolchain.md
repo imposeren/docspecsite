@@ -2,7 +2,7 @@
 title: "DSS-0002: One Python version and one uv project"
 summary: docspecsite is one uv project at the repo root, with its Python version pinned once in .python-version and one lockfile; the Docker image gets Python through uv from the same pin.
 layer: architecture
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 decision: accepted

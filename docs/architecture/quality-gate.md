@@ -2,7 +2,7 @@
 title: Quality gate
 summary: How changes to docspecsite are checked — review against the spec before commit, prek hooks on commit (Ruff, strict Pyrefly, mdformat, and docspecsite checking its own docs from source), and the full test suite before a release.
 layer: architecture
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 components: [quality-gate]

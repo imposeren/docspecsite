@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.old %}[OLD] {% endif %}{{ page.title }} — {{ site_title }}</title>
+<link rel="stylesheet" href="{{ 'assets/docspecsite.css'|rel }}">
+</head>
+<body{% if page.old %} class="old"{% endif %}>
+{% if page.old -%}
+<div class="old-banner">⚠ OLD VERSION — {{ page.old.date }}, {{ page.old.short }} — this is NOT the current spec. <a href="{{ page.old.latest_url|rel }}">→ Latest version</a></div>
+{% endif -%}
+<nav class="site"><a href="{{ 'status.html'|rel }}">Status</a></nav>
+<div class="layout">
+<main>
+{% block main %}{% endblock %}
+</main>
+{% block panels %}{% endblock %}
+</div>
+{% if page.picker -%}
+<script src="{{ 'assets/docspecsite.js'|rel }}"></script>
+{% endif -%}
+{% if page.mermaid -%}
+<script src="{{ 'assets/mermaid.min.js'|rel }}"></script>
+<script>mermaid.initialize({ startOnLoad: true, securityLevel: "strict" });</script>
+{% endif -%}
+</body>
+</html>

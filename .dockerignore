@@ -1,0 +1,14 @@
+# The image needs only the package source and the files uv installs it from.
+.git
+.venv
+.pytest_cache
+.ruff_cache
+**/__pycache__
+.docspecsite-cache
+site
+docs
+tests
+notes
+.idea
+docker
+compose.yaml

@@ -2,7 +2,7 @@
 title: Code reference (generated)
 summary: Reference pages for docspecsite's Python modules, classes and functions, generated from docstrings during the docs build; the pages are not stored in the repo.
 layer: reference
-status: specified
+status: implemented
 components: [code-reference]
 tags: [overview, reference, generated, python]
 related:
@@ -18,4 +18,4 @@ In raw form, use the code itself: a `code:docspecsite.check.Checker` link means 
 - How hand-written docs link to code and back: [meta/linking.md](../../meta/linking.md#code-links).
 - How the pages are generated: [architecture/docs-tooling.md](../../architecture/docs-tooling.md#code-reference).
 
-Pages are generated for the packages in the directories named by `code-dirs` in `docspecsite.toml`: here the `docspecsite` package in `src/`.
+Pages are generated for the packages in the directories named by `code-dirs` in `docspecsite.toml`: here the [`code:docspecsite`](code:docspecsite) package in `src/`.

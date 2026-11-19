@@ -2,9 +2,10 @@
 title: Configuration — docspecsite.toml
 summary: The optional `docspecsite.toml` file at the root of a checked repo — the repo's ADR prefix, its web URL, where its Python code is and which components it belongs to, and the Contents-list threshold.
 layer: behavior
-status: specified
+status: implemented
 milestone: first-release
 priority: must
+code: [docspecsite.config]
 components: [cli]
 tags: [configuration]
 related:

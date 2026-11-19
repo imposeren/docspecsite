@@ -2,7 +2,7 @@
 title: "DSS-0001: Custom static renderer with per-doc git history"
 summary: docspecsite is a small custom Python tool (markdown-it-py) that pre-renders every git version of every doc as static HTML, because existing doc generators only version whole sites.
 layer: architecture
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 decision: accepted

@@ -2,7 +2,7 @@
 title: Guides
 summary: Step-by-step procedures for docspecsite — setting up to contribute, and using docspecsite in a project.
 layer: guides
-status: specified
+status: implemented
 components: []
 tags: [overview, guides]
 related:

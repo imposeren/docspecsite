@@ -2,7 +2,7 @@
 title: Architecture overview
 summary: Technical overview of docspecsite — guiding principles, how the tool is built and shipped, its development environment, quality gate and releases, and the recorded decisions.
 layer: architecture
-status: specified
+status: implemented
 components: []
 tags: [overview, architecture]
 related:

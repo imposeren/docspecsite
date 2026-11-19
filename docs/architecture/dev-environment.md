@@ -2,7 +2,7 @@
 title: Development environment
 summary: docker compose is the entry point for working on docspecsite — tests, lint, type check, its own docs check, build and preview run in the Dockerfile's dev target with the source mounted; uv on the host runs the commit hooks and is a shortcut for the rest.
 layer: architecture
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 components: [dev-environment]

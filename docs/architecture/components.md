@@ -2,7 +2,7 @@
 title: Components
 summary: The list of docspecsite's components — the allowed values of the `components` front-matter field and the path segments used across layers.
 layer: architecture
-status: specified
+status: implemented
 components: []
 tags: [overview, components]
 related:

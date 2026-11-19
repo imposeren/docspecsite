@@ -2,7 +2,7 @@
 title: User interface
 summary: docspecsite's user interface is its command line and the rendered site, both specified in the behavior and architecture layers; this layer has no docs of its own.
 layer: ui
-status: specified
+status: implemented
 components: []
 tags: [overview, ui]
 related:

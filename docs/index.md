@@ -2,7 +2,7 @@
 title: docspecsite documentation
 summary: Entry point to all documentation layers of docspecsite, the docs checker and per-doc-history site generator — what each layer is for and where to start reading.
 layer: root
-status: specified
+status: implemented
 components: []
 tags: [overview, navigation]
 related:

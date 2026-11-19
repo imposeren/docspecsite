@@ -2,7 +2,7 @@
 title: "DSS-0003: Ruff for linting and formatting, strict Pyrefly for types"
 summary: docspecsite's Python is linted and formatted with Ruff and type-checked with Pyrefly in strict mode; both run as prek hooks.
 layer: architecture
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 decision: accepted

@@ -1,0 +1,11 @@
+# Hooks other repos use from docspecsite's repo, pinned by tag in their
+# .pre-commit-config.yaml. See docs/guides/using-docspecsite.md.
+- id: docs-check
+  name: docspecsite check --staged
+  description: Check the docs under docs/ and reject staged deletes and renames there.
+  entry: docspecsite check --staged
+  language: python
+  pass_filenames: false
+  # Every commit: prek passes no deleted files to hooks, so a files: filter
+  # would skip a commit that only deletes or renames a doc.
+  always_run: true

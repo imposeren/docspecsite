@@ -2,7 +2,7 @@
 title: Generated reference
 summary: Entry point for precise lookup information about docspecsite — the code reference generated from its Python package.
 layer: reference
-status: specified
+status: implemented
 components: [code-reference]
 tags: [overview, reference, generated]
 related:
