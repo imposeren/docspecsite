@@ -1,6 +1,6 @@
 ---
-title: User scenarios
-summary: Overview of Given/When/Then scenarios that pin down exact behavior; not written yet beyond this outline.
+title: Scenarios
+summary: Overview of Given/When/Then scenarios that pin down docspecsite's exact behavior; none are written yet, since the behavior docs and the tests cover it so far.
 layer: scenarios
 status: draft
 components: []
@@ -9,19 +9,20 @@ related:
   - behavior/index.md
 ---
 
-# User scenarios
+# Scenarios
 
 Scenarios describe specific situations in Gherkin (Given / When / Then), one actor per scenario, at the same paths as the matching [behavior](../behavior/index.md) docs.
 They are written to be checkable and can later become automated acceptance tests.
 
-> This layer is not written yet.
+> No scenarios are written yet: [behavior/commands.md](../behavior/commands.md) and the tests pin down the behavior so far.
 > See [meta/layers.md](../meta/layers.md#scenarios) and [meta/templates/scenarios-doc.md](../meta/templates/scenarios-doc.md).
 
 ## Actors
 
 Scenarios use these actor phrasings consistently:
 
-- `<actor phrasing>` — `<who this actor is>`, e.g. "an anonymous visitor" — not signed in, or "a signed-in customer" — has an account.
+- "a docs author" — a person or agent who writes or changes docs in a project and commits them.
+- "a reader" — someone who reads a project's rendered site.
 
 ## Children
 

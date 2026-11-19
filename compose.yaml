@@ -1,22 +1,60 @@
 # Development environment entry point. See docs/architecture/dev-environment.md.
+# The services build the Dockerfile's dev target from this checkout and mount
+# it at /repo, so docspecsite runs from the source being worked on.
+# UID and GID: export them first (`export UID GID`) or set them in .env, else
+# the containers run as 1000:1000.
+x-dev: &dev
+  build:
+    context: .
+    target: dev
+  image: docspecsite-dev:local
+  user: "${UID:-1000}:${GID:-1000}"
+  volumes:
+    - .:/repo
+  working_dir: /repo
+
 services:
+  dev:
+    <<: *dev
+    profiles: [dev]
+
+  # Each tool is the entrypoint, so its arguments can follow,
+  # e.g. `docker compose run --rm test -k config`.
+  test:
+    <<: *dev
+    profiles: [dev]
+    entrypoint: ["pytest"]
+
+  lint:
+    <<: *dev
+    profiles: [dev]
+    entrypoint: ["ruff", "check"]
+
+  format:
+    <<: *dev
+    profiles: [dev]
+    entrypoint: ["ruff", "format"]
+
+  typecheck:
+    <<: *dev
+    profiles: [dev]
+    entrypoint: ["pyrefly", "check"]
+
   docs:
-    build:
-      # Keep the tag equal to the docspecsite rev in .pre-commit-config.yaml.
-      context: https://github.com/imposeren/docspecsite.git#v0.1.0
-    image: docspecsite:v0.1.0
+    <<: *dev
     profiles: [docs]
-    user: "${UID:-1000}:${GID:-1000}"
-    volumes:
-      - .:/repo
-    working_dir: /repo
+    entrypoint: ["docspecsite"]
 
   docs-check:
-    extends: docs
+    <<: *dev
+    profiles: [docs]
+    entrypoint: ["docspecsite"]
     command: ["check"]
 
   docs-build:
-    extends: docs
+    <<: *dev
+    profiles: [docs]
+    entrypoint: ["docspecsite"]
     command: ["build"]
 
   docs-serve:

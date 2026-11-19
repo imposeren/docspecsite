@@ -1,22 +1,31 @@
 ---
-title: What the system does
-summary: Plain-language overview of the product — what people can do with it and why; not written yet beyond this outline.
+title: What docspecsite does
+summary: Plain-language overview of docspecsite — a tool that checks a repo's docs against the docs-driven method and renders every version of every doc as a static site — and where its requirements, commands and settings are described.
 layer: behavior
-status: draft
-components: []
+status: specified
+components: [docs-system]
 tags: [overview]
 related:
-  - scenarios/index.md
   - architecture/index.md
+  - guides/using-docspecsite.md
 ---
 
-# What the system does
+# What docspecsite does
 
-`<Two to five sentences, in plain language: what people can do with the product, and why it matters to them.>`
+docspecsite is the tool behind the [docs-driven template](https://github.com/imposeren/docs-driven-template): projects keep their spec as Markdown docs with front matter in `docs/`, and docspecsite keeps those docs consistent and readable.
 
-> This layer is not written yet.
-> Docs here describe the product in non-technical language; see [meta/layers.md](../meta/layers.md#behavior) for what belongs here and [meta/templates/behavior-doc.md](../meta/templates/behavior-doc.md) to start a doc.
+- It **checks** the docs on every commit: front matter, links, indexes, file names, and that no doc is deleted or renamed.
+- It **renders** a static site in which every doc has its own history: every commit that changed a doc is a version with its own page, a diff and a loud warning when it is not the latest.
+- It **answers questions** about the docs without rendering: which docs match some front-matter values, and which docs link to a given doc.
+- It **generates a code reference** from a project's Python code and links docs and code both ways.
+
+It implements the rules of the method's `docs/meta/` layer ([meta/index.md](../meta/index.md)); it does not make those rules configurable.
+Only project settings, such as the repo's ADR prefix, are configuration.
 
 ## Children
 
-- [glossary.md](glossary.md) — Product terms in plain language.
+- [requirements.md](requirements.md) — The numbered docs system requirements (`DS-n`) that docspecsite satisfies.
+- [commands.md](commands.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.
+- [configuration.md](configuration.md) — The `docspecsite.toml` settings file at the root of a checked repo.
+- [web-api-reference.md](web-api-reference.md) — The planned HTTP API reference rendered from a committed web API schema.
+- [glossary.md](glossary.md) — docspecsite's terms in plain language.

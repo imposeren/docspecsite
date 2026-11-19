@@ -1,5 +1,26 @@
-# docspecsite settings. See docs/architecture/docs-tooling.md.
+# docspecsite settings for its own docs. See docs/behavior/configuration.md.
 adr-prefix = "DSS"
 # ADRs that come from the template keep their IDs.
 external-adr-prefixes = ["BASE", "PYRF"]
 source-url = "https://github.com/imposeren/docspecsite"
+code-dirs = ["src"]
+
+# Components of docspecsite's modules (docs/architecture/components.md).
+[code-components]
+docspecsite = ["cli"]
+"docspecsite.check" = ["checks"]
+"docspecsite.schema" = ["checks"]
+"docspecsite.links" = ["checks"]
+"docspecsite.problems" = ["checks"]
+"docspecsite.vocabulary" = ["checks"]
+"docspecsite.query" = ["queries"]
+"docspecsite.build" = ["site"]
+"docspecsite.cache" = ["site"]
+"docspecsite.git" = ["site"]
+"docspecsite.history" = ["site"]
+"docspecsite.indexes" = ["site"]
+"docspecsite.markdown" = ["site"]
+"docspecsite.pages" = ["site"]
+"docspecsite.resolve" = ["site"]
+"docspecsite.coderef" = ["code-reference"]
+"docspecsite.codeindex" = ["code-reference"]

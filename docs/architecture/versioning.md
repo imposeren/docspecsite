@@ -1,34 +1,51 @@
 ---
 title: Versioning and releases
-summary: Releases are named with semantic versions (vMAJOR.MINOR.PATCH) whose meaning is tied to the compatibility of the project's public interface; the git tag is the only place a version is defined, and the build reads it from the tag.
+summary: docspecsite releases are git tags vMAJOR.MINOR.PATCH on main, with MAJOR tied to incompatible changes in what other repos depend on; projects pin a tag for both the prek hook and the Docker image.
 layer: architecture
 status: specified
-components: [deploy]
+milestone: first-release
+priority: must
+components: [distribution, deploy]
 tags: [versioning, releases, semver]
 related:
   - architecture/decisions/BASE-0005-semver-from-git-tags.md
+  - architecture/docs-tooling.md
+  - guides/using-docspecsite.md
 ---
 
 # Versioning and releases
 
-A **release** is a git tag `vMAJOR.MINOR.PATCH` on `main` ([SemVer](https://semver.org/), semantic versioning).
-Why this scheme: [BASE-0005](decisions/BASE-0005-semver-from-git-tags.md) ([architecture decision record](../meta/glossary.md#adr)).
+A **release** is a git tag `vMAJOR.MINOR.PATCH` on `main` ([SemVer](https://semver.org/), semantic versioning), as in [BASE-0005](decisions/BASE-0005-semver-from-git-tags.md) (an [architecture decision record](../meta/glossary.md#adr)).
+The first release is `v0.1.0` ([roadmap.md](../roadmap.md)).
+Nothing is published to a package index or a container registry: projects take docspecsite straight from this repo at a tag.
 
-## What each part means
+## Public interface
 
-The version describes compatibility of the project's **public interface**: whatever others depend on, such as an HTTP API, a library's programming interface, a command line or a file format.
-The project's own architecture docs say what its public interface is and how an incompatible change is recognized.
+What other repos depend on, and so what a MAJOR bump is about:
+
+- the commands, their options, output formats and exit codes ([behavior/commands.md](../behavior/commands.md));
+- the keys of `docspecsite.toml` ([behavior/configuration.md](../behavior/configuration.md));
+- the rules `check` enforces, i.e. which docs pass ([behavior/requirements.md](../behavior/requirements.md));
+- the hook id `docs-check` and the image's contract: entrypoint `docspecsite`, the repo mounted at `/repo`, Mermaid bundled.
 
 | Bump | When |
 | -- | -- |
-| **MAJOR** | The public interface changes incompatibly: something is removed or renamed, an input becomes required, an output changes shape. |
-| **MINOR** | New features, including backward-compatible additions to the interface. |
-| **PATCH** | Fixes and internal changes with no new features and an unchanged interface. |
+| **MAJOR** | Something in the public interface changes incompatibly: a command, option or setting is removed or renamed, or a docs tree that passed `check` fails it (a stricter rule). |
+| **MINOR** | New features, including new commands, options, settings and pages, and newly accepted docs. |
+| **PATCH** | Fixes and internal changes with no new features. |
 
-Before `v1.0.0`, the interface is not considered stable: incompatible changes bump MINOR.
+Before `v1.0.0`, incompatible changes bump MINOR.
+A method change in the template that docspecsite enforces usually means a stricter rule, so its release is at least a MINOR bump before `v1.0.0`.
 
 ## Where the version lives
 
-- The **git tag** is the only source of truth; no file in the repo holds the version.
-- The build derives the version from the tag, so what it builds reports the same version.
-- Builds from untagged commits get a development version derived from the last tag and the commit id.
+- The **git tag** names the release; projects pin it in `.pre-commit-config.yaml` (`rev`) and `compose.yaml` (the build context's `#vX.Y.Z`), the same in both.
+- `version` in `pyproject.toml` is what `docspecsite --version` prints; the release commit sets it to the tag's version.
+  The build cache is also keyed by a hash of the package's files, so a change between releases never reuses stale pages.
+  The image is built from a git context without `.git`, so docspecsite cannot read its version from git at run time.
+
+## Releasing
+
+1. On `main`, `docker compose run --rm` with `test`, `lint`, `typecheck` and `docs-check` passes, `docker compose run --rm dev ruff format --check` finds nothing to change, and the runtime image builds and checks a docs tree ([dev-environment.md](dev-environment.md#services)).
+2. Set `version` in `pyproject.toml` to the new version, run `uv lock`, and commit.
+3. Tag that commit `vX.Y.Z` and push the tag.

@@ -1,41 +1,63 @@
 ---
 title: Quality gate
-summary: Three checkpoints for every change — review against its spec before it is committed, fast deterministic prek hooks on commit, and CI after the push.
+summary: How changes to docspecsite are checked — review against the spec before commit, prek hooks on commit (Ruff, strict Pyrefly, mdformat, and docspecsite checking its own docs from source), and the full test suite before a release.
 layer: architecture
 status: specified
-milestone: foundation
+milestone: first-release
 priority: must
 components: [quality-gate]
-tags: [quality, git-hooks, review, agents]
+tags: [quality, git-hooks, review, python]
 related:
   - architecture/decisions/BASE-0002-quality-gate-no-mistakes-and-prek.md
-  - architecture/decisions/BASE-0004-mdformat-for-markdown.md
-  - architecture/docs-tooling.md
+  - architecture/decisions/DSS-0003-ruff-and-strict-pyrefly.md
+  - architecture/decisions/DSS-0004-pytest-for-tests.md
+  - architecture/dev-environment.md
   - guides/contributor-setup.md
 ---
 
 # Quality gate
 
-Changes pass three checkpoints: **review** before they are committed, **prek** hooks when committing (seconds, deterministic), and **CI** after the push.
-Rationale: [BASE-0002](decisions/BASE-0002-quality-gate-no-mistakes-and-prek.md) (an [architecture decision record](../meta/glossary.md#adr)).
+docspecsite follows the template's quality gate: **review** before a change is committed, **prek** hooks when committing ([BASE-0002](decisions/BASE-0002-quality-gate-no-mistakes-and-prek.md), an [architecture decision record](../meta/glossary.md#adr)).
+CI is not set up for docspecsite yet; until it is, the full checks below run before every release ([versioning.md](versioning.md#releasing)).
 
 ## prek (on commit)
 
-[prek](https://github.com/j178/prek) is a fast, drop-in reimplementation of `pre-commit` and reads the standard `.pre-commit-config.yaml`. Hooks:
+[prek](https://github.com/j178/prek) reads the standard `.pre-commit-config.yaml`. Hooks:
 
 | Hook | Runs | Purpose |
 | -- | -- | -- |
-| `docs-check` | `docspecsite check --staged`, from docspecsite's repo at the pinned version ([docs-tooling.md](docs-tooling.md)), on every commit (a commit that only deletes a doc stages no file for a filter to match) | Front matter, links, indexes, vocabulary, and rejects staged `D`/`R` changes under `docs/` ([meta/versioning.md](../meta/versioning.md#no-delete-no-rename)). |
+| `docs-check` | `uv run docspecsite check --staged`, from this repo's source, on every commit (a commit that only deletes a doc stages no file for a filter to match) | Checks docspecsite's own docs with the code being committed, and rejects staged `D`/`R` changes under `docs/` ([meta/versioning.md](../meta/versioning.md#no-delete-no-rename)). |
 | `mdformat` | mdformat on Markdown, with compact tables and front matter passed through ([BASE-0004](decisions/BASE-0004-mdformat-for-markdown.md)); settings in `.mdformat.toml` | Consistent Markdown; never re-wraps lines. |
 | `no-fixed-config-dir` | a pattern check over text files | The Claude Code config directory is written as `${CLAUDE_CONFIG_DIR:-~/.claude}`, never as a fixed path. |
 | standard hygiene | prek's built-in hooks: trailing whitespace, EOF newline, YAML validity, large files |  |
-
-A project adds the hooks for its own languages (linters, formatters, type checkers) next to these, with an ADR for each tool choice.
+| `ruff-check`, `ruff-format` | Ruff lint (with import sorting) and format ([DSS-0003](decisions/DSS-0003-ruff-and-strict-pyrefly.md)) | Python style and common bugs. |
+| `pyrefly` | `uv run pyrefly check`, strict ([DSS-0003](decisions/DSS-0003-ruff-and-strict-pyrefly.md)) | Python types. |
 
 Where hooks run:
 
-- mdformat runs in an environment that prek creates and pins itself; `docs-check` is defined in docspecsite's repo, and prek installs it at the pinned version. Neither needs anything on the host.
-- `prek` itself is a single static binary on the host.
+- Ruff and mdformat run in environments that prek creates and pins itself; the Ruff hook's version is kept equal to the Ruff pin in `pyproject.toml`.
+- `pyrefly` and `docs-check` need docspecsite's own dependencies, so they run through `uv run` on the host ([dev-environment.md](dev-environment.md)).
+  Not in a container: there they would miss git's temporary index of `git commit -a` or `git commit <paths>`, and fail in git worktrees, whose `.git` file points at a host path outside the mount.
+
+The tests are not a hook: `docker compose run --rm test` takes a while, so it runs before handing a change over for review and before every release.
+
+Ruff settings live in `pyproject.toml`: line length 120, and these rule sets:
+
+| Rules | What they check |
+| -- | -- |
+| `E`, `W` | pycodestyle errors and warnings: indentation, whitespace, line length, statement layout. |
+| `F` | Pyflakes: undefined and unused names, unused imports, invalid syntax-level constructs. |
+| `I` | Import sorting into sections (see below). |
+| `UP` | pyupgrade: newer syntax where the project's Python version allows it (e.g. `list[int]` instead of `List[int]`). |
+| `B` | flake8-bugbear: likely bugs, such as mutable default arguments or calls in defaults. |
+| `N` | pep8-naming: naming conventions, e.g. `CamelCase` classes and exception names ending in `Error`. |
+| `ISC` | Implicit string concatenation: long strings are split as adjacent literals in parentheses, not joined with `+`. |
+| `S101` | No `assert` outside tests (it disappears under `python -O`); tests are exempt. |
+| `BLE001` | No catch-all `except Exception`; a deliberate one carries a `# noqa: BLE001` with its reason. |
+| `PLW0603` | No `global` statements. |
+| `TID252` | Relative imports only one level deep (`from .x`, never `from ..x`). |
+
+Imports come in four blank-line-separated sections: standard library, third-party, first-party (`docspecsite`, as the tests import it), and the package's own modules as single-dot relative imports (`from .x import …`; `from ..x` is not allowed).
 
 Hooks run on what a commit stages.
 `git rebase -i` (squash, fixup) does not run them; after a rebase, `prek run --from-ref <base> --to-ref HEAD` checks every file the branch changed.
@@ -43,16 +65,9 @@ Hooks run on what a commit stages.
 ## Review (before commit)
 
 Every change is reviewed against the docs it implements before it is committed: does the code do what its `specified` docs say, are statuses honest (`specified` → `implemented`), and does nothing contradict an `implemented` doc ([agents/working-from-specs.md](../agents/working-from-specs.md)).
-Agent work gets an agent review in a fresh context (in Claude Code, `/code-review` or an equivalent review skill), then the maintainer's review; nothing is committed before both.
-A change that alters behavior is also checked live — the changed command or endpoint is run and its output inspected — not only through its tests.
-
-Pushing goes straight to `origin`; there is no separate push gate.
-
-## CI (after push)
-
-CI re-runs the prek hooks and the tests on every push, as the backstop for anything committed without them.
-The CI system is the project's own choice, recorded in an ADR.
+A change to a rule that docspecsite enforces also needs the matching change in the template's `docs/meta/`, synced into this repo's copy.
+A change that alters behavior is also checked live — the changed command is run on a real docs tree and its output inspected — not only through its tests.
 
 ## See also
 
-- [docs-tooling.md](docs-tooling.md) — the `docspecsite check` command.
+- [docs-tooling.md](docs-tooling.md#prek-hook) — the `docs-check` hook other repos use.

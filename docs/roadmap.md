@@ -1,12 +1,13 @@
 ---
 title: Roadmap
-summary: The project's milestones in order, each with its goal; docs refer to them in their `milestone` field. Draft until the project's scope is written.
+summary: docspecsite's milestones in order, each with its goal; docs refer to them in their `milestone` field.
 layer: root
-status: draft
+status: specified
 components: []
 tags: [overview, roadmap]
 related:
   - meta/lifecycle.md
+  - architecture/versioning.md
 ---
 
 # Roadmap
@@ -17,5 +18,6 @@ Milestone ids (the values used in the `milestone` field) never change once used.
 
 | Id | Goal |
 | -- | -- |
-| `foundation` | The project's machinery works: docs tooling, development environment, quality gate and CI. |
-| `<first-milestone>` | `<The first goal of the product itself, defined with the product scope (behavior layer).>` |
+| `foundation` | **Reached.** The project's machinery works: its own docs follow the template's method, the quality gate and the development environment are in place. The template's own decisions belong to this milestone. |
+| `first-release` | **Reached with v0.1.0.** docspecsite checks, lists and renders a project's docs with per-doc history and a generated code reference, reads its settings from `docspecsite.toml`, accepts prefixed ADR IDs, and other repos use it through its prek hook and its Docker image built from a release tag. |
+| `web-api-reference` | The HTTP API reference: a project's committed web API schema rendered with per-version pages, and `web-api:` links resolved ([behavior/web-api-reference.md](behavior/web-api-reference.md)). |

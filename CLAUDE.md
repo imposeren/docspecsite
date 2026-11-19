@@ -1,7 +1,6 @@
 # docspecsite — Claude Code guide
 
-docspecsite checks a repo's docs and renders every version of every doc from git history to a static site.
-Repo: https://github.com/imposeren/docspecsite.
+docspecsite checks a repo's docs against the docs-driven method and renders every version of every doc from git history as a static site; projects use it through a prek hook and a Docker image pinned to a release tag. Repo: https://github.com/imposeren/docspecsite.
 
 **This project is documentation-driven: `docs/` is the spec. Code follows docs.**
 
@@ -11,14 +10,15 @@ Repo: https://github.com/imposeren/docspecsite.
   Agent guide: `docs/agents/index.md` (read it before non-trivial work).
 - Read **summaries first** and go deeper only as needed: `docs/agents/reading-strategy.md`.
 - The same part of the system lives at the **same relative path** in each layer: `docs/behavior/…` (what), `docs/scenarios/…` (exact cases, Gherkin), `docs/architecture/…` (how), plus decisions in `docs/architecture/decisions/`.
-- `docs/reference/code/` and `docs/reference/web-api/` are **generated** (from the code and docstrings, and from the committed HTTP API schema). Never hand-edit them. `docs/reference/external/` is hand-written: facts about the third-party platforms the project depends on.
-  Link to it with `code:<dotted.path>` and `web-api:<operationId>`.
-- Glossaries: `docs/meta/glossary.md` (doc terms), `docs/behavior/glossary.md` (product), `docs/architecture/glossary.md` (technical).
+- The module pages of `docs/reference/code/` are **generated** during the build from the code and docstrings; the hand-written `index.md` is the entry page.
+  Link to them with `code:<dotted.path>`.
+- Glossaries: `docs/meta/glossary.md` (doc terms), `docs/behavior/glossary.md` (docspecsite terms), `docs/architecture/glossary.md` (technical).
   Spell out or link terms on first use.
-- Hosting and operations: `<where they are documented, if not in this repo>` (delete this line if they are in this repo).
-- Step-by-step procedures: `docs/guides/`. Screens and flows: `docs/ui/`. Milestones: `docs/roadmap.md` (docs carry `milestone` + `priority`).
+- Step-by-step procedures: `docs/guides/`. Milestones: `docs/roadmap.md` (docs carry `milestone` + `priority`).
 - How docs are written: `docs/meta/index.md`. Templates: `docs/meta/templates/`.
-- ADRs are numbered `<PREFIX>-NNNN`; this repo's prefix is `adr-prefix` in `docspecsite.toml`, and `BASE-*` ADRs come from the template, listed in `external-adr-prefixes` (`docs/meta/structure.md#adr-ids`).
+  `docs/meta/` and `docs/agents/` are a copy of the template's; change them in the template first, then sync them here.
+- ADRs are numbered `<PREFIX>-NNNN`; this repo's prefix is `DSS` (`adr-prefix` in `docspecsite.toml`), and `BASE-*` ADRs come from the template (`external-adr-prefixes = ["BASE"]`) (`docs/meta/structure.md#adr-ids`).
+- A rule that docspecsite enforces lives in two places: the rule in the template's `docs/meta/`, the enforcement here (`docs/architecture/quality-gate.md#review-before-commit`).
 
 ## Hard rules
 
@@ -45,12 +45,21 @@ Design notes and plans go to `notes/design/` and `notes/plans/` (not committed),
 ## Commands (via docker compose; see docs/architecture/dev-environment.md)
 
 ```
-docker compose run --rm docs-check                         # validate docs
+docker compose run --rm test                               # tests (pytest arguments may follow)
+docker compose run --rm lint                               # ruff check
+docker compose run --rm format                             # ruff format
+docker compose run --rm typecheck                          # pyrefly, strict
+docker compose run --rm docs-check                         # validate docs (from this source)
 docker compose run --rm docs list --status specified       # what's left to do
 docker compose run --rm docs-build && docker compose up docs-serve   # site on http://127.0.0.1:8071
+docker compose build dev                                   # after a change to pyproject.toml or uv.lock
+docker build -t docspecsite:runtime .                      # the image other repos build
+prek run                                                   # commit hooks on the staged change
 ```
 
-Status: <one line on what works today and what is specified but not built.>
+Commit hooks run `pyrefly` and `docspecsite check` through `uv run` on the host; `uv run <tool>` is also a faster shortcut for the commands above.
+
+Status: check, list, backlinks, build, the code reference, the Docker image and the prek hook work; the HTTP API reference is specified but not built.
 
 ## Agents and skills
 

@@ -1,8 +1,8 @@
 ---
 title: Guides
-summary: Step-by-step procedures for common development and operations tasks on the project.
+summary: Step-by-step procedures for docspecsite — setting up to contribute, and using docspecsite in a project.
 layer: guides
-status: implemented
+status: specified
 components: []
 tags: [overview, guides]
 related:
@@ -12,10 +12,11 @@ related:
 
 # Guides
 
-How to do things on this project, step by step: the **current** procedure for each recurring task.
+How to do things with docspecsite, step by step: the **current** procedure for each recurring task.
 Guides say *how to*; the [architecture](../architecture/index.md) docs they link to say *why it is built that way*.
 What belongs here: [meta/layers.md](../meta/layers.md#guides); template: [meta/templates/guide-doc.md](../meta/templates/guide-doc.md).
 
 ## Children
 
-- [contributor-setup.md](contributor-setup.md) — One-time machine setup: host tools, commit hooks and daily use.
+- [using-docspecsite.md](using-docspecsite.md) — Adding docspecsite to a project: the prek hook, the compose services, `docspecsite.toml`, and upgrading.
+- [contributor-setup.md](contributor-setup.md) — One-time machine setup for working on docspecsite itself, and daily use.

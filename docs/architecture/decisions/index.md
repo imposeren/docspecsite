@@ -1,8 +1,8 @@
 ---
 title: Architecture decision records
-summary: Index of all ADRs, grouped by ID prefix — each recording one decision with context, options and consequences, and never renumbered.
+summary: Index of all ADRs in this repo, grouped by ID prefix — the template's BASE decisions and its Pyrefly option's PYRF decisions, then docspecsite's own DSS decisions — each recording one decision with context, options and consequences, and never renumbered.
 layer: architecture
-status: implemented
+status: specified
 components: []
 tags: [adr, overview]
 related:
@@ -14,7 +14,7 @@ related:
 
 An **ADR** ([architecture decision record](../../meta/glossary.md#adr)) records one decision: context, options considered, decision, consequences.
 Each ADR has an ID `<PREFIX>-NNNN` that is never reused ([meta/structure.md](../../meta/structure.md#adr-ids)); a changed decision gets a **new** ADR and the old one becomes `decision: superseded` ([meta/lifecycle.md](../../meta/lifecycle.md#adrs)).
-New ADRs start from [the template](../../meta/templates/adr.md) and use this repo's prefix (`adr-prefix` in `docspecsite.toml`).
+New ADRs start from [the template](../../meta/templates/adr.md) and use this repo's prefix, `DSS` (`adr-prefix` in `docspecsite.toml`).
 
 ## Children
 
@@ -32,3 +32,10 @@ Each line gives the ADR's `decision` and `status`, then its title ([meta/lifecyc
 ### PYRF — Pyrefly option
 
 - [PYRF-0001](PYRF-0001-pyrefly-language-server.md) — accepted, implemented — Pyrefly language server for agents
+
+### DSS — docspecsite
+
+- [DSS-0001](DSS-0001-custom-per-doc-history-renderer.md) — accepted, specified — Custom static renderer with per-doc git history
+- [DSS-0002](DSS-0002-single-python-toolchain.md) — accepted, specified — One Python version and one uv project
+- [DSS-0003](DSS-0003-ruff-and-strict-pyrefly.md) — accepted, specified — Ruff for linting and formatting, strict Pyrefly for types
+- [DSS-0004](DSS-0004-pytest-for-tests.md) — accepted, specified — pytest for tests

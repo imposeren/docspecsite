@@ -1,6 +1,7 @@
 # Commit hooks, run by prek. See docs/architecture/quality-gate.md.
-# mdformat and docs-check run in environments prek creates; docs-check comes
-# from docspecsite's repo, pinned to the same tag as compose.yaml.
+# Ruff and mdformat run in environments prek creates; pyrefly and docs-check
+# need docspecsite's own dependencies; they run through uv on the host, not
+# in a container, so they see git's index and work in git worktrees.
 repos:
   - repo: builtin
     hooks:
@@ -8,6 +9,13 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3 # keep equal to the ruff pin in pyproject.toml
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
 
   - repo: https://github.com/hukkin/mdformat
     rev: 1.0.0
@@ -28,7 +36,19 @@ repos:
         types: [text]
         exclude: ^\.pre-commit-config\.yaml$
 
-  - repo: https://github.com/imposeren/docspecsite
-    rev: v0.1.0 # keep equal to the tag in compose.yaml
-    hooks:
+      - id: pyrefly
+        name: pyrefly (strict)
+        language: system
+        entry: uv run pyrefly check
+        pass_filenames: false
+        types: [python]
+
+      # docspecsite checks its own docs with its own source, not a released tag.
       - id: docs-check
+        name: docspecsite check --staged
+        language: system
+        entry: uv run docspecsite check --staged
+        pass_filenames: false
+        # Every commit: prek passes no deleted files to hooks, so a files: filter
+        # would skip a commit that only deletes or renames a doc.
+        always_run: true
