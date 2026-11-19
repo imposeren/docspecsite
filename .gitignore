@@ -1,0 +1,29 @@
+# Generated docs site
+/site/
+/.docspecsite-cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Local Docker Compose overrides (machine-specific; compose loads them automatically)
+/compose.override.yaml
+/compose.override.yml
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Planning notes (not part of the spec)
+/notes/
+
+# Personal Claude Code notes
+CLAUDE.local.md
+
+# Local direnv setup, such as the project's tools first on the PATH
+/.envrc

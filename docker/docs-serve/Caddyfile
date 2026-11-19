@@ -1,0 +1,8 @@
+# docs-serve: local preview of ./site. See docs/architecture/dev-environment.md.
+# no-cache: browsers revalidate every page (cheap 304s via ETag), so a rebuild
+# shows up on a normal reload.
+:8071 {
+	root * /repo/site
+	header Cache-Control "no-cache"
+	file_server
+}

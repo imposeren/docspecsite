@@ -1,0 +1,30 @@
+# Development environment entry point. See docs/architecture/dev-environment.md.
+services:
+  docs:
+    build:
+      # Keep the tag equal to the docspecsite rev in .pre-commit-config.yaml.
+      context: https://github.com/imposeren/docspecsite.git#v0.1.0
+    image: docspecsite:v0.1.0
+    profiles: [docs]
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/repo
+    working_dir: /repo
+
+  docs-check:
+    extends: docs
+    command: ["check"]
+
+  docs-build:
+    extends: docs
+    command: ["build"]
+
+  docs-serve:
+    image: caddy:2.11.8
+    profiles: [docs]
+    # The whole repo is mounted (read-only), so a missing ./site is never created by Docker as root.
+    command: ["caddy", "run", "--config", "/repo/docker/docs-serve/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - .:/repo:ro
+    ports:
+      - "127.0.0.1:8071:8071"

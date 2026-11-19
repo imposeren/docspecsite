@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "pyrefly-lsp@claude-pyrefly-lsp": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-pyrefly-lsp": {
+      "source": {
+        "repo": "imposeren/claude-pyrefly-lsp",
+        "source": "github"
+      }
+    }
+  }
+}

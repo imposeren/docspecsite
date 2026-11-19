@@ -1,0 +1,6 @@
+# Markdown formatting (BASE-0004): never re-wrap lines; compact tables.
+wrap = "keep"
+number = true  # keep 1. 2. 3. as written, not 1. 1. 1.
+
+[plugin.tables]
+compact_tables = true

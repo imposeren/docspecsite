@@ -1,0 +1,5 @@
+# docspecsite settings. See docs/architecture/docs-tooling.md.
+adr-prefix = "DSS"
+# ADRs that come from the template keep their IDs.
+external-adr-prefixes = ["BASE", "PYRF"]
+source-url = "https://github.com/imposeren/docspecsite"

@@ -1,0 +1,34 @@
+# Commit hooks, run by prek. See docs/architecture/quality-gate.md.
+# mdformat and docs-check run in environments prek creates; docs-check comes
+# from docspecsite's repo, pinned to the same tag as compose.yaml.
+repos:
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: https://github.com/hukkin/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        # Templates hold <placeholder> text that mdformat would escape; they are not docs.
+        exclude: ^docs/meta/templates/
+        additional_dependencies:
+          - mdformat-gfm==1.0.0
+          - mdformat-frontmatter==2.2.0
+
+  - repo: local
+    hooks:
+      - id: no-fixed-config-dir
+        name: config directory via $CLAUDE_CONFIG_DIR
+        language: pygrep
+        entry: '(?<!:-)(~|\$HOME)/\.claude(/|\b)'
+        types: [text]
+        exclude: ^\.pre-commit-config\.yaml$
+
+  - repo: https://github.com/imposeren/docspecsite
+    rev: v0.1.0 # keep equal to the tag in compose.yaml
+    hooks:
+      - id: docs-check
