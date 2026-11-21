@@ -1,7 +1,5 @@
 """Diff pages, tag, component and status indexes, and ``llms.txt``.
 
-Covers DS-10, DS-15, DS-16 and DS-29.
-
 Docs: architecture/docs-tooling.md
 """
 
@@ -13,34 +11,55 @@ from html import escape
 from .config import ProjectConfig
 from .docs import make_string_tuple
 from .pages import Page, PageLink
-from .query import collapse_to_one_line
-from .resolve import is_usable_tag, make_component_url, make_relative_url, make_tag_url
 from .schema import LAYERS, PRIORITIES, STATUSES
-
-NO_MILESTONE = "no milestone"
-NO_PRIORITY = "none"
-STATUS_PAGE = "status.html"
+from .text import collapse_to_one_line
+from .urls import is_usable_tag, make_component_url, make_relative_url, make_tag_url
+from .vocabulary import Vocabulary
 
 
 @dataclass(frozen=True)
 class IndexEntry:
-    """Page listed in the index pages and ``llms.txt``, with its path, front matter and site-root-relative ``url``."""
+    """Page listed in the index pages and ``llms.txt``: a doc, or a module of the code reference."""
 
     path: str
+    """Doc path relative to ``docs/``, or the dotted path of a module."""
+
     url: str
+    """Site-root-relative URL of the page."""
+
     front_matter: Mapping[str, object]
+    """Front matter of the doc; for a module, the fields the index pages read, made from the settings."""
 
 
 class IndexRenderer:
-    """The index pages of a site and its ``llms.txt``, rendered from the entries they list.
+    """The index pages of a site and its ``llms.txt``, rendered from the entries they list."""
 
-    Attributes:
-        entries: Latest docs, listed on the tag, component and status pages and in ``llms.txt``.
-        code_entries: Code modules, listed on the component pages only.
-        config: Settings whose ADR prefixes order the ADRs.
-        site_title: Title of the home page, for the breadcrumbs and the ``llms.txt`` heading.
-        milestones: Milestones in roadmap order, which orders the status board's milestone groups.
-    """
+    # Paths
+    STATUS_PAGE = "status.html"
+    """Site path of the status page."""
+
+    # Status board groups
+    NO_MILESTONE = "no milestone"
+    """Status board group of the docs without a milestone."""
+
+    NO_PRIORITY = "none"
+    """Status board group of the docs without a priority."""
+
+    # Arguments of __init__
+    entries: list[IndexEntry]
+    """See :meth:`.__init__`."""
+
+    code_entries: list[IndexEntry]
+    """See :meth:`.__init__`."""
+
+    config: ProjectConfig
+    """See :meth:`.__init__`."""
+
+    site_title: str
+    """See :meth:`.__init__`."""
+
+    vocabulary: Vocabulary
+    """See :meth:`.__init__`."""
 
     def __init__(
         self,
@@ -48,7 +67,7 @@ class IndexRenderer:
         code_entries: list[IndexEntry],
         config: ProjectConfig,
         site_title: str,
-        milestones: tuple[str, ...],
+        vocabulary: Vocabulary,
     ) -> None:
         """Prepare the index pages and ``llms.txt`` of a site.
 
@@ -60,13 +79,14 @@ class IndexRenderer:
             config: Settings whose ADR prefixes order the ADRs.
             site_title: Title of the site's home page, shown in each index page's breadcrumb and as the ``llms.txt``
                 heading.
-            milestones: Milestones in roadmap order, which orders the status board's milestone groups.
+            vocabulary: Vocabulary of the docs, whose milestones in roadmap order order the status board's
+                milestone groups.
         """
         self.entries = entries
         self.code_entries = code_entries
         self.config = config
         self.site_title = site_title
-        self.milestones = milestones
+        self.vocabulary = vocabulary
 
     @staticmethod
     def render_item(entry: IndexEntry, page_url: str) -> str:
@@ -118,7 +138,7 @@ class IndexRenderer:
         Args:
             entry: Entry whose front matter is read.
             key: Field that sorts the entry into a status-board group, ``milestone`` or ``priority``.
-            missing: Name of the group for entries without the field, e.g. ``NO_MILESTONE``.
+            missing: Name of the group for entries without the field, e.g. :attr:`.NO_MILESTONE`.
         """
         value = entry.front_matter.get(key)
         return missing if value is None else str(value)
@@ -126,35 +146,38 @@ class IndexRenderer:
     def render_status_body(self) -> str:
         """Return the body HTML of the status board: docs by status, then milestone (roadmap order), then priority.
 
-        Docs whose status is outside ``STATUSES`` are left out. Milestones used by docs but not in the roadmap follow
-        the roadmap's alphabetically, then docs without one. The entry links are relative to ``STATUS_PAGE``.
+        Docs whose status is outside :data:`~docspecsite.schema.STATUSES` are left out. Milestones used by docs but not
+        in the roadmap follow the roadmap's alphabetically, then docs without one. The entry links are relative to
+        :attr:`.STATUS_PAGE`.
         """
         parts: list[str] = []
-        used_milestones = {self.get_value(e, "milestone", NO_MILESTONE) for e in self.entries}
-        extra_milestones = sorted(used_milestones - set(self.milestones) - {NO_MILESTONE})
-        milestone_order = dict.fromkeys((*self.milestones, *extra_milestones, NO_MILESTONE))
+        used_milestones = {self.get_value(e, "milestone", self.NO_MILESTONE) for e in self.entries}
+        extra_milestones = sorted(used_milestones - set(self.vocabulary.milestones) - {self.NO_MILESTONE})
+        milestone_order = dict.fromkeys((*self.vocabulary.milestones, *extra_milestones, self.NO_MILESTONE))
         for status in STATUSES:
             in_status = [e for e in self.entries if e.front_matter.get("status") == status]
             if not in_status:
                 continue
             parts.append(f"<h2>{escape(status)}</h2>")
             for milestone in milestone_order:
-                in_milestone = [e for e in in_status if self.get_value(e, "milestone", NO_MILESTONE) == milestone]
+                in_milestone = [e for e in in_status if self.get_value(e, "milestone", self.NO_MILESTONE) == milestone]
                 if not in_milestone:
                     continue
                 parts.append(f"<h3>{escape(milestone)}</h3>")
-                for priority in dict.fromkeys((*PRIORITIES, NO_PRIORITY)):
-                    in_priority = [e for e in in_milestone if self.get_value(e, "priority", NO_PRIORITY) == priority]
+                for priority in dict.fromkeys((*PRIORITIES, self.NO_PRIORITY)):
+                    in_priority = [
+                        e for e in in_milestone if self.get_value(e, "priority", self.NO_PRIORITY) == priority
+                    ]
                     if in_priority:
                         parts.append(f"<h4>{escape(priority)}</h4>")
-                        parts.append(self.render_listing(in_priority, STATUS_PAGE))
+                        parts.append(self.render_listing(in_priority, self.STATUS_PAGE))
         return "".join(parts)
 
     def make_page_makers(self) -> dict[str, Callable[[], Page]]:
         """Return how to build each index page, by site path.
 
         The pages are one per tag and component (docs and code) and the status board. Each has a breadcrumb to the
-        home page. Tags that are not ``is_usable_tag`` get no page.
+        home page. Tags that are not :func:`~docspecsite.urls.is_usable_tag` get no page.
         """
         home = (PageLink(self.site_title, "index.html"),)
 
@@ -171,11 +194,11 @@ class IndexRenderer:
         for component, members in sorted(by_component.items()):
             url = make_component_url(component)
             makers[url] = make_page(url, f"Component: {component}", partial(self.render_listing, members, url))
-        makers[STATUS_PAGE] = make_page(STATUS_PAGE, "Status", self.render_status_body)
+        makers[self.STATUS_PAGE] = make_page(self.STATUS_PAGE, "Status", self.render_status_body)
         return makers
 
     def render_llms_txt(self, site_summary: str) -> str:
-        """Return the text of the site's ``llms.txt`` (DS-16).
+        """Return the text of the site's ``llms.txt``.
 
         It is a plain-text list of the docs, grouped by layer; a doc whose ``layer`` is not a known layer is left out.
 

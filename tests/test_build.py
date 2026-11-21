@@ -11,7 +11,7 @@ from conftest import HistoryRepo, edit_text, make_commit, move_sample_package_to
 
 from docspecsite.build import BuildError, BuildResult, SiteBuilder, run_build
 from docspecsite.coderef import Codebase, CodeError, CodeReference
-from docspecsite.config import CONFIG_FILE
+from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from docspecsite.git import UnknownRefError
 from docspecsite.history import Version
@@ -408,13 +408,13 @@ def test_build_escapes_titles_and_subjects(repo: HistoryRepo, tmp_path: Path) ->
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("[code-components\n", "docspecsite.toml is not valid TOML: "),
+        ("[code-components\n", "docspecsite.toml: not valid TOML: "),
         ("source-url = 3\n", 'docspecsite.toml: "source-url" must be a string'),
     ],
 )
 def test_build_invalid_config_fails(repo: HistoryRepo, tmp_path: Path, text: str, expected: str) -> None:
     root, _ = repo
-    (root / CONFIG_FILE).write_text(text, encoding="utf-8")
+    (root / ProjectConfig.CONFIG_FILE).write_text(text, encoding="utf-8")
     make_commit(root, "break the config", "2026-11-07T12:00:00+00:00")
     with pytest.raises(BuildError) as raised:
         run_build(root, "main", tmp_path / "site")
@@ -556,7 +556,7 @@ def test_build_reads_ref_not_worktree(repo: HistoryRepo, tmp_path: Path) -> None
 def test_build_warns_once_without_source_url(
     git_repo: Path, tmp_path: Path, config_text: str, body: str, expected_messages: list[str], expected_html: str
 ) -> None:
-    (git_repo / CONFIG_FILE).write_text(config_text, encoding="utf-8")
+    (git_repo / ProjectConfig.CONFIG_FILE).write_text(config_text, encoding="utf-8")
     (git_repo / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
     write_doc(git_repo, "a.md", body)
     sha = make_commit(git_repo, "set the config")
@@ -881,7 +881,7 @@ def test_build_error_messages_keep_relative_paths(
 
 def _set_toc_min(root: Path, value: int) -> None:
     edit_text(
-        root / CONFIG_FILE,
+        root / ProjectConfig.CONFIG_FILE,
         lambda text: f"toc-min-headings = {value}\n{text}",
     )
 
@@ -922,7 +922,7 @@ def test_build_children_panel_only_on_code_pages(repo: HistoryRepo, tmp_path: Pa
 
 def test_build_warns_about_config_problems(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
-    edit_text(root / CONFIG_FILE, lambda text: f'adr_prefix = "DSS"\n{text}')
+    edit_text(root / ProjectConfig.CONFIG_FILE, lambda text: f'adr_prefix = "DSS"\n{text}')
     make_commit(root, "misspell a setting", "2026-11-07T12:00:00+00:00")
     with pytest.warns(DocspecsiteWarning) as recorded:
         run_build(root, "main", tmp_path / "site")
@@ -934,7 +934,7 @@ def test_build_accepts_a_byte_order_mark_in_the_config(
     repo: HistoryRepo, tmp_path: Path, *, include_worktree: bool
 ) -> None:
     root, _ = repo
-    edit_text(root / CONFIG_FILE, lambda text: f'\ufeffexternal-adr-prefixes = ["PYRF"]\n{text}')
+    edit_text(root / ProjectConfig.CONFIG_FILE, lambda text: f'\ufeffexternal-adr-prefixes = ["PYRF"]\n{text}')
     for name in ("APP-0001-a.md", "PYRF-0001-b.md"):
         write_doc(root, f"architecture/decisions/{name}", decision="accepted", date="2026-11-18")
     make_commit(root, "add external ADR", "2026-11-07T12:00:00+00:00")
@@ -946,23 +946,23 @@ def test_build_accepts_a_byte_order_mark_in_the_config(
 
 def test_build_reads_the_worktree_config_only_with_include_worktree(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
-    committed = (root / CONFIG_FILE).read_text(encoding="utf-8")
-    (root / CONFIG_FILE).write_text(f"toc-min-headings = -1\n{committed}", encoding="utf-8")
+    committed = (root / ProjectConfig.CONFIG_FILE).read_text(encoding="utf-8")
+    (root / ProjectConfig.CONFIG_FILE).write_text(f"toc-min-headings = -1\n{committed}", encoding="utf-8")
     with pytest.raises(BuildError, match='"toc-min-headings" must be a whole number of 0 or more'):
         run_build(root, "main", tmp_path / "site", include_worktree=True)
-    (root / CONFIG_FILE).write_text(f'adr_prefix = "DSS"\n{committed}', encoding="utf-8")
+    (root / ProjectConfig.CONFIG_FILE).write_text(f'adr_prefix = "DSS"\n{committed}', encoding="utf-8")
     with pytest.warns(DocspecsiteWarning) as recorded:
         run_build(root, "main", tmp_path / "site", include_worktree=True)
     assert 'docspecsite.toml: unknown setting "adr_prefix"' in _get_messages(recorded)
     with warnings.catch_warnings(record=True) as recorded:
         warnings.simplefilter("always")
         run_build(root, "main", tmp_path / "site")
-    assert not [m for m in _get_messages(recorded) if m.startswith(CONFIG_FILE)]
+    assert not [m for m in _get_messages(recorded) if m.startswith(ProjectConfig.CONFIG_FILE)]
 
 
 def test_build_orders_adrs_by_configured_prefixes(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
-    edit_text(root / CONFIG_FILE, lambda text: f'external-adr-prefixes = ["PYRF"]\n{text}')
+    edit_text(root / ProjectConfig.CONFIG_FILE, lambda text: f'external-adr-prefixes = ["PYRF"]\n{text}')
     for name in ("APP-0001-a.md", "PYRF-0001-b.md"):
         write_doc(root, f"architecture/decisions/{name}", decision="accepted", date="2026-11-18")
     make_commit(root, "add external ADR", "2026-11-07T12:00:00+00:00")

@@ -1,6 +1,6 @@
 """Incremental-build cache of link hrefs and rendered page bodies.
 
-Covers DS-24. Hrefs are cached per blob and body HTML per fingerprint, blob and link targets.
+Unchanged versions are not re-rendered: hrefs are cached per blob and body HTML per fingerprint, blob and link targets.
 
 Docs: architecture/docs-tooling.md
 """
@@ -20,7 +20,6 @@ from .markdown import RenderedLink
 
 PACKAGE_DIR = Path(__file__).parent
 SKIPPED_DIRS = {"__pycache__"}
-MARKER = ".docspecsite-cache-root"
 RENDER_DISTRIBUTIONS = ("markdown-it-py", "mdit-py-plugins", "jinja2", "griffelib")
 
 
@@ -74,15 +73,29 @@ class BodyCache:
     """On-disk cache of rendered page bodies.
 
     It has two levels: link hrefs per blob and body HTML per blob and rendering. Entries this instance did not use are
-    removed by ``prune``.
-
-    Attributes:
-        directory: Directory holding the cache roots, one per docspecsite version fingerprint.
-        root: This fingerprint's cache root under ``directory``.
-        used_paths: Entry files read or written by this instance; ``prune`` keeps only these.
-        hit_count: Number of bodies taken from the cache.
-        miss_count: Number of bodies rendered because the cache did not have them.
+    removed by :meth:`.prune`.
     """
+
+    # Constants
+    MARKER = ".docspecsite-cache-root"
+    """Name of the file that marks a cache root as made by this cache, so :meth:`.prune` may remove it."""
+
+    # Cache state
+    hit_count: int
+    """Number of bodies taken from the cache."""
+
+    miss_count: int
+    """Number of bodies rendered because the cache did not have them."""
+
+    root: Path
+    """This fingerprint's cache root under :attr:`.directory`."""
+
+    used_paths: set[Path]
+    """Entry files read or written by this instance; :meth:`.prune` keeps only these."""
+
+    # Arguments of __init__
+    directory: Path
+    """See :meth:`.__init__`."""
 
     def __init__(self, directory: Path, fingerprint: str) -> None:
         """Prepare a cache in a directory.
@@ -93,7 +106,7 @@ class BodyCache:
         """
         self.directory = directory
         self.root = directory / hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
-        self.used_paths: set[Path] = set()
+        self.used_paths = set()
         self.hit_count = 0
         self.miss_count = 0
 
@@ -101,7 +114,7 @@ class BodyCache:
         """Return the link hrefs of a blob, from the cache or else computed (and cached).
 
         Args:
-            blob: Git blob sha of the doc's text; names the entry, so every version with the same text shares it.
+            blob: Git blob SHA hash of the doc's text; names the entry, so every version with the same text shares it.
             compute: Called only on a miss or an unreadable entry to extract the hrefs; its result is stored.
         """
         path = self.root / "hrefs" / f"{blob}.json"
@@ -119,12 +132,12 @@ class BodyCache:
     def get_body(self, blob: str, key: str, compute: Callable[[], str]) -> str:
         """Return the body HTML of a blob rendered for given link targets.
 
-        It comes from the cache or else is computed. Cache hits and misses are counted in ``hit_count`` and
-        ``miss_count``.
+        It comes from the cache or else is computed. Cache hits and misses are counted in :attr:`.hit_count` and
+        :attr:`.miss_count`.
 
         Args:
-            blob: Git blob sha of the doc's text; part of the entry name with ``key`` and the fingerprint.
-            key: How the page's links and Contents list are rendered (``make_targets_key`` plus the Contents
+            blob: Git blob SHA hash of the doc's text; part of the entry name with ``key`` and the fingerprint.
+            key: How the page's links and Contents list are rendered (:func:`.make_targets_key` plus the Contents
                 threshold); a different key gives a separate entry.
             compute: Called only on a miss to render the body HTML; its result is stored.
         """
@@ -149,12 +162,12 @@ class BodyCache:
         A failing cache directory (read-only, full) only disables caching.
 
         Args:
-            path: Entry file under this cache's fingerprint root; the root also gets the marker that lets ``prune``
+            path: Entry file under this cache's fingerprint root; the root also gets the marker that lets :meth:`.prune`
                 remove it.
             data: Entry contents, written atomically.
         """
         try:
-            marker = self.root / MARKER
+            marker = self.root / self.MARKER
             if not marker.exists():
                 self.write_atomic(marker, b"")
             self.write_atomic(path, data)
@@ -191,7 +204,7 @@ class BodyCache:
         try:
             children = list(self.directory.iterdir())
             for child in children:
-                if child != self.root and child.is_dir() and (child / MARKER).is_file():
+                if child != self.root and child.is_dir() and (child / self.MARKER).is_file():
                     shutil.rmtree(child, ignore_errors=True)
             for sub in ("hrefs", "bodies"):
                 folder = self.root / sub

@@ -1,7 +1,7 @@
 import re
 from dataclasses import replace
 
-from docspecsite.history import WORKTREE, Version
+from docspecsite.history import Version
 from docspecsite.markdown import Marker
 from docspecsite.pages import (
     OldBanner,
@@ -156,7 +156,7 @@ def test_breadcrumb() -> None:
 def test_picker_label() -> None:
     version = Version("meta/a.md", "abc123def456", "abc123def456" + "0" * 28, 3, "2026-11-01", "add a", "f" * 40)
     assert make_picker_label(version) == "2026-11-01 · abc123def456 · add a"
-    worktree = Version("meta/a.md", WORKTREE, None, -1, "", "working copy (uncommitted)", "f" * 40)
+    worktree = Version("meta/a.md", Version.WORKTREE, None, -1, "", "working copy (uncommitted)", "f" * 40)
     assert make_picker_label(worktree) == "working copy (uncommitted)"
 
 

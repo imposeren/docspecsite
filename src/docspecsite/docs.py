@@ -1,11 +1,11 @@
 """The docs tree as read from the working tree."""
 
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Self
 
 import yaml
 
-from .markdown import split_front_matter
+from .markdown import MarkdownText
 
 DOCS = "docs/"
 """Directory of the docs, as a prefix of repository-relative POSIX paths."""
@@ -18,21 +18,47 @@ class Doc:
 
     path: str
     """POSIX path of the doc, relative to ``docs/``."""
+
     front_matter: dict[str, object] | None
-    """Front matter; ``None`` exactly when ``error`` is set."""
+    """Front matter; ``None`` exactly when :attr:`.error` is set."""
+
     body: str
+    """Markdown text of the doc after its front matter; the whole text when it has none."""
+
     body_line: int
-    """1-based line of the file where ``body`` starts."""
+    """1-based line of the file where :attr:`.body` starts."""
+
     error: str | None
+    """Why the front matter cannot be read, for the user; None when it is valid."""
 
+    @property
+    def title(self) -> str:
+        """The front matter's ``title``; the path when there is none."""
+        return str((self.front_matter or {}).get("title", self.path))
 
-def read_text(file: Path) -> str:
-    """Return the text of a file, with a leading byte-order mark removed.
+    @classmethod
+    def parse(cls, path: str, text: str) -> Self:
+        """Split the text of a doc into front matter and body.
 
-    Args:
-        file: UTF-8 file to read, such as a doc, the vocabulary or ``docspecsite.toml``.
-    """
-    return file.read_text(encoding="utf-8-sig")
+        Unreadable front matter is not raised: :attr:`.front_matter` is None and :attr:`.error` says why.
+
+        Args:
+            path: Doc path relative to ``docs/``; only stored in :attr:`.path`, nothing is read from it.
+            text: Whole file text, front matter included; :attr:`.body_line` keeps the body's line numbers relative
+                to it.
+        """
+        source, body_line = MarkdownText(text).split_front_matter()
+        body = "\n".join(text.splitlines()[body_line - 1 :])
+        if source is None:
+            return cls(path, None, body, body_line, "no front matter")
+        try:
+            front_matter = yaml.safe_load(source)
+        except (yaml.YAMLError, ValueError) as exc:  # ValueError: impossible dates like 2026-02-31
+            message = " ".join(str(exc).split())
+            return cls(path, None, body, body_line, f"front matter is not valid YAML: {message}")
+        if not isinstance(front_matter, dict):
+            return cls(path, None, body, body_line, "front matter is not a mapping")
+        return cls(path, {str(k): v for k, v in front_matter.items()}, body, body_line, None)
 
 
 def make_string_tuple(value: object, *, strings_only: bool = False) -> tuple[str, ...]:
@@ -50,29 +76,6 @@ def make_string_tuple(value: object, *, strings_only: bool = False) -> tuple[str
     if strings_only:
         return tuple(item for item in value if isinstance(item, str))
     return tuple(str(item) for item in value)
-
-
-def parse_doc(path: str, text: str) -> Doc:
-    """Split the text of a doc into front matter and body.
-
-    Unreadable front matter is not raised: ``front_matter`` is None and ``error`` says why.
-
-    Args:
-        path: Doc path relative to ``docs/``; only stored in ``Doc.path``, nothing is read from it.
-        text: Whole file text, front matter included; ``body_line`` keeps the body's line numbers relative to it.
-    """
-    source, body_line = split_front_matter(text)
-    body = "\n".join(text.splitlines()[body_line - 1 :])
-    if source is None:
-        return Doc(path, None, body, body_line, "no front matter")
-    try:
-        front_matter = yaml.safe_load(source)
-    except (yaml.YAMLError, ValueError) as exc:  # ValueError: impossible dates like 2026-02-31
-        message = " ".join(str(exc).split())
-        return Doc(path, None, body, body_line, f"front matter is not valid YAML: {message}")
-    if not isinstance(front_matter, dict):
-        return Doc(path, None, body, body_line, "front matter is not a mapping")
-    return Doc(path, {str(k): v for k, v in front_matter.items()}, body, body_line, None)
 
 
 def is_template(path: str) -> bool:

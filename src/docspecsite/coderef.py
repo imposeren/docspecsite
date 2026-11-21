@@ -19,46 +19,34 @@ from jinja2 import Template
 from .codeindex import CodeIndex, CodeTarget
 from .config import ProjectConfig
 from .errors import DocspecsiteError
-from .markdown import RenderedLink, render_html
+from .markdown import HtmlRenderer, RenderedLink
 from .pages import Page, PageLink, create_environment
-from .resolve import MARKERS, make_code_url, make_doc_url, make_relative_url
+from .urls import MARKERS, make_code_url, make_doc_url, make_relative_url
+
+type Pieces = tuple[Piece, ...]
 
 DOCS_LINE = re.compile(r"^\s*Docs:\s*(\S+)\s*$")
-OPENING_QUOTES = re.compile(r'^\s*[A-Za-z]{0,2}("""|\'\'\')')
-CLOSING_QUOTES = re.compile(r'("""|\'\'\')\s*$')
 CODE_INDEX = "reference/code/index.md"
 INDEX_TITLES: Mapping[str, str] = MappingProxyType(
     {"index.md": "Home", "reference/index.md": "Reference", CODE_INDEX: "Code reference"}
 )
-GROUPS = (
-    (griffe.Kind.CLASS, "Classes"),
-    (griffe.Kind.FUNCTION, "Functions"),
-    (griffe.Kind.ATTRIBUTE, "Constants"),
-    (griffe.Kind.TYPE_ALIAS, "Type aliases"),
-)
-TABLE_TITLES: Mapping[griffe.DocstringSectionKind, str] = MappingProxyType(
-    {
-        griffe.DocstringSectionKind.parameters: "Parameters",
-        griffe.DocstringSectionKind.other_parameters: "Other parameters",
-        griffe.DocstringSectionKind.type_parameters: "Type parameters",
-        griffe.DocstringSectionKind.returns: "Returns",
-        griffe.DocstringSectionKind.yields: "Yields",
-        griffe.DocstringSectionKind.receives: "Receives",
-        griffe.DocstringSectionKind.raises: "Raises",
-        griffe.DocstringSectionKind.warns: "Warns",
-        griffe.DocstringSectionKind.attributes: "Attributes",
-        griffe.DocstringSectionKind.functions: "Functions",
-        griffe.DocstringSectionKind.classes: "Classes",
-        griffe.DocstringSectionKind.type_aliases: "Type aliases",
-        griffe.DocstringSectionKind.modules: "Modules",
-    }
-)
 
 
-class CodeError(DocspecsiteError, ValueError):
-    """Error for code that cannot be read for the docs; ``file`` is the repo-relative source file when known."""
+class CodeError(DocspecsiteError):
+    """Error for code that cannot be read for the docs, naming its source file in the ``file`` attribute when known."""
+
+    file: str | None
+    """See :meth:`.__init__`."""
 
     def __init__(self, message: str, *values: object, file: str | None = None) -> None:
+        """Hold a message template, its values and the source file the error is about.
+
+        Args:
+            message: Static ``%``-style template that never changes between occurrences, so error trackers group by
+                it.
+            *values: Values filled into the template with ``str()``; with none, the template is the message as is.
+            file: Repo-relative path of the source file the error is about; None when unknown.
+        """
         super().__init__(message, *values)
         self.file = file
 
@@ -69,8 +57,10 @@ class Package:
 
     name: str
     """The package's import name."""
+
     src: Path
     """The package directory."""
+
     repo_src: str
     """The code directory containing it, relative to the repo root (POSIX); ``.`` for the root."""
 
@@ -81,8 +71,10 @@ class DocsLine:
 
     target: str
     """Doc path relative to ``docs/``, with an optional ``#anchor``."""
+
     file: str
     """Repo-relative path of the source file."""
+
     line_number: int
     """Line of the ``Docs:`` line in the source file, from 1."""
 
@@ -136,12 +128,24 @@ class Codebase:
 
     Its public modules, the repository paths of their packages, the index of ``code:`` link targets and the ``Docs:``
     lines of its docstrings.
-
-    Attributes:
-        modules: The loaded modules, sorted by path.
-        packages_by_name: The packages the modules were loaded from, by package name.
-        index: The ``code:`` link targets: every module and public member, by dotted path.
     """
+
+    # Constants
+    CLOSING_QUOTES = re.compile(r'("""|\'\'\')\s*$')
+    """Closing quotes of a docstring, with the spaces after them."""
+
+    OPENING_QUOTES = re.compile(r'^\s*[A-Za-z]{0,2}("""|\'\'\')')
+    """Opening quotes of a docstring, with its prefix and the indentation before it."""
+
+    # Loaded code
+    index: CodeIndex
+    """The ``code:`` link targets: every module and public member, by dotted path."""
+
+    modules: list[griffe.Module]
+    """The loaded modules, sorted by path."""
+
+    packages_by_name: dict[str, Package]
+    """The packages the modules were loaded from, by package name."""
 
     def __init__(self, modules: list[griffe.Module], packages: list[Package]) -> None:
         """Index the loaded modules.
@@ -157,7 +161,7 @@ class Codebase:
             targets[module.path] = CodeTarget(module.path, None)
             for member in self.walk(module):
                 targets[member.path] = CodeTarget(module.path, member.path)
-        self.index = CodeIndex(targets)
+        self.index = MappingProxyType(targets)
 
     @classmethod
     def load(cls, root: Path, config: ProjectConfig) -> Codebase:
@@ -167,21 +171,29 @@ class Codebase:
 
         Args:
             root: Directory holding the code: the repository root, or the code extracted from the ref.
-            config: Settings whose ``code_dirs`` globs are expanded under ``root`` to find the packages.
+            config: Settings whose :attr:`~docspecsite.config.ProjectConfig.code_dirs` globs are expanded under ``root``
+                to find the packages.
+
+        Raises:
+            CodeError: A package's code cannot be loaded, such as code that is not valid UTF-8.
+            griffe.GriffeError: griffe cannot load a package.
         """
         packages = cls.find_packages(root, config)
         collection = griffe.ModulesCollection()
         modules: list[griffe.Module] = []
         for package in packages:
-            loaded = griffe.load(
-                package.name,
-                search_paths=[package.src.parent],
-                docstring_parser="google",
-                allow_inspection=False,
-                resolve_aliases=True,
-                modules_collection=collection,
-                try_relative_path=False,
-            )
+            try:
+                loaded = griffe.load(
+                    package.name,
+                    search_paths=[package.src.parent],
+                    docstring_parser="google",
+                    allow_inspection=False,
+                    resolve_aliases=True,
+                    modules_collection=collection,
+                    try_relative_path=False,
+                )
+            except ValueError as error:  # also UnicodeDecodeError, for code that is not valid UTF-8
+                raise CodeError("cannot load the code of package %s: %s", package.name, error) from error
             if isinstance(loaded, griffe.Module):
                 modules.extend(cls.iter_modules(loaded))
         return cls(modules, packages)
@@ -190,11 +202,12 @@ class Codebase:
     def find_packages(root: Path, config: ProjectConfig) -> list[Package]:
         """Return the packages of the code directories: each ``<code dir>/<pkg>/`` directory with an ``__init__.py``.
 
-        A ``.`` entry of ``code_dirs`` is the root itself.
+        A ``.`` entry of :attr:`~docspecsite.config.ProjectConfig.code_dirs` is the root itself.
 
         Args:
             root: Directory holding the code: the repository root, or the code extracted from the ref.
-            config: Settings whose ``code_dirs`` globs are expanded under ``root``.
+            config: Settings whose :attr:`~docspecsite.config.ProjectConfig.code_dirs` globs are expanded under
+                ``root``.
         """
         root = root.resolve()
         candidates: set[Path] = set()
@@ -243,13 +256,20 @@ class Codebase:
                 ``src`` directory.
 
         Raises:
-            CodeError: ``obj`` is in a namespace package, which has no single file.
+            CodeError: ``obj`` is in a namespace package, which has no single file, or its file is outside the code
+                directory of its package.
         """
         filepath = obj.filepath
         if isinstance(filepath, list):
             raise CodeError("namespace package has no single file: %s", obj.path)
         package = self.packages_by_name[obj.path.split(".")[0]]
-        return posixpath.normpath(posixpath.join(package.repo_src, filepath.relative_to(package.src.parent).as_posix()))
+        try:
+            package_path = filepath.relative_to(package.src.parent)
+        except ValueError as error:
+            raise CodeError(
+                "the file of %s is outside the code directory of its package: %s", obj.path, filepath
+            ) from error
+        return posixpath.normpath(posixpath.join(package.repo_src, package_path.as_posix()))
 
     def collect_docs_lines(self) -> list[DocsLine]:
         """Return every ``Docs:`` line of the docstrings in the loaded code, with its file and line."""
@@ -266,7 +286,7 @@ class Codebase:
             obj: Module or public member whose docstring is scanned; its source file is read to find the line numbers.
 
         Raises:
-            CodeError: A line cannot be located in the file.
+            CodeError: The source file is not valid UTF-8, or a line cannot be located in it.
         """
         docstring = obj.docstring
         if docstring is None or docstring.lineno is None:
@@ -274,16 +294,19 @@ class Codebase:
         targets, _ = split_docs_lines(docstring.value)
         if not targets or isinstance(obj.filepath, list):
             return []
-        lines = obj.filepath.read_text(encoding="utf-8").splitlines()
+        try:
+            lines = obj.filepath.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError as error:
+            raise CodeError("%s is not valid UTF-8: %s", obj.path, error, file=self.get_repo_path(obj)) from error
         first = docstring.lineno
         last = docstring.endlineno or first
         numbers: list[int] = []
         for number in range(first, last + 1):
             text = lines[number - 1]
             if number == first:
-                text = OPENING_QUOTES.sub("", text)
+                text = self.OPENING_QUOTES.sub("", text)
             if number == last:
-                text = CLOSING_QUOTES.sub("", text)
+                text = self.CLOSING_QUOTES.sub("", text)
             if DOCS_LINE.match(text):
                 numbers.append(number)
         if len(numbers) != len(targets):
@@ -292,20 +315,18 @@ class Codebase:
         return [DocsLine(target, file, number) for target, number in zip(targets, numbers, strict=True)]
 
 
-# --- Code reference pages (docs/architecture/docs-tooling.md#code-reference-referencecode) ---
+# --- Code reference pages ---
 
 
 @dataclass(frozen=True)
 class Piece:
-    """Piece of rendered signature or docstring text, optionally a link; ``href`` is already relative to the page."""
+    """Piece of rendered signature or docstring text, optionally a link (a page-relative ``href`` attribute)."""
 
     text: str
     """The text shown."""
+
     href: str | None = None
     """Where the text links to, relative to the page; None for plain text."""
-
-
-type Pieces = tuple[Piece, ...]
 
 
 @dataclass(frozen=True)
@@ -314,20 +335,24 @@ class Row:
 
     name: str
     """Name of the parameter, attribute or similar; empty for an unnamed return value or exception."""
+
     type: Pieces
     """The annotated type, with links to the project's code; empty when there is none."""
+
     description_html: str
     """The description, rendered to HTML."""
 
 
 @dataclass(frozen=True)
 class Section:
-    """One docstring section, shown as rendered ``html`` or as a table of ``rows``, under ``title``."""
+    """One docstring section under a title, shown as rendered HTML or as a table of rows."""
 
     title: str
     """Heading of the section; empty for the docstring's leading text."""
+
     html: str
     """The section's text rendered to HTML; empty for a table."""
+
     rows: tuple[Row, ...] = ()
     """Rows of the table; empty for a text section."""
 
@@ -343,6 +368,7 @@ class Inherited:
 
     base: Piece
     """Link to the base class the members come from."""
+
     members: Pieces
     """Links to the inherited members."""
 
@@ -353,34 +379,45 @@ class Member:
 
     anchor: str
     """HTML id of the element on the page: its dotted path."""
+
     name: str
     """The element's own name."""
+
     kind: str
     """The element's kind as griffe names it, with hyphens for spaces (``class``, ``function``, ``type-alias``)."""
+
     decorators: tuple[Pieces, ...]
     """The decorators shown above the signature, one per line."""
+
     signature: Pieces
     """The signature, with links to the project's code."""
+
     sections: tuple[Section, ...]
     """The rendered sections of the docstring, without its ``Docs:`` lines."""
+
     docs: Pieces
     """Links to the docs named by the docstring's ``Docs:`` lines."""
+
     source: str | None
     """URL of the element's source lines on the repository host; None without a ``source-url``."""
+
     members: tuple[Member, ...] = ()
     """A class's own public members; empty for other elements."""
+
     inherited: tuple[Inherited, ...] = ()
     """A class's members inherited from project-code bases, by base."""
+
     overloads: tuple[Pieces, ...] = ()
     """Signatures of a function's overloads; empty without overloads."""
 
 
 @dataclass(frozen=True)
 class Group:
-    """Members of one kind on a module page (classes, functions, constants or type aliases), under ``title``."""
+    """Members of one kind on a module page, such as its classes or functions, under a title."""
 
     title: str
     """Heading of the group, such as "Classes"."""
+
     members: tuple[Member, ...]
     """The members of that kind, in module order."""
 
@@ -409,15 +446,19 @@ def make_module_link(module: griffe.Module) -> PageLink:
 
 
 class CodeReference:
-    """The code reference pages of a codebase: a page per module, and the links to its top-level packages.
+    """The code reference pages of a codebase: a page per module, and the links to its top-level packages."""
 
-    Attributes:
-        codebase: Loaded code whose modules get pages.
-        config: Settings whose ``code-components`` give each page its components.
-        blob_base_url: URL to which a repo-relative file path is appended for the source links; empty without them.
-        titles: Titles of the latest docs by path relative to ``docs/``, for the breadcrumbs and ``Docs:`` links.
-        template: The body template of the module pages, loaded when the first page is rendered.
-    """
+    codebase: Codebase
+    """See :meth:`.__init__`."""
+
+    config: ProjectConfig
+    """See :meth:`.__init__`."""
+
+    blob_base_url: str
+    """See :meth:`.__init__`."""
+
+    titles: Mapping[str, str]
+    """See :meth:`.__init__`."""
 
     def __init__(
         self, codebase: Codebase, config: ProjectConfig, blob_base_url: str, titles: Mapping[str, str] = INDEX_TITLES
@@ -452,7 +493,7 @@ class CodeReference:
             config: Settings whose ``code-components`` give each page its components, and whose ``source-url`` is
                 the base URL to which ``blob/<commit>/<file>`` is appended for the source links; without it the
                 source links are left out.
-            commit: Full sha of the build ref's head, so source links show the code the pages were built from.
+            commit: Full SHA hash of the build ref's head, so source links show the code the pages were built from.
             titles: Titles of the latest docs by path relative to ``docs/``, for the breadcrumb and the ``Docs:``
                 links; a doc missing from it is shown by its path.
         """
@@ -486,13 +527,49 @@ class CodeReference:
 
 
 class CodePage:
-    """Renderer of one module's reference page; every href it produces is relative to that page.
+    """Renderer of one module's reference page; every href it produces is relative to that page."""
 
-    Attributes:
-        reference: The code reference the page is part of.
-        module: Module the page is for.
-        url: Site path of the page.
-    """
+    # Constants
+    GROUPS = (
+        (griffe.Kind.CLASS, "Classes"),
+        (griffe.Kind.FUNCTION, "Functions"),
+        (griffe.Kind.ATTRIBUTE, "Constants"),
+        (griffe.Kind.TYPE_ALIAS, "Type aliases"),
+    )
+    """Kinds of the module members, in the order the page lists them, with the heading of each group."""
+
+    TABLE_TITLES = MappingProxyType(
+        {
+            griffe.DocstringSectionKind.parameters: "Parameters",
+            griffe.DocstringSectionKind.other_parameters: "Other parameters",
+            griffe.DocstringSectionKind.type_parameters: "Type parameters",
+            griffe.DocstringSectionKind.returns: "Returns",
+            griffe.DocstringSectionKind.yields: "Yields",
+            griffe.DocstringSectionKind.receives: "Receives",
+            griffe.DocstringSectionKind.raises: "Raises",
+            griffe.DocstringSectionKind.warns: "Warns",
+            griffe.DocstringSectionKind.attributes: "Attributes",
+            griffe.DocstringSectionKind.functions: "Functions",
+            griffe.DocstringSectionKind.classes: "Classes",
+            griffe.DocstringSectionKind.type_aliases: "Type aliases",
+            griffe.DocstringSectionKind.modules: "Modules",
+        }
+    )
+    """Headings of the docstring sections shown as tables, by section kind."""
+
+    # Page
+    renderer: HtmlRenderer
+    """Renderer of the docstring Markdown, with its links resolved by :meth:`.resolve_link`."""
+
+    url: str
+    """Site path of the page."""
+
+    # Arguments of __init__
+    reference: CodeReference
+    """See :meth:`.__init__`."""
+
+    module: griffe.Module
+    """See :meth:`.__init__`."""
 
     def __init__(self, reference: CodeReference, module: griffe.Module) -> None:
         """Prepare the page of a module.
@@ -506,6 +583,7 @@ class CodePage:
         self.reference = reference
         self.module = module
         self.url = make_code_url(CodeTarget(module.path, None))
+        self.renderer = HtmlRenderer(self.resolve_link)
 
     def build(self, described_in: Sequence[PageLink]) -> Page:
         """Build the page: its body, breadcrumb, children and the docs describing the module.
@@ -537,7 +615,7 @@ class CodePage:
         parts = self.module.path.split(".")
         for parent_length in range(1, len(parts)):
             parent = ".".join(parts[:parent_length])
-            if self.reference.codebase.index.find(parent) is not None:
+            if self.reference.codebase.index.get(parent) is not None:
                 links.append(PageLink(parent, make_code_url(CodeTarget(parent, None))))
         return tuple(links)
 
@@ -554,7 +632,7 @@ class CodePage:
         module = self.module
         sections, docs = self.build_docstring(module)
         groups: list[Group] = []
-        for kind, title in GROUPS:
+        for kind, title in self.GROUPS:
             members = tuple(self.build_member(m) for m in iter_members(module) if m.kind is kind)
             if members:
                 groups.append(Group(title, members))
@@ -576,7 +654,7 @@ class CodePage:
         Args:
             dotted: Full dotted path of the element, e.g. a name's canonical path or a ``code:`` target.
         """
-        target = self.reference.codebase.index.find(dotted)
+        target = self.reference.codebase.index.get(dotted)
         return self.make_href(make_code_url(target)) if target else None
 
     def build_expr_pieces(self, expr: str | griffe.Expr | None) -> Pieces:
@@ -615,7 +693,7 @@ class CodePage:
         Args:
             text: Markdown of a docstring section or table cell.
         """
-        return render_html(text, self.resolve_link) if text.strip() else ""
+        return self.renderer.render(text) if text.strip() else ""
 
     def make_source_url(self, obj: griffe.Object, *, whole_file: bool = False) -> str | None:
         """Return the URL of the source of an object on the repository host, or None without a ``source-url``.
@@ -660,7 +738,7 @@ class CodePage:
         """
         section_value: object = section.value
         kind = section.kind
-        if kind in TABLE_TITLES and isinstance(section_value, list):
+        if kind in self.TABLE_TITLES and isinstance(section_value, list):
             rows = [
                 Row(
                     item.name if isinstance(item, griffe.DocstringNamedElement) else "",
@@ -670,7 +748,7 @@ class CodePage:
                 for item in section_value
                 if isinstance(item, griffe.DocstringElement)
             ]
-            return Section(TABLE_TITLES[kind], "", tuple(rows))
+            return Section(self.TABLE_TITLES[kind], "", tuple(rows))
         if isinstance(section_value, griffe.DocstringAdmonition | griffe.DocstringDeprecated):
             return Section(section.title or "", self.render_markdown(section_value.description))
         if kind is griffe.DocstringSectionKind.examples and isinstance(section_value, list):

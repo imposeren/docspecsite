@@ -11,7 +11,7 @@ from conftest import make_commit, run_git, write_doc
 
 from docspecsite.build import BuildResult
 from docspecsite.cli import main
-from docspecsite.config import CONFIG_FILE
+from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteWarning, InternalErrorWarning
 
 
@@ -77,7 +77,7 @@ def test_cli_list(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_cli_list_orders_adrs_by_configured_prefixes(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (docs_tree / CONFIG_FILE).write_text('adr-prefix = "APP"\nexternal-adr-prefixes = ["PYRF"]\n')
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text('adr-prefix = "APP"\nexternal-adr-prefixes = ["PYRF"]\n')
     for name in ("APP-0001-a.md", "PYRF-0001-b.md"):
         write_doc(docs_tree, f"architecture/decisions/{name}", decision="accepted", date="2026-11-18")
     assert main(["--repo", str(docs_tree), "list", "--format", "json"]) == 0
@@ -88,14 +88,14 @@ def test_cli_list_orders_adrs_by_configured_prefixes(docs_tree: Path, capsys: py
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("[code-components\n", "docspecsite list: docspecsite.toml is not valid TOML: "),
+        ("[code-components\n", "docspecsite list: docspecsite.toml: not valid TOML: "),
         ("source-url = 3\n", 'docspecsite list: docspecsite.toml: "source-url" must be a string\n'),
     ],
 )
 def test_cli_list_stops_on_invalid_config(
     docs_tree: Path, capsys: pytest.CaptureFixture[str], text: str, expected: str
 ) -> None:
-    (docs_tree / CONFIG_FILE).write_text(text)
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text(text)
     assert main(["--repo", str(docs_tree), "list"]) == 1
     captured = capsys.readouterr()
     assert captured.err.startswith(expected)
@@ -103,7 +103,7 @@ def test_cli_list_stops_on_invalid_config(
 
 
 def test_cli_list_warns_about_unknown_settings(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (docs_tree / CONFIG_FILE).write_text('adr_prefix = "APP"\nexternal-adr-prefixes = ["PYRF"]\n')
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text('adr_prefix = "APP"\nexternal-adr-prefixes = ["PYRF"]\n')
     for name in ("APP-0001-a.md", "PYRF-0001-b.md"):
         write_doc(docs_tree, f"architecture/decisions/{name}", decision="accepted", date="2026-11-18")
     assert main(["--repo", str(docs_tree), "list", "--format", "json"]) == 0
@@ -114,7 +114,7 @@ def test_cli_list_warns_about_unknown_settings(docs_tree: Path, capsys: pytest.C
 
 
 def test_cli_list_accepts_a_byte_order_mark(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (docs_tree / CONFIG_FILE).write_bytes(b'\xef\xbb\xbfexternal-adr-prefixes = ["PYRF"]\n')
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_bytes(b'\xef\xbb\xbfexternal-adr-prefixes = ["PYRF"]\n')
     for name in ("APP-0001-a.md", "PYRF-0001-b.md"):
         write_doc(docs_tree, f"architecture/decisions/{name}", decision="accepted", date="2026-11-18")
     assert main(["--repo", str(docs_tree), "list", "--format", "json"]) == 0
@@ -167,7 +167,7 @@ def test_cli_build_page_error_exit_1(git_repo: Path, tmp_path: Path, capsys: pyt
 
 
 def test_cli_build_strict_error(git_repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (git_repo / CONFIG_FILE).write_text('source-url = "https://github.com/o/r"\n', encoding="utf-8")
+    (git_repo / ProjectConfig.CONFIG_FILE).write_text('source-url = "https://github.com/o/r"\n', encoding="utf-8")
     (git_repo / "docs/meta/bad.md").write_bytes(b"---\ntitle: \xff\n---\n")
     sha = make_commit(git_repo, "spec: add bad")
     site_dir = tmp_path / "site"

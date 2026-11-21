@@ -3,8 +3,10 @@ import re
 from docspecsite.config import ProjectConfig
 from docspecsite.indexes import IndexEntry, IndexRenderer
 from docspecsite.pages import Page
+from docspecsite.vocabulary import Vocabulary
 
 _NO_CONFIG = ProjectConfig((), "", {})
+_NO_VOCABULARY = Vocabulary(frozenset(), ())
 
 
 def _make_entry(path: str, **front_matter: object) -> IndexEntry:
@@ -20,7 +22,8 @@ def _build_index_pages(
     site_title: str,
     config: ProjectConfig = _NO_CONFIG,
 ) -> list[Page]:
-    makers = IndexRenderer(entries, code_entries, config, site_title, milestones).make_page_makers()
+    vocabulary = Vocabulary(frozenset(), milestones)
+    makers = IndexRenderer(entries, code_entries, config, site_title, vocabulary).make_page_makers()
     return [make() for make in makers.values()]
 
 
@@ -101,7 +104,7 @@ def test_llms_txt() -> None:
         _make_entry("meta/a.md", title="A", summary="Sum.\n  More <b>", components=["core"], layer="meta"),
         _make_entry("index.md", title="Home", layer="root"),
     ]
-    assert IndexRenderer(entries, [], _NO_CONFIG, "Docs", ()).render_llms_txt("All.") == (
+    assert IndexRenderer(entries, [], _NO_CONFIG, "Docs", _NO_VOCABULARY).render_llms_txt("All.") == (
         "# Docs\n\n> All.\n\n## root\n\n"
         "- [Home](index.html): S (status: specified; components: none; source: docs/index.md)\n\n"
         "## meta\n\n"
@@ -119,5 +122,5 @@ def test_listings_order_adrs_by_prefix() -> None:
     pages = {p.url: p for p in _build_index_pages(entries, [], (), site_title="Docs", config=config)}
     tag = pages["tags/adr.html"].body_html
     assert tag.index("BASE-0001") < tag.index("PYRF-0001") < tag.index("APP-0001")
-    llms = IndexRenderer(entries, [], config, "Docs", ()).render_llms_txt("All.")
+    llms = IndexRenderer(entries, [], config, "Docs", _NO_VOCABULARY).render_llms_txt("All.")
     assert llms.index("BASE-0001") < llms.index("PYRF-0001") < llms.index("APP-0001")

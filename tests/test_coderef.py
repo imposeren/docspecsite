@@ -23,18 +23,18 @@ SAMPLE_MODULE_PATH = "tools/sample/src/sample/mod.py"
 def test_find_packages(code_tree: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
     packages = Codebase.find_packages(code_tree, ProjectConfig.load(code_tree))
     assert packages == [Package("sample", code_tree / "tools/sample/src/sample", "tools/sample/src")]
-    assert Codebase.find_packages(tmp_path_factory.mktemp("empty"), ProjectConfig.from_text(None)) == []
+    assert Codebase.find_packages(tmp_path_factory.mktemp("empty"), ProjectConfig.from_bytes(None)) == []
 
 
 def test_index_targets(code_tree: Path) -> None:
     codebase = load_sample_code(code_tree)
-    assert codebase.index.find("sample.mod") == CodeTarget("sample.mod", None)
-    assert codebase.index.find("sample.mod.Thing.run") == CodeTarget("sample.mod", "sample.mod.Thing.run")
-    assert codebase.index.find("sample.mod.LIMIT") is not None
-    assert codebase.index.find("sample.mod.Alias") is not None
-    assert codebase.index.find("sample.mod._helper") is None
-    assert codebase.index.find("sample._private") is None
-    assert codebase.index.find("sample.mod.Base") is None
+    assert codebase.index.get("sample.mod") == CodeTarget("sample.mod", None)
+    assert codebase.index.get("sample.mod.Thing.run") == CodeTarget("sample.mod", "sample.mod.Thing.run")
+    assert codebase.index.get("sample.mod.LIMIT") is not None
+    assert codebase.index.get("sample.mod.Alias") is not None
+    assert codebase.index.get("sample.mod._helper") is None
+    assert codebase.index.get("sample._private") is None
+    assert codebase.index.get("sample.mod.Base") is None
 
 
 def test_modules_listed(code_tree: Path) -> None:

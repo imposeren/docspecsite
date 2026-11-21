@@ -4,6 +4,7 @@ import pytest
 from conftest import make_doc
 
 from docspecsite.docs import Doc
+from docspecsite.problems import Problem
 from docspecsite.schema import FrontMatterValidator
 from docspecsite.vocabulary import Vocabulary
 
@@ -17,7 +18,7 @@ ADR_PREFIXES = ("BASE", "DSS")
 
 
 def collect_messages(checked: Doc) -> list[str]:
-    problems = FrontMatterValidator(VOCAB, ADR_PREFIXES).validate(checked)
+    problems = FrontMatterValidator(VOCAB, ADR_PREFIXES).check(checked)
     assert all(p.path == checked.path and p.line_number == 1 for p in problems)
     return [p.message for p in problems]
 
@@ -33,8 +34,9 @@ def test_valid_doc_has_no_problems() -> None:
     assert collect_messages(make_doc("index.md")) == []
 
 
-def test_doc_with_load_error_is_skipped() -> None:
-    assert collect_messages(Doc("x.md", None, "", 1, "no front matter")) == []
+def test_doc_with_load_error_reports_only_the_error() -> None:
+    broken = Doc("x.md", None, "", 1, "no front matter")
+    assert FrontMatterValidator(VOCAB, ADR_PREFIXES).check(broken) == [Problem("x.md", None, "no front matter")]
 
 
 @pytest.mark.parametrize("field", ["title", "summary", "layer", "status", "components", "tags", "related"])
@@ -200,17 +202,21 @@ def test_adr_name_rule_covers_subdirectories() -> None:
 
 def test_adr_name_rule_runs_without_front_matter() -> None:
     adr = Doc("architecture/decisions/0001-x.md", None, "", 1, "no front matter")
-    found = FrontMatterValidator(VOCAB, ADR_PREFIXES).validate(adr)
-    assert [p.message for p in found] == ["ADR file name must be <PREFIX>-NNNN-<slug>.md with PREFIX one of: BASE, DSS"]
-    found = FrontMatterValidator(VOCAB, ()).validate(adr)
+    found = FrontMatterValidator(VOCAB, ADR_PREFIXES).check(adr)
     assert [p.message for p in found] == [
+        "no front matter",
+        "ADR file name must be <PREFIX>-NNNN-<slug>.md with PREFIX one of: BASE, DSS",
+    ]
+    found = FrontMatterValidator(VOCAB, ()).check(adr)
+    assert [p.message for p in found] == [
+        "no front matter",
         (
             "ADR file name must be <PREFIX>-NNNN-<slug>.md, and no ADR prefix is configured: "
             "set adr-prefix or external-adr-prefixes in docspecsite.toml"
-        )
+        ),
     ]
 
 
 def test_adr_name_rule_skipped_without_prefixes() -> None:
     adr = make_doc("architecture/decisions/APP-0001-x.md", decision="accepted", date="2026-11-18")
-    assert FrontMatterValidator(VOCAB, None).validate(adr) == []
+    assert FrontMatterValidator(VOCAB, None).check(adr) == []

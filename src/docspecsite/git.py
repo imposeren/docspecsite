@@ -13,8 +13,6 @@ from pathlib import Path
 
 from .errors import DocspecsiteError
 
-NULL_SHA = "0" * 40
-
 
 class GitError(DocspecsiteError):
     """Error for a failed git command, including a path that is no git repository."""
@@ -26,38 +24,63 @@ class UnknownRefError(GitError):
 
 @dataclass(frozen=True)
 class Commit:
-    """Commit with its full sha, committer date (``YYYY-MM-DD``) and subject."""
+    """Commit on the first-parent chain of a ref."""
 
     sha: str
+    """Full SHA hash of the commit."""
+
     date: str
+    """Committer date, ``YYYY-MM-DD``."""
+
     subject: str
+    """First line of the commit message."""
 
 
 @dataclass(frozen=True)
 class Change:
-    """Change of one file by a commit; ``blob`` is ``None`` when the file was deleted."""
+    """Change of one file by a commit."""
 
     commit: str
+    """Full SHA hash of the commit."""
+
     path: str
+    """Repository-relative path of the file."""
+
     blob: str | None
+    """SHA hash of the file's blob after the change; None when the file was deleted."""
 
 
 @dataclass(frozen=True)
 class StagedChange:
-    """Change of one file staged in the git index; ``new_path`` is set for a rename or copy only."""
+    """Change of one file staged in the git index."""
 
     status: str
     """The ``--name-status`` letter, with the similarity score for a rename or copy, e.g. ``D`` or ``R100``."""
+
     old_path: str
     """Repository-relative path of the file, before the change for a rename or copy."""
+
     new_path: str | None
     """Repository-relative path of the renamed or copied file; None for any other change."""
 
 
 class Git:
-    """Read-only queries on the git repository at ``root``."""
+    """Read-only queries on the git repository at its ``root`` attribute."""
+
+    # Constants
+    NULL_SHA = "0" * 40
+    """The all-zero SHA hash git shows for the missing side of an added or deleted file."""
+
+    # Arguments of __init__
+    root: Path
+    """See :meth:`.__init__`."""
 
     def __init__(self, root: Path) -> None:
+        """Prepare queries on a repository.
+
+        Args:
+            root: The repository root; git runs in it.
+        """
         self.root = root
 
     def run(self, *args: str, stdin: bytes | None = None) -> bytes:
@@ -66,7 +89,7 @@ class Git:
         Args:
             *args: Git subcommand and its arguments, run with ``-C`` at the repository root; the first one names the
                 command in the error message.
-            stdin: Bytes to feed on stdin, such as the sha list for ``cat-file --batch``; None passes no input.
+            stdin: Bytes to feed on stdin, such as the SHA hash list for ``cat-file --batch``; None passes no input.
 
         Raises:
             GitError: The command fails; the message names it and includes git's error output.
@@ -85,10 +108,10 @@ class Git:
         return result.stdout
 
     def resolve(self, ref: str) -> str:
-        """Return the full sha of the commit that a ref names.
+        """Return the full SHA hash of the commit that a ref names.
 
         Args:
-            ref: Branch, tag, sha or other revision expression given by the user; it must name a commit.
+            ref: Branch, tag, SHA hash or other revision expression given by the user; it must name a commit.
 
         Raises:
             UnknownRefError: ``ref`` names no commit.
@@ -132,13 +155,13 @@ class Git:
             field = token.lstrip("\n")
             if field.startswith(":"):
                 new_blob = field.split()[3]
-                changes.append(Change(commit, next(tokens), None if new_blob == NULL_SHA else new_blob))
+                changes.append(Change(commit, next(tokens), None if new_blob == self.NULL_SHA else new_blob))
             elif field:
                 commit = field
         return changes
 
     def read_tree(self, sha: str) -> dict[str, str]:
-        """Return the blob sha of every file at a commit, by file path.
+        """Return the blob SHA hash of every file at a commit, by file path.
 
         Args:
             sha: Commit whose whole tree is listed, recursively and with repo-relative paths.
@@ -195,14 +218,14 @@ class Git:
         return changes
 
     def read_blobs(self, shas: Iterable[str]) -> dict[str, bytes]:
-        """Return the contents of blobs, by blob sha.
+        """Return the contents of blobs, by blob SHA hash.
 
         Args:
-            shas: Blob shas whose contents are wanted; duplicates are read once, and none gives an empty result without
-                running git.
+            shas: Blob SHA hashes whose contents are wanted; duplicates are read once, and none gives an empty result
+                without running git.
 
         Raises:
-            GitError: A sha is unknown or is not a blob.
+            GitError: A SHA hash is unknown or is not a blob.
         """
         wanted = list(dict.fromkeys(shas))
         if not wanted:

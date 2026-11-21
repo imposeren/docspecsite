@@ -3,10 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from docspecsite.config import CONFIG_FILE, ConfigError, ProjectConfig, ProjectConfigParser
+from docspecsite.config import ConfigError, ProjectConfig, ProjectConfigParser
+from docspecsite.errors import DocspecsiteWarning
 
 
-def test_from_text() -> None:
+def test_from_bytes_reads_every_setting() -> None:
     text = """
 adr-prefix = "DSS"
 external-adr-prefixes = ["BASE", "PYRF"]
@@ -17,7 +18,7 @@ toc-min-headings = 3
 [code-components]
 docspecsite = ["docs-system"]
 """
-    assert ProjectConfig.from_text(text) == ProjectConfig(
+    assert ProjectConfig.from_bytes(text.encode()) == ProjectConfig(
         code_dirs=("src", "services/*/src"),
         source_url="https://example.org/r",
         code_components={"docspecsite": ("docs-system",)},
@@ -27,14 +28,14 @@ docspecsite = ["docs-system"]
     )
 
 
-def test_from_text_defaults() -> None:
+def test_from_bytes_defaults() -> None:
     expected = ProjectConfig((), "", {})
-    assert ProjectConfig.from_text(None) == expected
-    assert ProjectConfig.from_text("# no settings\n") == expected
+    assert ProjectConfig.from_bytes(None) == expected
+    assert ProjectConfig.from_bytes(b"# no settings\n") == expected
 
 
 def test_adr_prefixes() -> None:
-    config = ProjectConfig.from_text('adr-prefix = "APP"\nexternal-adr-prefixes = ["BASE", "PYRF"]\n')
+    config = ProjectConfig.from_bytes(b'adr-prefix = "APP"\nexternal-adr-prefixes = ["BASE", "PYRF"]\n')
     assert config.adr_prefixes == ("BASE", "PYRF", "APP")
     assert ProjectConfig((), "", {}).adr_prefixes == ()
     assert ProjectConfig((), "", {}, adr_prefix="DSS").adr_prefixes == ("DSS",)
@@ -43,14 +44,14 @@ def test_adr_prefixes() -> None:
 
 @pytest.mark.parametrize("value", ['"BASE"', "{ BASE = 1 }", "3"])
 def test_external_adr_prefixes_must_be_a_list(value: str) -> None:
-    config = ProjectConfig.from_text(f"external-adr-prefixes = {value}\n")
+    config = ProjectConfig.from_bytes(f"external-adr-prefixes = {value}\n".encode())
     assert config.external_adr_prefixes == ()
     assert config.problems == ('"external-adr-prefixes" must be a list of capital-letter prefixes',)
 
 
 def test_invalid_external_adr_prefixes_are_reported_and_left_out() -> None:
-    config = ProjectConfig.from_text(
-        'adr-prefix = "APP"\nexternal-adr-prefixes = ["BASE", "pyrf", "APP", 3, "PYRF", "BASE"]\n'
+    config = ProjectConfig.from_bytes(
+        b'adr-prefix = "APP"\nexternal-adr-prefixes = ["BASE", "pyrf", "APP", 3, "PYRF", "BASE"]\n'
     )
     assert config.external_adr_prefixes == ("BASE", "PYRF")
     assert config.problems == (
@@ -63,13 +64,13 @@ def test_invalid_external_adr_prefixes_are_reported_and_left_out() -> None:
 
 @pytest.mark.parametrize("value", ['"dss"', '"D-S"', '""', "3", '"BASE1"', '"DSS\\n"'])
 def test_invalid_adr_prefix_is_reported(value: str) -> None:
-    config = ProjectConfig.from_text(f"adr-prefix = {value}\n")
+    config = ProjectConfig.from_bytes(f"adr-prefix = {value}\n".encode())
     assert config.adr_prefix == ""
     assert config.problems == ('"adr-prefix" must be capital letters only, e.g. "APP"',)
 
 
 def test_unknown_setting_is_reported() -> None:
-    config = ProjectConfig.from_text('adr_prefix = "DSS"\n')
+    config = ProjectConfig.from_bytes(b'adr_prefix = "DSS"\n')
     assert config.adr_prefix == ""
     assert config.problems == ('unknown setting "adr_prefix"',)
     assert config.unknown_settings == ('unknown setting "adr_prefix"',)
@@ -77,7 +78,7 @@ def test_unknown_setting_is_reported() -> None:
 
 
 def test_problems_list_unknown_settings_before_invalid_values() -> None:
-    config = ProjectConfig.from_text('source-url = 3\nadr_prefix = "DSS"\n')
+    config = ProjectConfig.from_bytes(b'source-url = 3\nadr_prefix = "DSS"\n')
     assert config.unknown_settings == ('unknown setting "adr_prefix"',)
     assert config.invalid_values == ('"source-url" must be a string',)
     assert config.problems == ('unknown setting "adr_prefix"', '"source-url" must be a string')
@@ -106,14 +107,14 @@ def test_parser_reports_problems_once_per_parse() -> None:
     ],
 )
 def test_wrong_value_types_are_reported(text: str, expected: str) -> None:
-    config = ProjectConfig.from_text(text + "\n")
+    config = ProjectConfig.from_bytes(f"{text}\n".encode())
     assert config.problems == (expected,)
     assert config == ProjectConfig((), "", {}, invalid_values=(expected,))
 
 
 @pytest.mark.parametrize("entry", ["/abs/src", "../src", "a/../src", ""])
 def test_code_dirs_outside_the_repo_are_reported(entry: str) -> None:
-    config = ProjectConfig.from_text(f'code-dirs = ["src", "{entry}"]\n')
+    config = ProjectConfig.from_bytes(f'code-dirs = ["src", "{entry}"]\n'.encode())
     assert config.code_dirs == ("src",)
     assert config.problems == (
         f'"code-dirs" entries must be paths inside the repo, without ".." or a leading "/": "{entry}"',
@@ -121,7 +122,7 @@ def test_code_dirs_outside_the_repo_are_reported(entry: str) -> None:
 
 
 def test_code_dirs_are_normalized() -> None:
-    assert ProjectConfig.from_text('code-dirs = ["./src", "./", ".", "a/*/src/"]\n').code_dirs == (
+    assert ProjectConfig.from_bytes(b'code-dirs = ["./src", "./", ".", "a/*/src/"]\n').code_dirs == (
         "src",
         ".",
         ".",
@@ -155,7 +156,7 @@ def test_get_components() -> None:
 
 def test_toc_min_headings_values() -> None:
     def parse_toc_min(toc_min_headings: str) -> int:
-        return ProjectConfig.from_text(f"toc-min-headings = {toc_min_headings}\n").toc_min_headings
+        return ProjectConfig.from_bytes(f"toc-min-headings = {toc_min_headings}\n".encode()).toc_min_headings
 
     assert parse_toc_min("0") == 0
     assert parse_toc_min("7") == 7
@@ -163,7 +164,7 @@ def test_toc_min_headings_values() -> None:
     assert parse_toc_min('"x"') == 5
     assert parse_toc_min("true") == 5
     assert parse_toc_min("2.5") == 5
-    assert ProjectConfig.from_text(None).toc_min_headings == 5
+    assert ProjectConfig.from_bytes(None).toc_min_headings == 5
 
 
 @pytest.mark.parametrize("newline", [b"\r\n", b"\r"])
@@ -173,15 +174,40 @@ def test_from_bytes_accepts_any_line_ending(newline: bytes) -> None:
     assert (config.adr_prefix, config.source_url) == ("APP", "https://example.org/r")
 
 
-def test_from_valid_bytes_rejects_invalid_utf8() -> None:
-    with pytest.raises(ConfigError, match=r"^docspecsite\.toml is not valid TOML: .*utf-8"):
-        ProjectConfig.from_valid_bytes(b'source-url = "\xff"\n')
+@pytest.mark.parametrize(("data", "detail"), [(b'source-url = "\xff"\n', "utf-8"), (b"[code-components\n", "")])
+def test_from_bytes_records_invalid_toml(data: bytes, detail: str) -> None:
+    config = ProjectConfig.from_bytes(data)
+    assert config.read_error.startswith("not valid TOML: ")
+    assert detail in config.read_error
+    assert config.problems == (config.read_error,)
+    assert config == ProjectConfig((), "", {}, read_error=config.read_error)
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (b"[code-components\n", r"^docspecsite\.toml: not valid TOML: "),
+        (b"source-url = 3\n", r'^docspecsite\.toml: "source-url" must be a string$'),
+    ],
+)
+def test_require_valid_rejects_a_bad_file(data: bytes, expected: str) -> None:
+    with pytest.raises(ConfigError, match=expected):
+        ProjectConfig.from_bytes(data).require_valid()
+
+
+def test_require_valid_warns_about_unknown_settings() -> None:
+    config = ProjectConfig.from_bytes(b'adr_prefix = "DSS"\n')
+    with pytest.warns(DocspecsiteWarning, match=r"^docspecsite\.toml: "):
+        assert config.require_valid() is config
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
-def test_read_file_reports_an_unreadable_file(tmp_path: Path) -> None:
-    config_file = tmp_path / CONFIG_FILE
+def test_load_records_an_unreadable_file(tmp_path: Path) -> None:
+    config_file = tmp_path / ProjectConfig.CONFIG_FILE
     config_file.write_text('adr-prefix = "APP"\n', encoding="utf-8")
     config_file.chmod(0)
-    with pytest.raises(ConfigError, match=r"^docspecsite\.toml cannot be read: "):
-        ProjectConfig.read_file(tmp_path)
+    config = ProjectConfig.load(tmp_path)
+    assert config.read_error.startswith("cannot be read: ")
+    assert config.adr_prefix == ""
+    with pytest.raises(ConfigError, match=r"^docspecsite\.toml: cannot be read: "):
+        config.require_valid()

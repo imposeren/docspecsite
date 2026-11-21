@@ -24,12 +24,13 @@ from .query import (
     Filters,
     format_backlinks,
     format_list,
-    normalize_doc_arg,
+    resolve_doc_path,
 )
 
-FORMATTER = argparse.ArgumentDefaultsHelpFormatter
 # Signature of ``warnings.showwarning``: message, category, filename, line number, file and source line.
 type ShowWarning = Callable[[Warning | str, type[Warning], str, int, TextIO | None, str | None], None]
+
+FORMATTER = argparse.ArgumentDefaultsHelpFormatter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", metavar="command")
 
-    check_parser = commands.add_parser("check", help="validate the docs (DS-20)", formatter_class=FORMATTER)
+    check_parser = commands.add_parser("check", help="validate the docs", formatter_class=FORMATTER)
     check_parser.add_argument(
         "--staged",
         action="store_true",
@@ -56,16 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check_parser.set_defaults(handler=run_check_command)
 
-    list_parser = commands.add_parser(
-        "list", help="list docs, filtered by front matter (DS-17)", formatter_class=FORMATTER
-    )
+    list_parser = commands.add_parser("list", help="list docs, filtered by front matter", formatter_class=FORMATTER)
     for name in ("layer", "status", "component", "tag", "milestone", "priority"):
         list_parser.add_argument(f"--{name}", metavar=name[0].upper())
     add_format_option(list_parser)
     list_parser.set_defaults(handler=run_list_command)
 
     backlinks_parser = commands.add_parser(
-        "backlinks", help="list the docs that link to a doc (DS-28)", formatter_class=FORMATTER
+        "backlinks", help="list the docs that link to a doc", formatter_class=FORMATTER
     )
     backlinks_parser.add_argument(
         "path", help="the doc: docs/x.md (from the repo root), x.md (relative to docs/) or an absolute path"
@@ -133,7 +132,7 @@ def run_list_command(args: argparse.Namespace) -> int:
     """
     try:
         with print_warnings():
-            config = ProjectConfig.load_valid(args.repo)
+            config = ProjectConfig.load(args.repo).require_valid()
     except ConfigError as error:
         print(f"docspecsite list: {error}", file=sys.stderr)
         return 1
@@ -157,11 +156,11 @@ def run_backlinks_command(args: argparse.Namespace) -> int:
     Args:
         args: Parsed ``backlinks`` options; ``repo``, ``path`` (the doc to find links to) and ``format`` are used.
     """
-    target = normalize_doc_arg(args.repo, args.path)
+    target = resolve_doc_path(args.repo, args.path)
     if target is None:
         print(f"not a doc: {args.path}", file=sys.stderr)
         return 2
-    sys.stdout.write(format_backlinks(DocSet.load(args.repo).find_backlinks(target), args.format))
+    sys.stdout.write(format_backlinks(DocSet.load(args.repo).backlinks_by_target.get(target, ()), args.format))
     return 0
 
 
@@ -179,7 +178,8 @@ def show_warning(
     Args:
         show_other: Shows the warnings of other categories; the ``warnings.showwarning`` in place before.
         message: The warning, or its text.
-        category: Class of the warning; ``DocspecsiteWarning`` and ``InternalErrorWarning`` are printed here.
+        category: Class of the warning; :exc:`~docspecsite.errors.DocspecsiteWarning` and
+            :exc:`~docspecsite.errors.InternalErrorWarning` are printed here.
         filename: File the warning was issued from, passed on for other warnings.
         lineno: Line the warning was issued from, passed on for other warnings.
         file: Stream to print to; None means stderr.

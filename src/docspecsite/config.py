@@ -8,55 +8,66 @@ import re
 import tomllib
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
+from typing import ClassVar
 
 from .errors import DocspecsiteError, DocspecsiteWarning
 from .schema import ADR_DIR, ADR_NAME
 
-ADR_PREFIX = re.compile(r"[A-Z]+")
-SETTINGS = (
-    "adr-prefix",
-    "external-adr-prefixes",
-    "source-url",
-    "code-dirs",
-    "code-components",
-    "toc-min-headings",
-)
-
-CONFIG_FILE = "docspecsite.toml"
-DEFAULT_TOC_MIN = 5
-
 
 class ConfigError(DocspecsiteError):
-    """Error for a ``docspecsite.toml`` that cannot be used: not valid TOML, or with an invalid value of a setting."""
+    """Error for a ``docspecsite.toml`` that cannot be used: unreadable, not valid TOML, or with an invalid value."""
 
 
 @dataclass(frozen=True)
 class ProjectConfig:
     """Docspecsite settings read from the project's ``docspecsite.toml``."""
 
+    # Files
+    CONFIG_FILE: ClassVar[str] = "docspecsite.toml"
+    """Name of the settings file at the repository root."""
+
+    # Defaults
+    DEFAULT_TOC_MIN: ClassVar[int] = 5
+    """Default of ``toc-min-headings``."""
+
+    # Settings
     code_dirs: tuple[str, ...]
     """Globs of the directories holding the Python packages (``code-dirs``), relative to the repository root."""
+
     source_url: str
     """Base URL of the repository host (``source-url``); empty when unset."""
+
     code_components: Mapping[str, tuple[str, ...]]
     """Component ids by dotted-name prefix (``[code-components]``)."""
+
     adr_prefix: str = ""
     """The repository's own ADR prefix (``adr-prefix``); empty when unset, so only external ADRs are valid."""
+
     external_adr_prefixes: tuple[str, ...] = ()
     """Prefixes of ADRs taken from elsewhere (``external-adr-prefixes``), in the order listings show them."""
+
     toc_min_headings: int = DEFAULT_TOC_MIN
     """Number of ``##`` sections from which a doc gets a Contents list; 0 turns it off (``toc-min-headings``)."""
+
+    # Problems found while reading
     unknown_settings: tuple[str, ...] = ()
     """Messages about settings docspecsite does not know; they are ignored."""
+
     invalid_values: tuple[str, ...] = ()
     """Messages about settings with an invalid value; those settings took their defaults."""
 
+    read_error: str = ""
+    """Why the file could not be read (unreadable, or not valid UTF-8 TOML); every setting then took its default.
+
+    Empty when the file was read or is missing.
+    """
+
     @property
     def problems(self) -> tuple[str, ...]:
-        """Messages about unknown settings, then about invalid values."""
-        return (*self.unknown_settings, *self.invalid_values)
+        """Messages about a file that could not be read, then about unknown settings, then about invalid values."""
+        return (*((self.read_error,) if self.read_error else ()), *self.unknown_settings, *self.invalid_values)
 
     @property
     def adr_prefixes(self) -> tuple[str, ...]:
@@ -66,111 +77,64 @@ class ProjectConfig:
         return (*self.external_adr_prefixes, self.adr_prefix)
 
     @classmethod
-    def from_text(cls, text: str | None) -> ProjectConfig:
-        """Read the project settings from the text of ``docspecsite.toml``.
-
-        A missing setting takes its default. An unknown setting is listed in ``unknown_settings``; a setting with an
-        invalid value is listed in ``invalid_values`` and also takes its default (an invalid ``code-dirs`` or
-        ``external-adr-prefixes`` entry is left out).
-
-        Args:
-            text: Text of the root ``docspecsite.toml``; ``None`` or empty means the file is missing and every
-                setting takes its default.
-
-        Raises:
-            tomllib.TOMLDecodeError: The text is not valid TOML.
-        """
-        return ProjectConfigParser(tomllib.loads(text) if text else {}).parse()
-
-    @classmethod
     def from_bytes(cls, data: bytes | None) -> ProjectConfig:
-        """Read the project settings from the content of ``docspecsite.toml``, as ``from_text`` does.
+        """Read the project settings from the content of ``docspecsite.toml``.
+
+        A missing setting takes its default. An unknown setting is listed in :attr:`.unknown_settings`; a setting with
+        an invalid value is listed in :attr:`.invalid_values` and also takes its default (an invalid ``code-dirs`` or
+        ``external-adr-prefixes`` entry is left out). Content that is not valid UTF-8 TOML is described in
+        :attr:`.read_error`, and every setting takes its default.
 
         Args:
             data: Content of the root ``docspecsite.toml``, UTF-8 with an optional byte-order mark and any line
-                endings; ``None`` means the file is missing and every setting takes its default.
-
-        Raises:
-            tomllib.TOMLDecodeError: The content is not valid TOML.
-            UnicodeDecodeError: The content is not UTF-8.
+                endings; ``None`` or empty means the file is missing and every setting takes its default.
         """
-        if data is None:
-            return cls.from_text(None)
-        text = data.decode("utf-8-sig")
-        return cls.from_text(text.replace("\r\n", "\n").replace("\r", "\n"))
-
-    @classmethod
-    def from_valid_bytes(cls, data: bytes | None) -> ProjectConfig:
-        """Read the project settings from the content of ``docspecsite.toml``, which must be valid.
-
-        Each unknown setting is ignored with a ``DocspecsiteWarning``, so a setting of a newer release does not stop
-        an older one.
-
-        Args:
-            data: Content of the root ``docspecsite.toml``; ``None`` means the file is missing and every setting
-                takes its default.
-
-        Raises:
-            ConfigError: The content is not valid UTF-8 TOML, or a setting has an invalid value.
-        """
+        if not data:
+            return ProjectConfigParser({}).parse()
         try:
-            config = cls.from_bytes(data)
+            text = data.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+            settings = tomllib.loads(text)
         except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
-            raise ConfigError("%s is not valid TOML: %s", CONFIG_FILE, error) from error
-        if config.invalid_values:
-            raise ConfigError("%s: %s", CONFIG_FILE, "; ".join(config.invalid_values))
-        for message in config.unknown_settings:
-            warnings.warn(DocspecsiteWarning("%s: %s", CONFIG_FILE, message), stacklevel=2)
-        return config
+            return replace(ProjectConfigParser({}).parse(), read_error=f"not valid TOML: {error}")
+        return ProjectConfigParser(settings).parse()
 
     @classmethod
     def load(cls, root: Path) -> ProjectConfig:
-        """Read the project settings from the ``docspecsite.toml`` of a working tree, as ``from_bytes`` does.
+        """Read the project settings from a working tree's ``docspecsite.toml``, as the ``from_bytes`` method does.
+
+        A file that exists but cannot be read is described in :attr:`.read_error`, and every setting takes its default.
 
         Args:
             root: Root of the working tree; without the file every setting takes its default.
-
-        Raises:
-            ConfigError: The file exists but cannot be read.
-            tomllib.TOMLDecodeError: The file is not valid TOML.
-            UnicodeDecodeError: The file is not UTF-8.
         """
-        return cls.from_bytes(cls.read_file(root))
-
-    @classmethod
-    def load_valid(cls, root: Path) -> ProjectConfig:
-        """Read the project settings from the ``docspecsite.toml`` at the root of a working tree, which must be valid.
-
-        Each unknown setting is ignored with a warning, as ``from_valid_bytes`` does.
-
-        Args:
-            root: Root of the working tree; without the file every setting takes its default.
-
-        Raises:
-            ConfigError: The file cannot be read or is not valid UTF-8 TOML, or a setting has an invalid value.
-        """
-        return cls.from_valid_bytes(cls.read_file(root))
-
-    @staticmethod
-    def read_file(root: Path) -> bytes | None:
-        """Return the content of the ``docspecsite.toml`` at the root of a working tree, or None if there is none.
-
-        Args:
-            root: Root of the working tree whose ``docspecsite.toml`` is read; without the file the result is None.
-
-        Raises:
-            ConfigError: The file exists but cannot be read.
-        """
-        config_file = root / CONFIG_FILE
+        config_file = root / cls.CONFIG_FILE
         if not config_file.is_file():
-            return None
+            return cls.from_bytes(None)
         try:
-            return config_file.read_bytes()
+            data = config_file.read_bytes()
         except OSError as error:
-            raise ConfigError("%s cannot be read: %s", CONFIG_FILE, error) from error
+            return replace(cls.from_bytes(None), read_error=f"cannot be read: {error}")
+        return cls.from_bytes(data)
+
+    def require_valid(self) -> ProjectConfig:
+        """Return these settings if the file was read and every value is valid.
+
+        Each unknown setting is ignored with a :exc:`~docspecsite.errors.DocspecsiteWarning`, so a setting of a newer
+        release does not stop an older one.
+
+        Raises:
+            ConfigError: The file could not be read or is not valid UTF-8 TOML, or a setting has an invalid value.
+        """
+        if self.read_error:
+            raise ConfigError("%s: %s", self.CONFIG_FILE, self.read_error)
+        if self.invalid_values:
+            raise ConfigError("%s: %s", self.CONFIG_FILE, "; ".join(self.invalid_values))
+        for message in self.unknown_settings:
+            warnings.warn(DocspecsiteWarning("%s: %s", self.CONFIG_FILE, message), stacklevel=2)
+        return self
 
     def is_code_dir(self, directory: str) -> bool:
-        """Return whether a directory is one of the code directories (``code_dirs``; ``.`` matches only the root).
+        """Return whether a directory is one of the ``code_dirs`` attribute's directories (``.`` matches only the root).
 
         Args:
             directory: POSIX path of the directory relative to the repo root; ``.`` is the root itself.
@@ -181,7 +145,7 @@ class ProjectConfig:
     def get_components(self, dotted: str) -> tuple[str, ...]:
         """Return the component ids of a code element.
 
-        They are those of the longest ``code_components`` prefix that matches ``dotted`` on whole dotted segments;
+        They are those of the longest :attr:`.code_components` prefix that matches ``dotted`` on whole dotted segments;
         the result is empty when no prefix matches.
 
         Args:
@@ -222,23 +186,43 @@ class ProjectConfig:
 
 
 class ProjectConfigParser:
-    """The parser of the settings read from ``docspecsite.toml``, holding the unknown settings and invalid values.
+    """The parser of the settings read from ``docspecsite.toml``, holding the unknown settings and invalid values."""
 
-    Attributes:
-        settings: The parsed TOML table, by setting name.
-        unknown_settings: Messages about unknown settings found by the last parse.
-        invalid_values: Messages about invalid values found by the last parse, in the order they were found.
-    """
+    # Setting names
+    SETTINGS = (
+        "adr-prefix",
+        "external-adr-prefixes",
+        "source-url",
+        "code-dirs",
+        "code-components",
+        "toc-min-headings",
+    )
+    """Names of the settings docspecsite knows; any other key is an unknown setting."""
+
+    # Value patterns
+    ADR_PREFIX = re.compile(r"[A-Z]+")
+    """Pattern of a valid ADR prefix: capital letters only."""
+
+    # Found by the last parse
+    invalid_values: list[str]
+    """Messages about invalid values found by the last parse, in the order they were found."""
+
+    unknown_settings: list[str]
+    """Messages about unknown settings found by the last parse."""
+
+    # Arguments of __init__
+    settings: Mapping[str, object]
+    """See :meth:`.__init__`."""
 
     def __init__(self, settings: Mapping[str, object]) -> None:
         """Prepare a parse of the settings.
 
         Args:
-            settings: The parsed TOML table of ``docspecsite.toml``; empty when the file is missing.
+            settings: The parsed TOML table of ``docspecsite.toml``, by setting name; empty when the file is missing.
         """
         self.settings = settings
-        self.unknown_settings: list[str] = []
-        self.invalid_values: list[str] = []
+        self.unknown_settings = []
+        self.invalid_values = []
 
     def parse(self) -> ProjectConfig:
         """Return the project settings, recording each unknown setting and each invalid value.
@@ -247,26 +231,28 @@ class ProjectConfigParser:
         ``external-adr-prefixes`` entry is left out). Each parse starts with no recorded messages.
         """
         settings = self.settings
-        self.unknown_settings = [f'unknown setting "{key}"' for key in settings if key not in SETTINGS]
+        self.unknown_settings = [f'unknown setting "{key}"' for key in settings if key not in self.SETTINGS]
         self.invalid_values = []
         url = settings.get("source-url", "")
         if not isinstance(url, str):
             self.invalid_values.append('"source-url" must be a string')
             url = ""
         prefix = settings.get("adr-prefix", "")
-        if not (isinstance(prefix, str) and ADR_PREFIX.fullmatch(prefix)) and "adr-prefix" in settings:
+        if not (isinstance(prefix, str) and self.ADR_PREFIX.fullmatch(prefix)) and "adr-prefix" in settings:
             self.invalid_values.append('"adr-prefix" must be capital letters only, e.g. "APP"')
             prefix = ""
-        external_prefixes = (
-            self.parse_external_adr_prefixes(settings["external-adr-prefixes"], str(prefix))
-            if "external-adr-prefixes" in settings
-            else ()
-        )
-        toc_min_headings = settings.get("toc-min-headings", DEFAULT_TOC_MIN)
+        prefix_entries = settings.get("external-adr-prefixes", [])
+        if isinstance(prefix_entries, list):
+            external_prefixes = self.parse_external_adr_prefixes(prefix_entries, str(prefix))
+        else:
+            self.invalid_values.append('"external-adr-prefixes" must be a list of capital-letter prefixes')
+            external_prefixes = ()
+        toc_min_headings = settings.get("toc-min-headings", ProjectConfig.DEFAULT_TOC_MIN)
         if not (isinstance(toc_min_headings, int) and not isinstance(toc_min_headings, bool) and toc_min_headings >= 0):
             self.invalid_values.append('"toc-min-headings" must be a whole number of 0 or more')
-            toc_min_headings = DEFAULT_TOC_MIN
-        code_dirs = self.parse_code_dirs(settings["code-dirs"]) if "code-dirs" in settings else ()
+            toc_min_headings = ProjectConfig.DEFAULT_TOC_MIN
+        dir_entries = self.parse_string_list("code-dirs", "a list of strings")
+        code_dirs = self.parse_code_dirs(dir_entries) if dir_entries is not None else ()
         code_components = (
             self.parse_code_components(settings["code-components"]) if "code-components" in settings else {}
         )
@@ -281,44 +267,57 @@ class ProjectConfigParser:
             invalid_values=tuple(self.invalid_values),
         )
 
-    def parse_code_dirs(self, value: object) -> tuple[str, ...]:
+    def parse_string_list(self, key: str, expected: str) -> list[str] | None:
+        """Check that a setting is a list of strings and return it; None when it is missing or not such a list.
+
+        A value that is not a list of strings is recorded as invalid, so the setting takes its default.
+
+        Args:
+            key: Name of the setting that is looked up, and named in the message when its value is invalid.
+            expected: What the value must be, for the message, e.g. ``a list of strings``.
+        """
+        if key not in self.settings:
+            return None
+        value = self.settings[key]
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return [str(item) for item in value]
+        self.invalid_values.append(f'"{key}" must be {expected}')
+        return None
+
+    def parse_code_dirs(self, entries: list[str]) -> tuple[str, ...]:
         """Return the valid ``code-dirs`` entries, normalized, and record the invalid ones.
 
         An entry is normalized as a POSIX path, so ``./src`` becomes ``src`` and ``./`` becomes ``.`` (the repo root).
 
         Args:
-            value: Parsed ``code-dirs`` value; anything but a list of strings is reported and gives no entries.
+            entries: Strings of the ``code-dirs`` setting; each is normalized or recorded as invalid.
         """
-        if not (isinstance(value, list) and all(isinstance(item, str) for item in value)):
-            self.invalid_values.append('"code-dirs" must be a list of strings')
-            return ()
-        entries: list[str] = []
-        for entry in value:
+        valid: list[str] = []
+        for entry in entries:
             path = PurePosixPath(entry)
             if not entry or path.is_absolute() or ".." in path.parts:
                 self.invalid_values.append(
                     f'"code-dirs" entries must be paths inside the repo, without ".." or a leading "/": "{entry}"'
                 )
             else:
-                entries.append(path.as_posix())
-        return tuple(entries)
+                valid.append(path.as_posix())
+        return tuple(valid)
 
-    def parse_external_adr_prefixes(self, value: object, adr_prefix: str) -> tuple[str, ...]:
+    def parse_external_adr_prefixes(self, entries: list[object], adr_prefix: str) -> tuple[str, ...]:
         """Return the valid ``external-adr-prefixes`` entries and record the invalid ones.
 
-        An entry is invalid when it is not capital letters only, equals the repository's own prefix, or repeats an
-        earlier entry.
+        An entry is invalid when it is not a string of capital letters only, equals the repository's own prefix, or
+        repeats an earlier entry.
 
         Args:
-            value: Parsed ``external-adr-prefixes`` value; anything but a list is reported and gives no entries.
+            entries: Entries of the ``external-adr-prefixes`` setting, of any type; each is checked on its own, so a
+                string of capital letters is kept and any other entry, a non-string one included, is recorded as
+                invalid.
             adr_prefix: The repository's own valid ADR prefix, which no entry may repeat; empty when unset.
         """
-        if not isinstance(value, list):
-            self.invalid_values.append('"external-adr-prefixes" must be a list of capital-letter prefixes')
-            return ()
         prefixes: list[str] = []
-        for entry in value:
-            if not (isinstance(entry, str) and ADR_PREFIX.fullmatch(entry)):
+        for entry in entries:
+            if not (isinstance(entry, str) and self.ADR_PREFIX.fullmatch(entry)):
                 self.invalid_values.append(
                     f'"external-adr-prefixes" entries must be capital letters only, e.g. "BASE": "{entry}"'
                 )

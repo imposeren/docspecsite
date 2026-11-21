@@ -12,7 +12,7 @@ from docspecsite.query import (
     Filters,
     format_backlinks,
     format_list,
-    normalize_doc_arg,
+    resolve_doc_path,
 )
 
 _NO_CONFIG = ProjectConfig((), "", {})
@@ -87,7 +87,7 @@ def test_backlinks_kinds() -> None:
         make_doc("guides/g.md", "[t](../meta/target.md#section)\n", title="T guides/g.md"),
         make_doc("guides/other.md", "[o](g.md)\n"),
     ]
-    assert DocSet(docs).find_backlinks("meta/target.md") == (
+    assert DocSet(docs).backlinks_by_target.get("meta/target.md", ()) == (
         Backlink("guides/g.md", "T guides/g.md", ("body",)),
         Backlink("meta/a.md", "T meta/a.md", ("body", "related")),
         Backlink("old.md", "T old.md", ("redirect_to",)),
@@ -96,16 +96,16 @@ def test_backlinks_kinds() -> None:
 
 def test_backlinks_excludes_self_links() -> None:
     docs = [make_doc("a.md", "[me](a.md) [anchor](#top)\n")]
-    assert DocSet(docs).find_backlinks("a.md") == ()
+    assert DocSet(docs).backlinks_by_target.get("a.md", ()) == ()
 
 
-def test_normalize_doc_arg(tmp_path: Path) -> None:
+def test_resolve_doc_path(tmp_path: Path) -> None:
     (tmp_path / "docs" / "meta").mkdir(parents=True)
     (tmp_path / "docs" / "meta" / "x.md").write_text("x")
     for arg in ("docs/meta/x.md", "./docs/meta/x.md", "meta/x.md"):
-        assert normalize_doc_arg(tmp_path, arg) == "meta/x.md"
-    assert normalize_doc_arg(tmp_path, "meta/missing.md") is None
-    assert normalize_doc_arg(tmp_path, "meta") is None
+        assert resolve_doc_path(tmp_path, arg) == "meta/x.md"
+    assert resolve_doc_path(tmp_path, "meta/missing.md") is None
+    assert resolve_doc_path(tmp_path, "meta") is None
 
 
 def test_format_backlinks() -> None:
@@ -122,8 +122,8 @@ def test_backlinks_via_directory_link() -> None:
         make_doc("sub/index.md"),
         make_doc("sub/a.md", "[up](..)\n", title="T sub/a.md"),
     ]
-    assert DocSet(docs).find_backlinks("sub/index.md") == (Backlink("index.md", "T index.md", ("body",)),)
-    assert DocSet(docs).find_backlinks("index.md") == (Backlink("sub/a.md", "T sub/a.md", ("body",)),)
+    assert DocSet(docs).backlinks_by_target.get("sub/index.md", ()) == (Backlink("index.md", "T index.md", ("body",)),)
+    assert DocSet(docs).backlinks_by_target.get("index.md", ()) == (Backlink("sub/a.md", "T sub/a.md", ("body",)),)
 
 
 def test_backlinks_of_every_doc() -> None:
@@ -142,15 +142,15 @@ def test_backlinks_of_every_doc() -> None:
         "sub/a.md": (),
         "sub/missing.md": (Backlink("sub/a.md", "sub/a.md", ("body",)),),
     }
-    assert {path: docs.find_backlinks(path) for path in expected} == expected
+    assert {path: docs.backlinks_by_target.get(path, ()) for path in expected} == expected
 
 
-def test_normalize_doc_arg_absolute_and_outside_paths(tmp_path: Path) -> None:
+def test_resolve_doc_path_absolute_and_outside_paths(tmp_path: Path) -> None:
     (tmp_path / "docs" / "meta").mkdir(parents=True)
     (tmp_path / "docs" / "meta" / "x.md").write_text("x")
-    assert normalize_doc_arg(tmp_path, str(tmp_path / "docs" / "meta" / "x.md")) == "meta/x.md"
-    assert normalize_doc_arg(tmp_path, str(tmp_path / "README.md")) is None
-    assert normalize_doc_arg(tmp_path, "../README.md") is None
+    assert resolve_doc_path(tmp_path, str(tmp_path / "docs" / "meta" / "x.md")) == "meta/x.md"
+    assert resolve_doc_path(tmp_path, str(tmp_path / "README.md")) is None
+    assert resolve_doc_path(tmp_path, "../README.md") is None
 
 
 @pytest.mark.parametrize(

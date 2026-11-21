@@ -5,8 +5,7 @@ from docspecsite.docset import DocSet
 
 def test_load_paths_and_front_matter(docs_tree: Path) -> None:
     doc_set = DocSet.load(docs_tree)
-    docs = doc_set.docs
-    assert [d.path for d in docs] == [
+    assert [d.path for d in doc_set] == [
         "architecture/components.md",
         "architecture/index.md",
         "index.md",
@@ -17,7 +16,7 @@ def test_load_paths_and_front_matter(docs_tree: Path) -> None:
     front_matter = doc_set.by_path["meta/vocabulary.md"].front_matter
     assert front_matter is not None and front_matter["layer"] == "meta"
     assert doc_set.by_path["meta/vocabulary.md"].body.lstrip().startswith("# Vocabulary")
-    assert all(d.error is None for d in docs)
+    assert all(d.error is None for d in doc_set)
 
 
 def test_load_body_line(docs_tree: Path) -> None:
@@ -32,12 +31,12 @@ def test_load_reports_bad_front_matter(docs_tree: Path) -> None:
     (docs_dir / "none.md").write_text("# No front matter\n")
     (docs_dir / "broken.md").write_text("---\ntitle: [\n---\n")
     (docs_dir / "list.md").write_text("---\n- a\n---\n")
-    errors = {d.path: d.error for d in DocSet.load(docs_tree).docs if d.error}
+    errors = {d.path: d.error for d in DocSet.load(docs_tree) if d.error}
     assert errors["none.md"] == "no front matter"
     assert errors["broken.md"] is not None
     assert errors["broken.md"].startswith("front matter is not valid YAML: ")
     assert errors["list.md"] == "front matter is not a mapping"
-    assert all(d.front_matter is None for d in DocSet.load(docs_tree).docs if d.error)
+    assert all(d.front_matter is None for d in DocSet.load(docs_tree) if d.error)
 
 
 def test_load_accepts_bom_and_crlf(docs_tree: Path) -> None:

@@ -10,8 +10,10 @@ import pytest
 import yaml
 
 from docspecsite.coderef import Codebase
-from docspecsite.config import CONFIG_FILE, ProjectConfig
+from docspecsite.config import ProjectConfig
 from docspecsite.docs import Doc
+
+type WriteDoc = Callable[..., Path]
 
 _VOCABULARY = """# Vocabulary
 
@@ -91,8 +93,6 @@ def _helper() -> None:
     """Private."""
 '''
 
-type WriteDoc = Callable[..., Path]
-
 
 class HistoryRepo(NamedTuple):
     """A test repository whose commits are known by name."""
@@ -100,7 +100,7 @@ class HistoryRepo(NamedTuple):
     root: Path
     """Repository root; the docs tree is its ``docs/``."""
     commits: dict[str, str]
-    """Full sha of each named commit, by name: ``c1``..``c5``, plus ``code`` in the build tests."""
+    """Full SHA hash of each named commit, by name: ``c1``..``c5``, plus ``code`` in the build tests."""
 
 
 def _with_overrides(defaults: dict[str, object], overrides: dict[str, object]) -> dict[str, object]:
@@ -147,7 +147,7 @@ def write_doc(root: Path, path: str, body: str = "", **front_matter: object) -> 
 
 
 def make_doc(path: str = "meta/x.md", body: str = "", body_line: int = 1, /, **front_matter: object) -> Doc:
-    """Build an in-memory ``Doc`` with valid default front matter.
+    """Build an in-memory ``Doc`` object with valid default front matter.
 
     All named parameters are positional-only so a front matter key such as ``path`` cannot bind to them.
 
@@ -213,7 +213,7 @@ def run_git(root: Path, *args: str, env: Mapping[str, str] | None = None) -> str
 
 
 def make_commit(root: Path, message: str, date: str = "2026-11-01T12:00:00+00:00") -> str:
-    """Stage everything and commit it; return the full sha of the commit.
+    """Stage everything and commit it; return the full SHA hash of the commit.
 
     Args:
         root: Repository to commit in.
@@ -296,7 +296,7 @@ def code_tree(docs_tree: Path) -> Path:
     Args:
         docs_tree: Tree the project settings and the sample package are written into.
     """
-    (docs_tree / CONFIG_FILE).write_text(
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text(
         'source-url = "https://github.com/o/r"\ncode-dirs = ["tools/*/src"]\n\n[code-components]\nsample = ["core"]\n',
         encoding="utf-8",
     )
@@ -320,4 +320,6 @@ def move_sample_package_to_root(root: Path) -> None:
         root: Tree made by ``code_tree``; its ``docspecsite.toml`` is rewritten with ``code-dirs = ["."]``.
     """
     (root / "tools/sample/src/sample").rename(root / "sample")
-    edit_text(root / CONFIG_FILE, lambda text: text.replace('code-dirs = ["tools/*/src"]', 'code-dirs = ["."]'))
+    edit_text(
+        root / ProjectConfig.CONFIG_FILE, lambda text: text.replace('code-dirs = ["tools/*/src"]', 'code-dirs = ["."]')
+    )

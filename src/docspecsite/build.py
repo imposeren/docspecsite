@@ -14,22 +14,22 @@ from functools import partial
 from html import escape
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
+from types import MappingProxyType
 
 import griffe
 
 from .cache import BodyCache, compute_fingerprint, make_targets_key
-from .codeindex import CodeIndex, CodeTarget
+from .codeindex import CodeTarget
 from .coderef import CODE_INDEX, Codebase, CodeError, CodeReference
-from .config import CONFIG_FILE, ConfigError, ProjectConfig
-from .docs import DOCS, Doc, is_template, make_string_tuple, parse_doc
+from .config import ConfigError, ProjectConfig
+from .docs import DOCS, Doc, is_template, make_string_tuple
 from .docset import DocSet
 from .errors import DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from .git import Git
-from .history import Version, load_history
+from .history import History, Version
 from .indexes import IndexEntry, IndexRenderer
-from .markdown import RenderedLink, extract_links, render_html
+from .markdown import HtmlRenderer, MarkdownText, RenderedLink
 from .pages import (
-    REDIRECT_LABELS,
     OldBanner,
     Page,
     PageLink,
@@ -40,7 +40,7 @@ from .pages import (
     load_static_files,
     make_picker_label,
 )
-from .resolve import (
+from .urls import (
     PageLinks,
     Resolver,
     is_usable_tag,
@@ -51,15 +51,11 @@ from .resolve import (
     make_relative_url,
     make_version_url,
 )
-from .vocabulary import Vocabulary, parse_vocabulary
+from .vocabulary import Vocabulary
 
-MERMAID_MARK = '<pre class="mermaid">'
-# Root-level page: a URL resolved "as seen from" it stays site-root-relative.
-ROOT_PAGE = "index.html"
 # A page not built yet: its name in error lines, and how to build it.
 type Pending = tuple[str, Callable[[], Page]]
-MANIFEST = ".docspecsite-manifest"
-CACHE_DIR = ".docspecsite-cache"
+
 VENDOR_ENV = "DOCSPECSITE_VENDOR_DIR"
 
 
@@ -69,58 +65,125 @@ class BuildError(DocspecsiteError):
 
 @dataclass(frozen=True)
 class BuildResult:
-    """Outcome of a site build.
-
-    Attributes:
-        page_count: Pages written to the site.
-        rendered_count: Page bodies rendered afresh.
-        cached_count: Page bodies taken from the cache.
-        errors: One line per expected error of a page that could not be built.
-        failed_count: Number of pages that failed, through an expected error or an internal error.
-    """
+    """Outcome of a site build."""
 
     page_count: int
+    """Pages written to the site."""
+
     rendered_count: int
+    """Page bodies rendered afresh."""
+
     cached_count: int
+    """Page bodies taken from the cache."""
+
     errors: tuple[str, ...]
+    """One line per :exc:`~docspecsite.errors.DocspecsiteError` of a page that could not be built."""
+
     failed_count: int
+    """Number of pages that failed, through a :exc:`~docspecsite.errors.DocspecsiteError` or an internal error."""
 
 
 class SiteBuilder:
-    """One site build: what is read from the ref, the pages built from it and the files produced.
+    """One site build: what is read from the ref, the pages built from it and the files produced."""
 
-    Attributes:
-        root: Repository root; git runs in it, and working-tree files are read from it.
-        strict: Raise on the first expected page error instead of recording it.
-        errors: One line per expected error of a page that could not be built, in the order they happened.
-        failed_names: Names of the pages and files that failed, through an expected or an internal error.
-        hidden_dirs: Absolute directories cut from error messages: the root and the directory the code is read from.
-        git: The repository's git.
-        include_worktree: Add the working-tree docs as a newest version and read the settings, code and docs assets
-            from the working tree.
-        vendor_dir: Directory whose ``mermaid/`` holds the vendored Mermaid bundle; None when there is none.
-        history: Doc versions at the build ref, with the working-tree docs with ``include_worktree``.
-        worktree_files: Working-tree non-Markdown files under ``docs/`` with ``include_worktree``, else none.
-        ref_tree: Blob shas of the ref's files, by repo path.
-        site_files: Files of the site built so far, as bytes by site path.
-        page_urls: Site paths of the pages written to the site files.
-        templates: Templates the pages are rendered with.
-        cache: Cache of the rendered page bodies.
-        docs_by_path_and_blob: Parsed docs by doc path and blob sha.
-        latest_docs: Latest version of each doc that is valid UTF-8.
-        front_matter_by_path: Front matter of the latest docs, by doc path; docs without front matter are left out.
-        titles: Titles of the latest docs, by doc path.
-        site_title: Title of the home page.
-        site_summary: Summary of the home page, for ``llms.txt``.
-        config: The project settings.
-        source_url_missing_reported: Whether the build warned at its start that the settings have ``code-dirs`` but no
-            ``source-url``; then the resolver does not warn again about the links it turns into plain text.
-        codebase: The project code; None until ``run`` loads it, and when the project has no code to load.
-        resolver: Resolver of the docs' links; None until ``run`` makes it.
-        vocabulary: The vocabulary of the latest docs; None until ``run`` reads it.
-        entries: Index entries of the latest docs with front matter; empty until ``run`` collects them.
-        index_renderer: Renderer of the index pages and ``llms.txt``; None until ``run`` makes it.
+    # Paths
+    CACHE_DIR = ".docspecsite-cache"
+    """Directory under the repository root that holds the cache of the rendered page bodies."""
+
+    MANIFEST = ".docspecsite-manifest"
+    """Name of the file in the output directory that lists the files the last build wrote."""
+
+    ROOT_PAGE = "index.html"
+    """Root-level page: a URL resolved "as seen from" it stays site-root-relative."""
+
+    # HTML
+    MERMAID_MARK = '<pre class="mermaid">'
+    """Start of a Mermaid diagram in a rendered page body."""
+
+    # Helpers
+    cache: BodyCache
+    """Cache of the rendered page bodies."""
+
+    git: Git
+    """The repository's git."""
+
+    templates: Templates
+    """Templates the pages are rendered with."""
+
+    # Read from the ref
+    config: ProjectConfig
+    """The project settings."""
+
+    docs_by_path_and_blob: dict[tuple[str, str], Doc]
+    """Parsed docs by doc path and blob SHA hash."""
+
+    history: History
+    """Doc versions at the build ref, with the working-tree docs with :attr:`.include_worktree`."""
+
+    latest_docs: DocSet
+    """Latest version of each doc that is valid UTF-8."""
+
+    ref_tree: dict[str, str]
+    """Blob SHA hashes of the ref's files, by repo path."""
+
+    source_url_missing_reported: bool
+    """Whether the build warned at its start that the settings have ``code-dirs`` but no ``source-url``.
+
+    Then the resolver does not warn again about the links it turns into plain text.
     """
+
+    worktree_files: frozenset[str]
+    """Working-tree non-Markdown files under ``docs/`` with :attr:`.include_worktree`, else none."""
+
+    # Filled by run()
+    codebase: Codebase | None
+    """The project code; None until :meth:`.run` loads it, and when the project has no code to load."""
+
+    entries: list[IndexEntry]
+    """Index entries of the latest docs with front matter; empty until :meth:`.run` collects them."""
+
+    index_renderer: IndexRenderer | None
+    """Renderer of the index pages and ``llms.txt``; None until :meth:`.run` makes it."""
+
+    resolver: Resolver | None
+    """Resolver of the docs' links; None until :meth:`.run` makes it."""
+
+    vocabulary: Vocabulary | None
+    """The vocabulary of the latest docs; None until :meth:`.run` reads it."""
+
+    # Errors
+    errors: list[str]
+    """One line per :exc:`~docspecsite.errors.DocspecsiteError` of a page that could not be built, in the order they
+    happened.
+    """
+
+    failed_names: set[str]
+    """Names of the pages and files that failed, through a :exc:`~docspecsite.errors.DocspecsiteError` or an internal
+    error.
+    """
+
+    hidden_dirs: list[Path]
+    """Absolute paths cut from error messages: the repository root's and that of the directory the code is read from."""
+
+    # Output
+    page_urls: list[str]
+    """Site paths of the pages written to the site files."""
+
+    site_files: dict[str, bytes]
+    """Files of the site built so far, as bytes by site path."""
+
+    # Arguments of __init__
+    root: Path
+    """See :meth:`.__init__`."""
+
+    include_worktree: bool
+    """See :meth:`.__init__`."""
+
+    vendor_dir: Path | None
+    """See :meth:`.__init__`."""
+
+    strict: bool
+    """See :meth:`.__init__`."""
 
     def __init__(self, root: Path, ref: str, *, include_worktree: bool, vendor_dir: Path | None, strict: bool) -> None:
         """Read the ref's history, project settings and docs, ready to build pages.
@@ -130,61 +193,49 @@ class SiteBuilder:
             ref: Revision to build; its history gives the doc versions and, without
                 ``include_worktree``, its ``docspecsite.toml`` the settings.
             include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read
-                ``docspecsite.toml`` and the non-Markdown files under ``docs/`` from the working tree.
-            vendor_dir: Directory whose ``mermaid/`` holds the vendored Mermaid bundle, already taken from
-                ``$DOCSPECSITE_VENDOR_DIR`` by ``run_build``; None means there is no bundle.
-            strict: Raise on the first expected page error instead of recording it.
+                ``docspecsite.toml``, the code and the non-Markdown files under ``docs/`` from the working tree.
+            vendor_dir: Directory of the vendored third-party files the site uses, already taken from
+                ``$DOCSPECSITE_VENDOR_DIR`` by :func:`.run_build`; None means there are none.
+            strict: Raise on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page instead of recording it.
         """
         self.root = root
         self.strict = strict
-        self.errors: list[str] = []
-        self.failed_names: set[str] = set()
-        # Absolute directories cut from error messages (never relative ones: "./" would match anywhere).
-        self.hidden_dirs: list[Path] = [root.resolve()]
+        self.errors = []
+        self.failed_names = set()
+        # Absolute paths cut from error messages (never relative ones: "./" would match anywhere).
+        self.hidden_dirs = [root.resolve()]
         self.git = Git(root)
         self.include_worktree = include_worktree
         self.vendor_dir = vendor_dir
-        self.history = load_history(self.git, ref, worktree=root if include_worktree else None)
+        self.history = History.load(self.git, ref, worktree=root if include_worktree else None)
         self.worktree_files = (
             frozenset(p for p in self.git.list_worktree_files(DOCS) if not p.endswith(".md"))
             if include_worktree
             else frozenset[str]()
         )
         self.ref_tree = self.git.read_tree(self.history.head)
-        self.site_files: dict[str, bytes] = {}
-        self.page_urls: list[str] = []
+        self.site_files = {}
+        self.page_urls = []
         self.templates = Templates()
-        self.cache = BodyCache(root / CACHE_DIR, compute_fingerprint())
-        # Parsed docs by (doc path relative to docs/, blob sha): each blob of a doc is parsed once.
-        self.docs_by_path_and_blob: dict[tuple[str, str], Doc] = {}
+        self.cache = BodyCache(root / self.CACHE_DIR, compute_fingerprint())
+        # Parsed docs by (doc path relative to docs/, blob SHA hash): each blob of a doc is parsed once.
+        self.docs_by_path_and_blob = {}
         latest_versions = (self.history.find_latest(path) for path in sorted(self.history.docs))
         self.latest_docs = DocSet(self.parse_doc_version(v) for v in latest_versions if self.history.is_decodable(v))
-        self.front_matter_by_path: dict[str, Mapping[str, object]] = {
-            path: doc.front_matter for path, doc in self.latest_docs.by_path.items() if doc.front_matter is not None
-        }
-        self.titles = {
-            path: str(front_matter.get("title", path)) for path, front_matter in self.front_matter_by_path.items()
-        }
-        index = self.front_matter_by_path.get("index.md", {})
-        self.site_title = str(index.get("title", "Docs"))
-        self.site_summary = str(index.get("summary", ""))
         self.config = self.load_config()
         self.source_url_missing_reported = bool(self.config.code_dirs) and not self.config.source_url
         if self.source_url_missing_reported:
-            self.warn(DocspecsiteWarning("%s has no source-url: links to repository files cannot be made", CONFIG_FILE))
-        self.codebase: Codebase | None = None
-        self.resolver: Resolver | None = None
-        self.vocabulary: Vocabulary | None = None
-        self.entries: list[IndexEntry] = []
-        self.index_renderer: IndexRenderer | None = None
-
-    def warn(self, warning: DocspecsiteWarning) -> None:
-        """Issue a warning.
-
-        Args:
-            warning: Problem that does not stop the build; an ``error`` warning filter turns it into an exception.
-        """
-        warnings.warn(warning, stacklevel=2)
+            warnings.warn(
+                DocspecsiteWarning(
+                    "%s has no source-url: links to repository files cannot be made", ProjectConfig.CONFIG_FILE
+                ),
+                stacklevel=1,
+            )
+        self.codebase = None
+        self.resolver = None
+        self.vocabulary = None
+        self.entries = []
+        self.index_renderer = None
 
     def parse_doc_version(self, version: Version) -> Doc:
         """Return the parsed doc of a version; the parse is reused for the same blob.
@@ -194,7 +245,7 @@ class SiteBuilder:
         """
         key = (version.path, version.blob)
         if key not in self.docs_by_path_and_blob:
-            self.docs_by_path_and_blob[key] = parse_doc(version.path, self.history.read_text(version))
+            self.docs_by_path_and_blob[key] = Doc.parse(version.path, self.history.read_text(version))
         return self.docs_by_path_and_blob[key]
 
     def get_front_matter(self, version: Version) -> Mapping[str, object] | None:
@@ -207,12 +258,32 @@ class SiteBuilder:
         """
         return self.parse_doc_version(version).front_matter if self.history.is_decodable(version) else None
 
+    @property
+    def home_doc(self) -> Doc | None:
+        """The latest version of the home doc, ``index.md``; None when there is none."""
+        return self.latest_docs.by_path.get("index.md")
+
+    @property
+    def site_title(self) -> str:
+        """Title of the home doc; ``Docs`` when it has none."""
+        home_doc = self.home_doc
+        front_matter = home_doc.front_matter if home_doc else None
+        return str((front_matter or {}).get("title", "Docs"))
+
+    @property
+    def site_summary(self) -> str:
+        """Summary of the home doc, for ``llms.txt``; empty when it has none."""
+        home_doc = self.home_doc
+        front_matter = home_doc.front_matter if home_doc else None
+        return str((front_matter or {}).get("summary", ""))
+
     def attempt[T](self, name: str, make: Callable[[], T]) -> T | None:
         """Call a function and return its result, or None if it raises.
 
-        A ``DocspecsiteError`` (an expected error, about the docs or code being built) is recorded as an error line for
-        the page. Any other exception is a bug in docspecsite: an ``InternalErrorWarning`` is issued for it while it is
-        being handled, so a warning filter that turns it into an exception keeps the original one as its context.
+        A :exc:`~docspecsite.errors.DocspecsiteError` (an error in the docs or code being built) is recorded as an error
+        line for the page. Any other exception is a bug in docspecsite: an
+        :exc:`~docspecsite.errors.InternalErrorWarning` is issued for it while it is being handled, so a warning filter
+        that turns it into an exception keeps the original one as its context.
         Warnings that a filter turned into exceptions are not caught.
 
         Args:
@@ -221,7 +292,7 @@ class SiteBuilder:
             make: Builds the page, its HTML or another site file.
 
         Raises:
-            BuildError: In a strict build, for an expected error instead of recording it.
+            BuildError: In a strict build, for a :exc:`~docspecsite.errors.DocspecsiteError` instead of recording it.
         """
         try:
             return make()
@@ -244,7 +315,7 @@ class SiteBuilder:
             return None
 
     def describe_error(self, error: Exception) -> str:
-        """Return the type and message of an exception on one line, with the build's absolute directories cut out.
+        """Return an exception's type and message on one line, without the absolute paths of the build's directories.
 
         Args:
             error: Exception raised while building a page.
@@ -255,7 +326,7 @@ class SiteBuilder:
         return f"{type(error).__name__}: {message}"
 
     def load_config(self) -> ProjectConfig:
-        """Return the settings from the ref's ``docspecsite.toml`` (the working tree's with ``include_worktree``).
+        """Return the settings from the ref's ``docspecsite.toml``, or the working tree's with ``include_worktree`` set.
 
         Each unknown setting is ignored with a warning.
 
@@ -264,9 +335,9 @@ class SiteBuilder:
         """
         try:
             if self.include_worktree:
-                return ProjectConfig.load_valid(self.root)
-            blob = self.ref_tree.get(CONFIG_FILE)
-            return ProjectConfig.from_valid_bytes(self.git.read_blobs([blob])[blob] if blob else None)
+                return ProjectConfig.load(self.root).require_valid()
+            blob = self.ref_tree.get(ProjectConfig.CONFIG_FILE)
+            return ProjectConfig.from_bytes(self.git.read_blobs([blob])[blob] if blob else None).require_valid()
         except ConfigError as error:
             raise BuildError(error.message, *error.values) from error
 
@@ -281,8 +352,8 @@ class SiteBuilder:
         """
         try:
             return Codebase.load(code_root, self.config)
-        except (CodeError, ValueError, griffe.GriffeError) as error:
-            self.warn(DocspecsiteWarning("cannot load code: %s", error))
+        except (CodeError, griffe.GriffeError) as error:
+            warnings.warn(DocspecsiteWarning("cannot load code: %s", error), stacklevel=1)
             return None
 
     def emit(self, name: str, page: Page, indexes: Container[str]) -> None:
@@ -292,7 +363,7 @@ class SiteBuilder:
 
         Args:
             name: Name of the page in error lines.
-            page: Page to render; it is stored at its ``url``.
+            page: Page to render; it is stored at its :attr:`~docspecsite.pages.Page.url`.
             indexes: URLs of the tag and component index pages that were built; links to other tags and components
                 are shown as plain text.
         """
@@ -312,7 +383,7 @@ class SiteBuilder:
         """
         version = links.version
         text = self.history.read_text(version)
-        hrefs = self.cache.get_hrefs(version.blob, lambda: [link.target for link in extract_links(text)])
+        hrefs = self.cache.get_hrefs(version.blob, lambda: [link.target for link in MarkdownText(text).extract_links()])
         resolved = {href: links.resolve_link(href) for href in hrefs}
 
         def link(href: str) -> RenderedLink:
@@ -321,7 +392,7 @@ class SiteBuilder:
 
         minimum = self.config.toc_min_headings
         key = f"{make_targets_key(resolved)}\0toc={minimum}"
-        return self.cache.get_body(version.blob, key, lambda: render_html(text, link, minimum))
+        return self.cache.get_body(version.blob, key, lambda: HtmlRenderer(link, minimum).render(text))
 
     def build_front_matter_link(self, root_links: PageLinks, value: str) -> PageLink | None:
         """Return the page link for a front-matter path of a version, or None if it cannot be linked.
@@ -342,7 +413,7 @@ class SiteBuilder:
         if rendered_link.href is None:
             return None
         doc_path = f"{target}/index.md" if f"{target}/index.md" in self.history.docs else target
-        return PageLink(self.titles.get(doc_path, value), rendered_link.href, markers=rendered_link.markers)
+        return PageLink(self.latest_docs.titles.get(doc_path, value), rendered_link.href, markers=rendered_link.markers)
 
     def build_front_matter_links(
         self, root_links: PageLinks, front_matter: Mapping[str, object], key: str
@@ -375,7 +446,8 @@ class SiteBuilder:
         for path in sorted(self.history.docs):
             versions = self.history.docs[path]
             backlink_list = tuple(
-                PageLink(b.title or b.source, make_doc_url(b.source)) for b in self.latest_docs.find_backlinks(path)
+                PageLink(b.title or b.source, make_doc_url(b.source))
+                for b in self.latest_docs.backlinks_by_target.get(path, ())
             )
             child_list = extra_children.get(path, ())
             for version in versions:
@@ -426,7 +498,7 @@ class SiteBuilder:
             components=make_string_tuple(front_matter.get("components")),
             tags=make_string_tuple(front_matter.get("tags")),
             body_html="",
-            breadcrumb=build_breadcrumb(version.path, self.titles),
+            breadcrumb=build_breadcrumb(version.path, self.latest_docs.titles),
             old=old,
         )
 
@@ -449,7 +521,7 @@ class SiteBuilder:
         if self.resolver is None:
             raise RuntimeError("the resolver is made by run(), before the pages are built")
         front_matter = self.get_front_matter(version) or {}
-        root_links = self.resolver.for_page(version, ROOT_PAGE)
+        root_links = PageLinks(self.resolver, version, self.ROOT_PAGE)
         latest = self.history.find_latest(version.path)
         picker = tuple(
             PickerEntry(
@@ -463,11 +535,11 @@ class SiteBuilder:
         if front_matter.get("status") == "redirect":
             kind = str(front_matter.get("redirect_kind", ""))
             redirect = RedirectNotice(
-                REDIRECT_LABELS.get(kind, kind),
+                RedirectNotice.REDIRECT_LABELS.get(kind, kind),
                 self.build_front_matter_links(root_links, front_matter, "redirect_to"),
                 str(front_matter.get("reason", "")),
             )
-        body = self.render_body(self.resolver.for_page(version, url))
+        body = self.render_body(PageLinks(self.resolver, version, url))
         return replace(
             self.build_common_page(version, url),
             body_html=body,
@@ -480,7 +552,7 @@ class SiteBuilder:
             children_heading="Packages",
             related=self.build_front_matter_links(root_links, front_matter, "related"),
             backlinks=backlink_list,
-            mermaid=MERMAID_MARK in body,
+            mermaid=self.MERMAID_MARK in body,
         )
 
     def build_diff_page(self, version: Version, previous: Version) -> Page:
@@ -488,7 +560,7 @@ class SiteBuilder:
 
         Args:
             version: Version the diff page is for, the newer side.
-            previous: Version just before ``version``, as ``find_diff_base`` returns it; the older side.
+            previous: Version just before ``version``, as :meth:`.find_diff_base` returns it; the older side.
         """
         url = make_diff_url(version.path, version.short_id)
         this_url = (
@@ -544,12 +616,12 @@ class SiteBuilder:
         """
         codebase = code_reference.codebase
         described: dict[str, list[PageLink]] = {}
-        for doc in self.latest_docs.docs:
+        for doc in self.latest_docs:
             modules: dict[str, None] = {}
             for entry in make_string_tuple((doc.front_matter or {}).get("code")):
-                target = codebase.index.find(entry)
+                target = codebase.index.get(entry)
                 modules[target.module if target is not None else entry] = None
-            link = PageLink(self.titles.get(doc.path, doc.path), make_doc_url(doc.path))
+            link = PageLink(doc.title, make_doc_url(doc.path))
             for module in modules:
                 described.setdefault(module, []).append(link)
         known = {make_doc_url(path) for path in self.history.docs} | {
@@ -561,7 +633,7 @@ class SiteBuilder:
             return replace(
                 page,
                 breadcrumb=tuple(link for link in page.breadcrumb if link.url in known),
-                mermaid=MERMAID_MARK in page.body_html,
+                mermaid=self.MERMAID_MARK in page.body_html,
             )
 
         return [(f"reference/code/{module.path}", partial(make, module)) for module in codebase.modules]
@@ -569,8 +641,8 @@ class SiteBuilder:
     def copy_docs_files(self) -> None:
         """Copy the non-Markdown files under ``docs/`` into the site at the same path.
 
-        Templates are left out. With ``include_worktree`` the files come from the working tree. A file whose site path
-        collides with a generated file or directory is not copied and a warning is issued.
+        Templates are left out. With :attr:`.include_worktree` the files come from the working tree. A file whose site
+        path collides with a generated file or directory is not copied and a warning is issued.
         """
         wanted = {
             path: path.removeprefix(DOCS)
@@ -586,7 +658,7 @@ class SiteBuilder:
                 or site_path in generated_dirs
                 or generated.intersection(list_ancestor_directories(site_path))
             ):
-                self.warn(DocspecsiteWarning("%s: collides with a generated file, not copied", path))
+                warnings.warn(DocspecsiteWarning("%s: collides with a generated file, not copied", path), stacklevel=1)
                 continue
             if path in self.worktree_files:
                 self.site_files[site_path] = (self.root / path).read_bytes()
@@ -602,7 +674,9 @@ class SiteBuilder:
         script = directory / "mermaid.min.js" if directory is not None else None
         if directory is None or script is None or not script.is_file():
             where = f"in {directory}" if directory is not None else f"({VENDOR_ENV} is not set)"
-            self.warn(DocspecsiteWarning("mermaid bundle not found %s; diagrams are shown as source", where))
+            warnings.warn(
+                DocspecsiteWarning("mermaid bundle not found %s; diagrams are shown as source", where), stacklevel=1
+            )
             return None
         files = {"assets/mermaid.min.js": script.read_bytes()}
         license_file = directory / "LICENSE"
@@ -629,8 +703,8 @@ class SiteBuilder:
     def prepare_code_root(self) -> Generator[Path]:
         """Provide the directory the code is read from.
 
-        That is the working tree with ``include_worktree``, or else the ref's code directories extracted to a temporary
-        directory that is removed on exit.
+        That is the working tree with :attr:`.include_worktree`, or else the ref's code directories extracted to a
+        temporary directory that is removed on exit.
         """
         if self.include_worktree:
             yield self.root
@@ -653,8 +727,9 @@ class SiteBuilder:
     def collect_index_entries(self) -> list[IndexEntry]:
         """Return the index entries of the latest docs that have front matter, ordered by doc path."""
         return [
-            IndexEntry(path, make_doc_url(path), front_matter)
-            for path, front_matter in sorted(self.front_matter_by_path.items())
+            IndexEntry(doc.path, make_doc_url(doc.path), doc.front_matter)
+            for doc in sorted(self.latest_docs, key=lambda doc: doc.path)
+            if doc.front_matter is not None
         ]
 
     def collect_code_entries(self) -> list[IndexEntry]:
@@ -703,7 +778,7 @@ class SiteBuilder:
 
     @classmethod
     def find_outside(cls, out: Path, paths: Iterable[str]) -> list[str]:
-        """Return those paths that ``write_site`` would refuse to write below a directory.
+        """Return those paths that the ``write_site`` method would refuse to write below a directory.
 
         Args:
             out: Output directory, resolved to follow symlinks.
@@ -729,7 +804,7 @@ class SiteBuilder:
         """
         out.mkdir(parents=True, exist_ok=True)
         base = out.resolve()
-        manifest = out / MANIFEST
+        manifest = out / cls.MANIFEST
         previous = manifest.read_text(encoding="utf-8").splitlines() if manifest.is_file() else []
         refused: list[str] = []
         for path, data in files.items():
@@ -785,7 +860,7 @@ class SiteBuilder:
     def run(self, out: Path) -> BuildResult:
         """Build the pages and write the site; a builder builds its site once.
 
-        A page that cannot be built or rendered is left out; see ``run_build``.
+        A page that cannot be built or rendered is left out; see :func:`.run_build`.
 
         Args:
             out: Output directory; its files from the previous build that are not rebuilt are deleted.
@@ -794,22 +869,22 @@ class SiteBuilder:
             What was built, with the errors of the pages that failed.
 
         Raises:
-            BuildError: In a strict build, on the first expected page error.
+            BuildError: In a strict build, on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page.
         """
         with self.prepare_code_root() as code_root:
             self.hidden_dirs.append(code_root.resolve())
             self.codebase = self.load_codebase(code_root)
             self.resolver = Resolver(
                 self.history,
-                self.codebase.index if self.codebase else CodeIndex.make_empty(),
-                self.config.source_url,
+                self.codebase.index if self.codebase else MappingProxyType({}),
+                self.config,
                 self.get_front_matter,
                 extra_files=self.worktree_files,
                 warn_on_dropped_repo_link=not self.source_url_missing_reported,
             )
-            self.vocabulary = parse_vocabulary(self.read_latest_text)
+            self.vocabulary = Vocabulary.parse(self.read_latest_text)
             code_reference = (
-                CodeReference.for_commit(self.codebase, self.config, self.history.head, self.titles)
+                CodeReference.for_commit(self.codebase, self.config, self.history.head, self.latest_docs.titles)
                 if self.codebase
                 else None
             )
@@ -818,13 +893,15 @@ class SiteBuilder:
             tags = sorted({tag for entry in self.entries for tag in make_string_tuple(entry.front_matter.get("tags"))})
             for tag in tags:
                 if not is_usable_tag(tag):
-                    self.warn(DocspecsiteWarning('tag "%s" cannot be a file name, no index page', tag))
+                    warnings.warn(
+                        DocspecsiteWarning('tag "%s" cannot be a file name, no index page', tag), stacklevel=1
+                    )
             self.index_renderer = IndexRenderer(
                 self.entries,
                 self.collect_code_entries(),
                 self.config,
                 self.site_title,
-                self.vocabulary.milestones,
+                self.vocabulary,
             )
             pending = [
                 *self.build_doc_pages(extra_children),
@@ -861,7 +938,7 @@ class SiteBuilder:
         self.copy_docs_files()
         refused = self.find_outside(out, self.site_files)
         for path in refused:
-            self.warn(DocspecsiteWarning("refusing to write outside --out: %s", path))
+            warnings.warn(DocspecsiteWarning("refusing to write outside --out: %s", path), stacklevel=1)
         self.write_site(out, self.site_files)
         self.cache.prune()
         return BuildResult(
@@ -875,10 +952,11 @@ class SiteBuilder:
 
 @contextmanager
 def make_warnings_fatal() -> Generator[None]:
-    """Turn docspecsite's warnings into exceptions while the block runs, and the first one raised into a ``BuildError``.
+    """Turn docspecsite's warnings into exceptions in the block, and the first one raised into a ``BuildError``.
 
     Raises:
-        BuildError: A ``DocspecsiteWarning`` or ``InternalErrorWarning`` was issued in the block.
+        BuildError: A :exc:`~docspecsite.errors.DocspecsiteWarning` or :exc:`~docspecsite.errors.InternalErrorWarning`
+            was issued in the block.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("error", DocspecsiteWarning)
@@ -900,9 +978,10 @@ def run_build(
 ) -> BuildResult:
     """Build the static site for a git ref.
 
-    A page that cannot be built or rendered is left out. An expected error is reported in ``BuildResult.errors``; an
-    internal error is issued as an ``InternalErrorWarning`` and only counted in ``BuildResult.failed_count``. Problems
-    that do not stop the build are issued as ``DocspecsiteWarning``.
+    A page that cannot be built or rendered is left out. A :exc:`~docspecsite.errors.DocspecsiteError` is reported in
+    :attr:`.BuildResult.errors`; an internal error is issued as an :exc:`~docspecsite.errors.InternalErrorWarning` and
+    only counted in :attr:`.BuildResult.failed_count`. Problems that do not stop the build are issued as
+    :exc:`~docspecsite.errors.DocspecsiteWarning`.
 
     Args:
         root: Repository root to build from.
@@ -911,17 +990,20 @@ def run_build(
         out: Output directory; its files from the previous build that are not rebuilt are deleted.
         include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read the code,
             ``docspecsite.toml`` and docs assets from the working tree.
-        vendor_dir: Directory whose ``mermaid/`` holds the vendored Mermaid bundle; None reads
-            ``$DOCSPECSITE_VENDOR_DIR``, and without either diagrams are shown as source.
-        strict: Fail on the first expected page error, internal error or warning, before anything is written:
-            ``error`` warning filters are set for ``DocspecsiteWarning`` and ``InternalErrorWarning`` during the build.
+        vendor_dir: Directory of the vendored third-party files the site uses; None reads ``$DOCSPECSITE_VENDOR_DIR``,
+            and without either the site is built without them.
+        strict: Fail on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or warning,
+            before anything is written: ``error`` warning filters are set for
+            :exc:`~docspecsite.errors.DocspecsiteWarning` and :exc:`~docspecsite.errors.InternalErrorWarning` during the
+            build.
 
     Returns:
         What was built, with the errors of the pages that failed.
 
     Raises:
         BuildError: The root ``docspecsite.toml`` cannot be read, is not valid TOML or has an invalid value; with
-            ``strict``, also on the first expected page error, internal error or warning.
+            ``strict``, also on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or
+            warning.
     """
     if vendor_dir is None and os.environ.get(VENDOR_ENV):
         vendor_dir = Path(os.environ[VENDOR_ENV])

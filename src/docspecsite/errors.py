@@ -9,11 +9,13 @@ class MessageWithValues(Exception):  # noqa: N818 -- the base of warnings too, n
     The first argument is a ``%``-style message template that never changes between occurrences (error trackers group
     by it); the further arguments are the values filled into it. ``str()`` gives the filled-in message.
     As with ``logging``, the template is only ``%``-formatted when values are given: without them ``%%`` stays as is.
-
-    Attributes:
-        message: The static ``%``-style message template.
-        values: The values filled into the template, in order.
     """
+
+    message: str
+    """See :meth:`.__init__`."""
+
+    values: tuple[object, ...]
+    """See :meth:`.__init__`."""
 
     def __init__(self, message: str, *values: object) -> None:
         """Hold a message template and its values.
@@ -34,7 +36,10 @@ class MessageWithValues(Exception):  # noqa: N818 -- the base of warnings too, n
 
 
 class DocspecsiteError(MessageWithValues):
-    """Expected error, reported to the user as a message, unlike a bug in docspecsite."""
+    """Error in the docs, code or settings being processed, reported to the user as a message.
+
+    Unlike any other exception, it is not a bug in docspecsite.
+    """
 
 
 class DocspecsiteWarning(MessageWithValues, UserWarning):

@@ -3,26 +3,29 @@
 Docs: architecture/docs-tooling.md
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from functools import cached_property
 from pathlib import Path
 from types import MappingProxyType
 from typing import Self
 
 from .config import ProjectConfig
-from .docs import DOCS, Doc, is_template, parse_doc, read_text
+from .docs import DOCS, Doc, is_template
 from .links import collect_outgoing_refs
-from .query import Backlink, Filters, collapse_to_one_line
+from .query import Backlink, Filters
+from .text import collapse_to_one_line, read_text
 
 
 class DocSet:
-    """A set of docs, such as those of the working tree or the latest version of each doc in git history.
+    """A set of docs, such as those of the working tree or the latest version of each doc in git history."""
 
-    Attributes:
-        docs: The docs, in the order given.
-        by_path: The docs by path relative to ``docs/``.
-        backlinks_by_target: The backlinks of every linked doc, by its path, worked out on first use.
-    """
+    # Index
+    by_path: Mapping[str, Doc]
+    """The docs by path relative to ``docs/``."""
+
+    # Arguments of __init__
+    docs: tuple[Doc, ...]
+    """See :meth:`.__init__`."""
 
     def __init__(self, docs: Iterable[Doc]) -> None:
         """Hold docs and index them by path.
@@ -31,7 +34,16 @@ class DocSet:
             docs: Docs with distinct paths, in the order ``docs`` keeps them.
         """
         self.docs = tuple(docs)
-        self.by_path: Mapping[str, Doc] = MappingProxyType({doc.path: doc for doc in self.docs})
+        self.by_path = MappingProxyType({doc.path: doc for doc in self.docs})
+
+    def __iter__(self) -> Iterator[Doc]:
+        """Return an iterator over the docs in their order."""
+        return iter(self.docs)
+
+    @cached_property
+    def titles(self) -> Mapping[str, str]:
+        """Titles of the docs that have front matter, by path relative to ``docs/``."""
+        return MappingProxyType({doc.path: doc.title for doc in self if doc.front_matter is not None})
 
     @classmethod
     def load(cls, root: Path) -> Self:
@@ -44,7 +56,7 @@ class DocSet:
         """
         docs_dir = root / "docs"
         files = {f.relative_to(docs_dir).as_posix(): f for f in docs_dir.rglob("*.md") if f.is_file()}
-        return cls([parse_doc(path, read_text(files[path])) for path in sorted(files) if not is_template(path)])
+        return cls([Doc.parse(path, read_text(files[path])) for path in sorted(files) if not is_template(path)])
 
     def select(self, filters: Filters, config: ProjectConfig) -> list[Doc]:
         """Return the docs matching all filters, sorted by path with ADRs ordered by prefix first.
@@ -56,16 +68,20 @@ class DocSet:
             config: Settings whose ADR prefixes order the ADRs.
         """
         return sorted(
-            (d for d in self.docs if d.front_matter is not None and filters.matches(d.front_matter)),
+            (d for d in self if d.front_matter is not None and filters.matches(d.front_matter)),
             key=lambda d: config.make_sort_key(d.path),
         )
 
     @cached_property
     def backlinks_by_target(self) -> Mapping[str, tuple[Backlink, ...]]:
-        """The backlinks of every linked doc, by its path relative to ``docs/``, sorted by source."""
+        """The backlinks of every linked doc, by its path relative to ``docs/``, sorted by source.
+
+        Each backlink is another doc that links to the target, with the kinds of its links: body, related, redirect_to
+        or superseded_by. A link to a directory counts for its ``index.md``. A doc nobody links to has no entry.
+        """
         # Linked doc path -> linking doc path -> kinds of its links to it (paths relative to docs/).
         kinds: dict[str, dict[str, set[str]]] = {}
-        for doc in self.docs:
+        for doc in self:
             refs, _ = collect_outgoing_refs(doc)
             for ref in refs:
                 # A link to a directory is a link to its index.md.
@@ -86,15 +102,3 @@ class DocSet:
                 for target, sources in kinds.items()
             }
         )
-
-    def find_backlinks(self, target: str) -> tuple[Backlink, ...]:
-        """Return the docs other than the target that link to it, sorted by path.
-
-        Each result has the kinds of its links: body, related, redirect_to or superseded_by. The backlinks of all docs
-        are collected on the first call.
-
-        Args:
-            target: Path of the linked-to doc relative to ``docs/``; a link to its directory counts when it is an
-                ``index.md``.
-        """
-        return self.backlinks_by_target.get(target, ())

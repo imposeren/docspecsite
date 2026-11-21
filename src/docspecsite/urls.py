@@ -1,4 +1,7 @@
-"""Site URLs and version-aware link resolution for rendered pages.
+"""The site's URLs and the resolution of the docs' links to them.
+
+The URL of each page, how one page links to another, and what the links written in the docs point to on the site,
+like ``reverse`` and ``resolve`` in ``django.urls``.
 
 Docs: meta/linking.md
 """
@@ -11,7 +14,7 @@ from types import MappingProxyType
 from urllib.parse import quote
 
 from .codeindex import CodeIndex, CodeTarget
-from .config import CONFIG_FILE
+from .config import ProjectConfig
 from .docs import DOCS, is_template
 from .errors import DocspecsiteWarning
 from .history import History, Version
@@ -20,7 +23,6 @@ from .markdown import Marker, RenderedLink
 from .problems import Problem
 
 EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
-WEB_API = re.compile(r"^web-api:", re.IGNORECASE)
 
 MARKERS: Mapping[str, Marker] = MappingProxyType(
     {
@@ -47,7 +49,8 @@ def make_version_url(path: str, vid: str) -> str:
 
     Args:
         path: Doc path relative to ``docs/``; the version pages sit in a ``v/`` directory beside its page.
-        vid: ``Version.short_id`` of the version: a short commit sha, or ``worktree`` for the working copy.
+        vid: :attr:`Version.short_id <docspecsite.history.Version.short_id>` of the version: a short commit SHA hash,
+            or ``worktree`` for the working copy.
     """
     return f"{path.removesuffix('.md')}/v/{vid}.html"
 
@@ -57,7 +60,8 @@ def make_diff_url(path: str, vid: str) -> str:
 
     Args:
         path: Doc path relative to ``docs/``; the diff page sits beside its version pages.
-        vid: ``Version.short_id`` of the newer version of the diff: a short commit sha, or ``worktree``.
+        vid: :attr:`Version.short_id <docspecsite.history.Version.short_id>` of the newer version of the diff: a short
+            commit SHA hash, or ``worktree``.
     """
     return f"{path.removesuffix('.md')}/v/{vid}.diff.html"
 
@@ -76,10 +80,10 @@ def is_usable_tag(tag: str) -> bool:
 def make_tag_url(tag: str) -> str:
     """Return the site path of the index page of a tag, ``tags/<tag>.html``.
 
-    It is built from the decoded tag; see ``is_usable_tag``.
+    It is built from the decoded tag; see :func:`.is_usable_tag`.
 
     Args:
-        tag: Tag value from front matter, unencoded; it should pass ``is_usable_tag``.
+        tag: Tag value from front matter, unencoded; it should pass :func:`.is_usable_tag`.
     """
     return f"tags/{tag}.html"
 
@@ -114,6 +118,18 @@ def make_code_url(target: CodeTarget) -> str:
     return f"{url}#{target.anchor}" if target.anchor else url
 
 
+def split_suffix(href: str) -> tuple[str, str]:
+    """Split an href into its path and its ``?query`` and ``#anchor`` part.
+
+    Either part is empty when the href has none.
+
+    Args:
+        href: Link target as written in a doc, or a site-root-relative URL; it is cut at its first ``?`` or ``#``.
+    """
+    cut = min((i for i in (href.find("?"), href.find("#")) if i >= 0), default=len(href))
+    return href[:cut], href[cut:]
+
+
 def make_relative_url(url: str, page: str) -> str:
     """Return a site-root-relative URL made relative to a page.
 
@@ -130,40 +146,44 @@ def make_relative_url(url: str, page: str) -> str:
     return posixpath.relpath(path, posixpath.dirname(page) or ".") + suffix
 
 
-def split_suffix(href: str) -> tuple[str, str]:
-    """Split an href into its path and its ``?query`` and ``#anchor`` part.
-
-    Either part is empty when the href has none.
-
-    Args:
-        href: Link target as written in a doc, or a site-root-relative URL; it is cut at its first ``?`` or ``#``.
-    """
-    cut = min((i for i in (href.find("?"), href.find("#")) if i >= 0), default=len(href))
-    return href[:cut], href[cut:]
-
-
 class Resolver:
-    """Resolver of the links of doc versions to hrefs and markers; it issues warnings about unresolvable links.
+    """Resolver of the links of doc versions to hrefs and markers; it issues warnings about unresolvable links."""
 
-    Attributes:
-        history: Doc versions at the build ref.
-        files: Repo paths of the files that exist: the ref's tree and the extra files.
-        code: Public code elements that ``code:`` links may name.
-        source_url: Base URL of the repository on its host, without a trailing ``/``; empty when not configured.
-        front_matter_of: Gives the front matter of a link's target version.
-        issued_warnings: Texts of the warnings issued so far, each issued once.
-        warn_on_dropped_repo_link: Whether a repository link turned into plain text for want of a ``source-url`` is
-            warned about; false when the missing setting is reported elsewhere.
-        dropped_repo_link_reported: Whether a repository link turned into plain text has been warned about; only the
-            first one is.
-        dirs: Repo paths of the directories that hold a file or a doc.
-    """
+    # Existing paths
+    dirs: frozenset[str]
+    """Repo paths of the directories that hold a file or a doc."""
+
+    files: frozenset[str]
+    """Repo paths of the files that exist: the ref's tree and the extra files."""
+
+    # Warnings
+    dropped_repo_link_reported: bool
+    """Whether a repository link turned into plain text has been warned about; only the first one is."""
+
+    issued_warnings: set[str]
+    """Texts of the warnings issued so far, each issued once."""
+
+    # Arguments of __init__
+    history: History
+    """See :meth:`.__init__`."""
+
+    code: CodeIndex
+    """See :meth:`.__init__`."""
+
+    config: ProjectConfig
+    """See :meth:`.__init__`."""
+
+    front_matter_of: Callable[[Version], Mapping[str, object] | None]
+    """See :meth:`.__init__`."""
+
+    warn_on_dropped_repo_link: bool
+    """See :meth:`.__init__`."""
 
     def __init__(
         self,
         history: History,
         code: CodeIndex,
-        source_url: str,
+        config: ProjectConfig,
         front_matter_of: Callable[[Version], Mapping[str, object] | None],
         *,
         extra_files: frozenset[str] = frozenset(),
@@ -175,9 +195,9 @@ class Resolver:
             history: Doc versions at the build ref; decide which docs exist, which version a link from an old version
                 goes to, and which commit repository links point at. Its tree gives the existing repo files.
             code: Public code elements that ``code:`` links may name; empty when the code is not loaded.
-            source_url: Base URL of the repository on its host (``source-url`` in ``docspecsite.toml``), to which
-                ``tree/<commit>/...`` or ``blob/<commit>/...`` is appended for links to repo files outside the site; a
-                trailing ``/`` is dropped. Empty turns such links into plain text.
+            config: Settings whose ``source-url`` is the base URL of the repository on its host, to which
+                ``tree/<commit>/...`` or ``blob/<commit>/...`` is appended for links to repo files outside the site;
+                without it such links are plain text.
             front_matter_of: Gives the front matter of a link's target version, to mark links to redirect docs; None
                 when it did not load.
             extra_files: Repo paths that exist besides the ref's tree: the working-tree non-Markdown files under
@@ -188,12 +208,17 @@ class Resolver:
         self.history = history
         self.files = history.tree | extra_files
         self.code = code
-        self.source_url = source_url.rstrip("/")
+        self.config = config
         self.front_matter_of = front_matter_of
-        self.issued_warnings: set[str] = set()
+        self.issued_warnings = set()
         self.warn_on_dropped_repo_link = warn_on_dropped_repo_link
         self.dropped_repo_link_reported = False
         self.dirs = self.collect_directories([*self.files, *(f"{DOCS}{path}" for path in history.docs)])
+
+    @property
+    def source_url(self) -> str:
+        """Base URL of the repository on its host (``source-url``), without a trailing ``/``; empty when unset."""
+        return self.config.source_url.rstrip("/")
 
     @staticmethod
     def collect_directories(paths: list[str]) -> frozenset[str]:
@@ -206,17 +231,6 @@ class Resolver:
                 are returned.
         """
         return frozenset(directory for path in paths for directory in list_ancestor_directories(path))
-
-    def for_page(self, version: Version, page_url: str) -> PageLinks:
-        """Return the resolver of the links of a version as they appear on a page.
-
-        Args:
-            version: Version holding the links; relative paths resolve against its doc, it picks the target versions,
-                and only warnings about the latest version are issued.
-            page_url: Site path of the page being rendered (latest, version or diff page, or the site root for
-                site-root-relative URLs); the hrefs are relative to it.
-        """
-        return PageLinks(self, version, page_url)
 
     def warn(self, version: Version, message: str, *values: object) -> None:
         """Issue a warning about a version if it is the latest version of its doc.
@@ -239,8 +253,9 @@ class Resolver:
     def resolve_repo_link(self, version: Version, href: str, rest: str) -> RenderedLink:
         """Return a link on the repository host, or plain text if no ``source-url`` is configured.
 
-        The first link of a latest version turned into plain text issues a ``DocspecsiteWarning`` naming its version
-        and ``href``, unless ``warn_on_dropped_repo_link`` is false; later ones and those of older versions issue none.
+        The first link of a latest version turned into plain text issues a
+        :exc:`~docspecsite.errors.DocspecsiteWarning` naming its version and ``href``, unless
+        :attr:`.warn_on_dropped_repo_link` is false; later ones and those of older versions issue none.
 
         Args:
             version: Version holding the link; named in the warning, and only a latest version is warned about.
@@ -254,20 +269,28 @@ class Resolver:
             self.warn(
                 version,
                 "%s has no source-url: links to repository files, such as %s, are plain text",
-                CONFIG_FILE,
+                ProjectConfig.CONFIG_FILE,
                 href,
             )
         return RenderedLink(None)
 
 
 class PageLinks:
-    """Resolver of the links of one doc version as they appear on one page.
+    """Resolver of the links of one doc version as they appear on one page."""
 
-    Attributes:
-        resolver: Resolver holding the docs, files and code that links are resolved against.
-        version: Version holding the links.
-        page_url: Site path of the page the links are on; every href is relative to it.
-    """
+    # Constants
+    WEB_API = re.compile(r"^web-api:", re.IGNORECASE)
+    """Scheme of a link to the web API, shown as plain text."""
+
+    # Arguments of __init__
+    resolver: Resolver
+    """See :meth:`.__init__`."""
+
+    version: Version
+    """See :meth:`.__init__`."""
+
+    page_url: str
+    """See :meth:`.__init__`."""
 
     def __init__(self, resolver: Resolver, version: Version, page_url: str) -> None:
         """Prepare to resolve the links of a version for a page.
@@ -288,12 +311,14 @@ class PageLinks:
         """Resolve a link of the version for the page.
 
         Returns the link as it is to be rendered. A link that cannot be resolved becomes plain text (no ``href``), with
-        a ``DocspecsiteWarning`` if the version is the latest. Web links and bare anchors are returned unchanged.
+        a :exc:`~docspecsite.errors.DocspecsiteWarning` if the version is the latest. Web links and bare anchors are
+        returned unchanged.
 
         Args:
-            href: Link target as written in the version's body (as ``extract_links`` returns it).
+            href: Link target as written in the version's body (as
+                :meth:`~docspecsite.markdown.MarkdownText.extract_links` returns it).
         """
-        if WEB_API.match(href):
+        if self.WEB_API.match(href):
             return RenderedLink(None)
         ref = parse_body_ref(self.version.path, href, 0)
         if ref is None:
@@ -313,7 +338,7 @@ class PageLinks:
         Args:
             ref: Parsed ``code:`` link whose dotted path is looked up.
         """
-        target = self.resolver.code.find(ref.dotted)
+        target = self.resolver.code.get(ref.dotted)
         if target is None:
             self.resolver.warn(self.version, "unknown code element: code:%s", ref.dotted)
             return RenderedLink(None, (MARKERS["code-gone"],))

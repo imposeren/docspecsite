@@ -1,11 +1,12 @@
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from conftest import edit_text, move_sample_package_to_root, run_git, write_doc
 
-from docspecsite.check import FORBIDDEN_NAME_MESSAGE, Checker
-from docspecsite.config import CONFIG_FILE
+from docspecsite.check import Checker, CodeLinkCheck, LinkCheck
+from docspecsite.config import ProjectConfig
 from docspecsite.docset import DocSet
 from docspecsite.git import GitError
 
@@ -16,7 +17,8 @@ ROOT_INDEX_WITH_GUIDES = (
 
 
 def find_link_problems(root: Path) -> list[str]:
-    return [str(p) for p in Checker(root).check_links()]
+    link_check = LinkCheck(root)
+    return [str(p) for doc in Checker(root).doc_set for p in link_check.check(doc)]
 
 
 def find_index_problems(root: Path) -> list[str]:
@@ -191,32 +193,51 @@ def test_run_bad_front_matter_still_checks_links(docs_tree: Path) -> None:
 
 
 def test_run_reports_invalid_config(docs_tree: Path) -> None:
-    (docs_tree / CONFIG_FILE).write_text("[code-components\n")
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text("[code-components\n")
     (docs_tree / "docs" / "meta" / "bad.md").write_text("# Bad\n")
     problems = Checker(docs_tree).run(staged=False)
-    bad = [p for p in problems if p.path == CONFIG_FILE]
+    bad = [p for p in problems if p.path == ProjectConfig.CONFIG_FILE]
     assert len(bad) == 1
     assert not bad[0].under_docs
-    assert str(bad[0]).startswith("docspecsite.toml: invalid docspecsite.toml: ")
+    assert str(bad[0]).startswith("docspecsite.toml: not valid TOML: ")
     assert "docs/meta/bad.md: no front matter" in [str(p) for p in problems]
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
 def test_run_reports_unreadable_config_naming_it_once(docs_tree: Path) -> None:
-    (docs_tree / CONFIG_FILE).write_text('adr-prefix = "DSS"\n')
-    (docs_tree / CONFIG_FILE).chmod(0)
-    [bad] = [str(p) for p in Checker(docs_tree).run(staged=False) if p.path == CONFIG_FILE]
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text('adr-prefix = "DSS"\n')
+    (docs_tree / ProjectConfig.CONFIG_FILE).chmod(0)
+    [bad] = [str(p) for p in Checker(docs_tree).run(staged=False) if p.path == ProjectConfig.CONFIG_FILE]
     assert bad.startswith("docspecsite.toml: cannot be read: ")
-    assert bad.count(CONFIG_FILE) == 2  # the location, and the path in the OS error
+    assert bad.count(ProjectConfig.CONFIG_FILE) == 2  # the location, and the path in the OS error
 
 
 def test_run_reports_undecodable_code_as_code_problem(code_tree: Path) -> None:
     (code_tree / "tools/sample/src/sample/__init__.py").write_bytes(b'"""Bad \xff."""\n')
     problems = Checker(code_tree).run(staged=False)
-    assert not [p for p in problems if p.path == CONFIG_FILE]
+    assert not [p for p in problems if p.path == ProjectConfig.CONFIG_FILE]
     [bad] = [p for p in problems if "cannot load code" in p.message]
     assert bad.path in ("(code)", "tools/sample/src/sample/bad.py")
     assert not bad.under_docs
+
+
+def test_run_reports_code_value_error_as_code_problem(code_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def raise_value_error(*args: object, **kwargs: object) -> None:
+        raise ValueError("bad code")
+
+    monkeypatch.setattr("docspecsite.coderef.griffe.load", raise_value_error)
+    [bad] = [p for p in Checker(code_tree).run(staged=False) if "cannot load code" in p.message]
+    assert bad.message == "cannot load code: cannot load the code of package sample: bad code"
+
+
+def test_run_reports_code_outside_its_package_dir_as_code_problem(code_tree: Path, tmp_path: Path) -> None:
+    checker = Checker(code_tree)
+    assert checker.codebase is not None
+    package = checker.codebase.packages_by_name["sample"]
+    checker.codebase.packages_by_name["sample"] = replace(package, src=tmp_path / "elsewhere" / "sample")
+    [bad] = [p for p in checker.run(staged=False) if "cannot load code" in p.message]
+    assert "outside" in bad.message
+    assert "sample" in bad.message
 
 
 def test_run_reports_schema_problems(docs_tree: Path) -> None:
@@ -236,8 +257,8 @@ def test_templates_are_not_docs(docs_tree: Path) -> None:
         "---\ntitle: <Name>\nsummary: <One sentence: what.>\nlayer: behavior\n---\n\n[s](<same/path>.md)\n"
     )
     assert Checker(docs_tree).run(staged=False) == []
-    assert "meta/templates/x.md" not in [d.path for d in DocSet.load(docs_tree).docs]
-    assert "meta/templates/index.md" in [d.path for d in DocSet.load(docs_tree).docs]
+    assert "meta/templates/x.md" not in [d.path for d in DocSet.load(docs_tree)]
+    assert "meta/templates/index.md" in [d.path for d in DocSet.load(docs_tree)]
 
 
 def _list_in_meta_index(root: Path, name: str) -> None:
@@ -252,7 +273,9 @@ def test_run_resolves_code_links(code_tree: Path) -> None:
 
 def test_check_code_links_unknown(code_tree: Path) -> None:
     write_doc(code_tree, "meta/x.md", "# X\n\nSee [t](code:sample.nope).\n", code=["sample.gone"])
-    problems = [str(p) for p in Checker(code_tree).check_code_links()]
+    checker = Checker(code_tree)
+    assert checker.codebase is not None
+    problems = [str(p) for p in CodeLinkCheck(checker.codebase).check(checker.doc_set.by_path["meta/x.md"])]
     assert "docs/meta/x.md:15: code: link to unknown code element: sample.nope" in problems
     assert 'docs/meta/x.md:1: "code" entry is not a code element: sample.gone' in problems
 
@@ -307,8 +330,8 @@ def test_check_names_file_and_directory(docs_tree: Path) -> None:
     (docs_tree / "docs" / "meta" / "100%.md").write_text("x\n")
     (docs_tree / "docs" / "meta" / "fine.md").write_text("x\n")
     assert [str(p) for p in Checker(docs_tree).check_names()] == [
-        f"docs/meta/100%.md: {FORBIDDEN_NAME_MESSAGE}",
-        f"docs/meta/c#sharp: {FORBIDDEN_NAME_MESSAGE}",
+        f"docs/meta/100%.md: {Checker.FORBIDDEN_NAME_MESSAGE}",
+        f"docs/meta/c#sharp: {Checker.FORBIDDEN_NAME_MESSAGE}",
     ]
 
 
@@ -317,7 +340,7 @@ def test_check_names_clean_tree(docs_tree: Path) -> None:
 
 
 def test_run_takes_adr_prefix_from_config(docs_tree: Path) -> None:
-    (docs_tree / CONFIG_FILE).write_text('adr-prefix = "DSS"\nexternal-adr-prefixes = ["BASE", "PYRF"]\n')
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text('adr-prefix = "DSS"\nexternal-adr-prefixes = ["BASE", "PYRF"]\n')
     for name in ("BASE-0001-a.md", "DSS-0001-b.md", "APP-0001-c.md", "PYRF-0001-d.md"):
         write_doc(docs_tree, f"architecture/decisions/{name}", decision="accepted", date="2026-11-18")
     found = [p for p in Checker(docs_tree).run(staged=False) if "ADR file name" in p.message]
@@ -330,8 +353,8 @@ def test_run_takes_adr_prefix_from_config(docs_tree: Path) -> None:
 
 
 def test_run_reports_config_problems(docs_tree: Path) -> None:
-    (docs_tree / CONFIG_FILE).write_text('adr_prefix = "DSS"\ncode-dirs = ["/abs/src"]\n')
-    found = [p for p in Checker(docs_tree).run(staged=False) if p.path == CONFIG_FILE]
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text('adr_prefix = "DSS"\ncode-dirs = ["/abs/src"]\n')
+    found = [p for p in Checker(docs_tree).run(staged=False) if p.path == ProjectConfig.CONFIG_FILE]
     assert [(p.message, p.under_docs) for p in found] == [
         ('"code-dirs" entries must be paths inside the repo, without ".." or a leading "/": "/abs/src"', False),
         ('unknown setting "adr_prefix"', False),
@@ -339,7 +362,7 @@ def test_run_reports_config_problems(docs_tree: Path) -> None:
 
 
 def test_run_skips_adr_names_when_config_is_invalid(docs_tree: Path) -> None:
-    (docs_tree / CONFIG_FILE).write_text("[code-components\n")
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text("[code-components\n")
     write_doc(docs_tree, "architecture/decisions/DSS-0001-b.md", decision="accepted", date="2026-11-18")
     assert not [p for p in Checker(docs_tree).run(staged=False) if "ADR file name" in p.message]
 

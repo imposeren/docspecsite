@@ -4,12 +4,12 @@ import pytest
 from conftest import HistoryRepo, make_commit, run_git, write_doc
 
 from docspecsite.git import Git, GitError, UnknownRefError
-from docspecsite.history import WORKTREE, NotUtf8Error, load_history, strip_subject
+from docspecsite.history import History, NotUtf8Error, Version
 
 
 def test_versions_per_doc(history_repo: HistoryRepo) -> None:
     root, commits = history_repo
-    history = load_history(Git(root), "main")
+    history = History.load(Git(root), "main")
     a_versions = history.docs["meta/a.md"]
     assert [v.short_id for v in a_versions] == [commits["c5"][:12], commits["c3"][:12], commits["c1"][:12]]
     assert [v.date for v in a_versions] == ["2026-11-05", "2026-11-03", "2026-11-01"]
@@ -19,7 +19,7 @@ def test_versions_per_doc(history_repo: HistoryRepo) -> None:
 
 def test_contemporary(history_repo: HistoryRepo) -> None:
     root, commits = history_repo
-    history = load_history(Git(root), "main")
+    history = History.load(Git(root), "main")
     a_versions_by_commit = {v.commit: v for v in history.docs["meta/a.md"]}
     b_versions_by_commit = {v.commit: v for v in history.docs["meta/b.md"]}
     assert (
@@ -35,7 +35,7 @@ def test_contemporary(history_repo: HistoryRepo) -> None:
 
 def test_previous_and_latest(history_repo: HistoryRepo) -> None:
     root, commits = history_repo
-    history = load_history(Git(root), "main")
+    history = History.load(Git(root), "main")
     newest, middle, oldest = history.docs["meta/a.md"]
     assert history.find_previous(oldest) is None
     assert history.find_previous(newest) == middle
@@ -53,7 +53,7 @@ def test_first_parent_merge(history_repo: HistoryRepo) -> None:
     run_git(root, "checkout", "-q", "main")
     run_git(root, "merge", "--no-ff", "-q", "-m", "Merge side", "side")
     merge = run_git(root, "rev-parse", "HEAD")
-    history = load_history(Git(root), "main")
+    history = History.load(Git(root), "main")
     newest = history.docs["meta/b.md"][0]
     assert newest.commit == merge
     assert newest.subject == "Merge side"
@@ -65,7 +65,7 @@ def test_quoted_path_and_unusual_subject(history_repo: HistoryRepo) -> None:
     root, _ = history_repo
     write_doc(root, 'meta/notes "draft".md', "Draft.\n")
     sha = make_commit(root, "add notes \x85 draft", "2026-11-06T12:00:00+00:00")
-    history = load_history(Git(root), "main")
+    history = History.load(Git(root), "main")
     versions = history.docs['meta/notes "draft".md']
     assert [(v.commit, v.subject) for v in versions] == [(sha, "add notes \x85 draft")]
     assert history.read_text(versions[0]).endswith("Draft.\n")
@@ -98,7 +98,7 @@ def test_not_utf8_message(history_repo: HistoryRepo) -> None:
     root, _ = history_repo
     (root / "docs/meta/bad.md").write_bytes(b"ok\xff")
     make_commit(root, "spec: add bad", "2026-11-06T12:00:00+00:00")
-    history = load_history(Git(root), "main")
+    history = History.load(Git(root), "main")
     [version] = history.docs["meta/bad.md"]
     assert not history.is_decodable(version)
     with pytest.raises(NotUtf8Error) as raised:
@@ -112,9 +112,9 @@ def test_templates_and_ref(history_repo: HistoryRepo) -> None:
     write_doc(root, "meta/templates/x.md", "Template.\n")
     make_commit(root, "add template")
     git = Git(root)
-    assert "meta/templates/x.md" not in load_history(git, "main").docs
+    assert "meta/templates/x.md" not in History.load(git, "main").docs
     with pytest.raises(UnknownRefError):
-        load_history(git, "nope")
+        History.load(git, "nope")
 
 
 def test_worktree_versions(history_repo: HistoryRepo) -> None:
@@ -122,24 +122,24 @@ def test_worktree_versions(history_repo: HistoryRepo) -> None:
     write_doc(root, "meta/a.md", "Edited, not committed.\n")
     write_doc(root, "meta/new.md", "Brand new.\n")
     git = Git(root)
-    history = load_history(git, "main", worktree=root)
+    history = History.load(git, "main", worktree=root)
     working_copy, newest_commit = history.docs["meta/a.md"][:2]
     assert (working_copy.short_id, working_copy.commit_index, working_copy.subject) == (
-        WORKTREE,
+        Version.WORKTREE,
         -1,
         "working copy (uncommitted)",
     )
     assert newest_commit.commit == commits["c5"]
     assert history.read_text(working_copy) == (root / "docs/meta/a.md").read_text()
-    assert [v.short_id for v in history.docs["meta/new.md"]] == [WORKTREE]
-    assert all(v.short_id != WORKTREE for v in history.docs["meta/b.md"])
-    plain = load_history(git, "main")
+    assert [v.short_id for v in history.docs["meta/new.md"]] == [Version.WORKTREE]
+    assert all(not v.is_worktree for v in history.docs["meta/b.md"])
+    plain = History.load(git, "main")
     assert "meta/new.md" not in plain.docs
-    assert all(v.short_id != WORKTREE for v in plain.docs["meta/a.md"])
+    assert all(not v.is_worktree for v in plain.docs["meta/a.md"])
 
 
 def test_strip_subject() -> None:
-    assert strip_subject("spec: x") == "x"
-    assert strip_subject("docs:x") == "x"
-    assert strip_subject("Spec: x") == "Spec: x"
-    assert strip_subject("fix: spec: x") == "fix: spec: x"
+    assert History.strip_subject("spec: x") == "x"
+    assert History.strip_subject("docs:x") == "x"
+    assert History.strip_subject("Spec: x") == "Spec: x"
+    assert History.strip_subject("fix: spec: x") == "fix: spec: x"

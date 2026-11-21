@@ -1,6 +1,7 @@
 """The page model and the HTML chrome around it.
 
-See the page anatomy in ``docs/architecture/docs-tooling.md``.
+A page is a doc's rendered body with its chrome: breadcrumb, title, status badge, components and tags, version
+picker, and the related and backlinks panel; an old version also gets a warning banner and a redirect doc a notice.
 
 Docs: architecture/docs-tooling.md
 """
@@ -11,95 +12,150 @@ from collections.abc import Callable, Container, Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 from types import MappingProxyType
-from typing import cast
+from typing import ClassVar, cast
 
 from jinja2 import Environment, PackageLoader, StrictUndefined, pass_context
 from jinja2.runtime import Context
 
-from .history import WORKTREE, Version
+from .history import Version
 from .markdown import Marker
-from .resolve import encode_href_path, make_component_url, make_doc_url, make_relative_url, make_tag_url
+from .urls import encode_href_path, make_component_url, make_doc_url, make_relative_url, make_tag_url
 
 STATIC_FILES = ("docspecsite.css", "docspecsite.js")
-LEADING_H1 = re.compile(r"\s*(<h1[\s>].*?</h1>)\s*", re.S)
-
-REDIRECT_LABELS: Mapping[str, str] = MappingProxyType(
-    {
-        "renamed": "Renamed",
-        "moved": "Moved",
-        "merged": "Merged",
-        "split": "Split",
-        "became-directory": "Became a directory",
-        "replaced": "Replaced by",
-        "removed": "Removed",
-    }
-)
 
 
 @dataclass(frozen=True)
 class PageLink:
-    """Link in the page chrome (breadcrumb, picker, lists), with an optional summary.
-
-    ``markers`` are shown after the link.
-    """
+    """Link in the page chrome (breadcrumb, picker, lists)."""
 
     title: str
+    """Text of the link."""
+
     url: str
+    """Site-root-relative URL the link points to."""
+
     summary: str = ""
+    """Summary shown next to the link; empty for none."""
+
     markers: tuple[Marker, ...] = ()
+    """Labels shown after the link."""
 
 
 @dataclass(frozen=True)
 class PickerEntry:
-    """Entry of a page's version picker: its label, the version's URL and whether it is the page shown."""
+    """Entry of a page's version picker, for one version of the doc."""
 
     label: str
+    """Text of the entry, naming the version."""
+
     url: str
+    """Site-root-relative URL of the version's page."""
+
     current: bool
+    """Whether the version is the one shown on the page."""
 
 
 @dataclass(frozen=True)
 class OldBanner:
-    """Banner of a page that shows a version other than the latest, with its date, short id and the latest page."""
+    """Banner of a page that shows a version other than the latest."""
 
     date: str
+    """Committer date of the version shown, ``YYYY-MM-DD``."""
+
     short: str
+    """Short id of the version shown."""
+
     latest_url: str
+    """Site-root-relative URL of the latest version's page."""
 
 
 @dataclass(frozen=True)
 class RedirectNotice:
-    """Notice of a redirect doc: what happened to it, where readers should go and why."""
+    """Notice of a redirect doc."""
+
+    REDIRECT_LABELS: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {
+            "renamed": "Renamed",
+            "moved": "Moved",
+            "merged": "Merged",
+            "split": "Split",
+            "became-directory": "Became a directory",
+            "replaced": "Replaced by",
+            "removed": "Removed",
+        }
+    )
+    """Label of each redirect kind, shown as what happened to the doc."""
 
     label: str
+    """What happened to the doc, from :attr:`.REDIRECT_LABELS`; the redirect kind itself when it has no label."""
+
     targets: tuple[PageLink, ...]
+    """Links to where readers should go instead."""
+
     reason: str
+    """Why the doc redirects; empty when it gives no reason."""
 
 
 @dataclass(frozen=True)
 class Page:
     """One HTML page of the site, with everything its template shows.
 
-    Every URL is site-root-relative; the template makes them relative to ``url``.
+    Every URL is site-root-relative; the template makes them relative to :attr:`.url`.
     """
 
+    LEADING_H1: ClassVar[re.Pattern[str]] = re.compile(r"\s*(<h1[\s>].*?</h1>)\s*", re.S)
+    """An ``<h1>`` element at the start of a body, with the spaces around it."""
+
     url: str
+    """Site path the page is written to."""
+
     title: str
+    """Title of the page."""
+
     status: str | None
+    """Status shown as a badge, e.g. ``implemented``; None for no badge."""
+
     components: tuple[str, ...]
+    """Components shown as badges."""
+
     tags: tuple[str, ...]
+    """Tags shown as badges."""
+
     body_html: str
+    """Rendered HTML of the page's content."""
+
     breadcrumb: tuple[PageLink, ...] = ()
+    """Links to the pages above this one, from the top."""
+
     picker: tuple[PickerEntry, ...] = ()
+    """Entries of the version picker; empty for no picker."""
+
     diff_url: str | None = None
+    """URL of the diff against the previous version; None when there is none."""
+
     old: OldBanner | None = None
+    """Banner for a version other than the latest; None for the latest version."""
+
     redirect: RedirectNotice | None = None
+    """Notice of a redirect doc; None for other pages."""
+
     children: tuple[PageLink, ...] = ()
+    """Links shown in the children panel."""
+
     children_heading: str = "Submodules"
+    """Heading of the children panel."""
+
     related: tuple[PageLink, ...] = ()
+    """Links to the related docs."""
+
     backlinks: tuple[PageLink, ...] = ()
+    """Links to the docs that link to this page's doc."""
+
     described_in: tuple[PageLink, ...] = ()
+    """Links to the docs describing the code on this page."""
+
     mermaid: bool = False
+    """Whether the body has a Mermaid diagram, so the page loads the Mermaid script."""
 
     @property
     def body_h1(self) -> str | None:
@@ -107,25 +163,25 @@ class Page:
 
         The template shows it in the title position.
         """
-        match = LEADING_H1.match(self.body_html)
+        match = self.LEADING_H1.match(self.body_html)
         return match.group(1) if match else None
 
     @property
     def body_rest(self) -> str:
         """The body HTML without its leading ``<h1>`` element."""
-        match = LEADING_H1.match(self.body_html)
+        match = self.LEADING_H1.match(self.body_html)
         return self.body_html[match.end() :] if match else self.body_html
 
 
 def make_picker_label(version: Version) -> str:
     """Return the label of a version in the version picker.
 
-    It reads ``<date> · <short-sha> · <subject>``; the working copy shows only its subject.
+    It reads ``<date> · <short SHA hash> · <subject>``; the working copy shows only its subject.
 
     Args:
         version: Version shown as an entry of the picker, or in a diff page's heading.
     """
-    if version.short_id == WORKTREE:
+    if version.is_worktree:
         return version.subject
     return f"{version.date} · {version.short_id} · {version.subject}"
 
@@ -175,11 +231,10 @@ def create_environment() -> Environment:
 
 
 class Templates:
-    """Jinja templates of the package, rendering ``Page`` objects to HTML.
+    """Jinja templates of the package, rendering ``Page`` objects to HTML."""
 
-    Attributes:
-        environment: Jinja environment loading the package's templates, with docspecsite's filters.
-    """
+    environment: Environment
+    """Jinja environment loading the package's templates, with docspecsite's filters."""
 
     def __init__(self) -> None:
         self.environment = create_environment()
@@ -209,8 +264,8 @@ class Templates:
 
         Args:
             context: Render context; its ``page`` gives the URL the result is relative to.
-            path: Unencoded site path of a tag or component index page, as ``make_tag_url`` and ``make_component_url``
-                give it.
+            path: Unencoded site path of a tag or component index page, as
+                :func:`~docspecsite.urls.make_tag_url` and :func:`~docspecsite.urls.make_component_url` give it.
         """
         page: Page = context["page"]
         return make_relative_url(encode_href_path(path), page.url)
@@ -219,7 +274,7 @@ class Templates:
         """Render a page to HTML.
 
         Args:
-            page: Page to render; its ``url`` is the base of every relative link in the output.
+            page: Page to render; its :attr:`.Page.url` is the base of every relative link in the output.
             site_title: Title of the home doc, appended to the page title in ``<title>``.
             indexes: The index URLs that tag and component links may point to; links to others are not made. None makes
                 every such link.
