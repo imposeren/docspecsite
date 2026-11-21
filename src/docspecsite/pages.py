@@ -6,7 +6,6 @@ picker, and the related and backlinks panel; an old version also gets a warning 
 Docs: architecture/docs-tooling.md
 """
 
-import posixpath
 import re
 from collections.abc import Callable, Container, Mapping
 from dataclasses import dataclass
@@ -17,9 +16,18 @@ from typing import ClassVar, cast
 from jinja2 import Environment, PackageLoader, StrictUndefined, pass_context
 from jinja2.runtime import Context
 
+from .docs import make_dir_index_path
 from .history import Version
 from .markdown import Marker
-from .urls import encode_href_path, make_component_url, make_doc_url, make_relative_url, make_tag_url
+from .urls import (
+    STATUS_PAGE,
+    encode_href_path,
+    list_ancestor_directories,
+    make_component_url,
+    make_doc_url,
+    make_relative_url,
+    make_tag_url,
+)
 
 STATIC_FILES = ("docspecsite.css", "docspecsite.js")
 
@@ -51,7 +59,7 @@ class PickerEntry:
     url: str
     """Site-root-relative URL of the version's page."""
 
-    current: bool
+    is_current: bool
     """Whether the version is the one shown on the page."""
 
 
@@ -59,11 +67,8 @@ class PickerEntry:
 class OldBanner:
     """Banner of a page that shows a version other than the latest."""
 
-    date: str
-    """Committer date of the version shown, ``YYYY-MM-DD``."""
-
-    short: str
-    """Short id of the version shown."""
+    version: Version
+    """Version the page shows."""
 
     latest_url: str
     """Site-root-relative URL of the latest version's page."""
@@ -133,7 +138,7 @@ class Page:
     diff_url: str | None = None
     """URL of the diff against the previous version; None when there is none."""
 
-    old: OldBanner | None = None
+    old_banner: OldBanner | None = None
     """Banner for a version other than the latest; None for the latest version."""
 
     redirect: RedirectNotice | None = None
@@ -145,7 +150,7 @@ class Page:
     children_heading: str = "Submodules"
     """Heading of the children panel."""
 
-    related: tuple[PageLink, ...] = ()
+    related_links: tuple[PageLink, ...] = ()
     """Links to the related docs."""
 
     backlinks: tuple[PageLink, ...] = ()
@@ -154,7 +159,7 @@ class Page:
     described_in: tuple[PageLink, ...] = ()
     """Links to the docs describing the code on this page."""
 
-    mermaid: bool = False
+    has_mermaid: bool = False
     """Whether the body has a Mermaid diagram, so the page loads the Mermaid script."""
 
     @property
@@ -186,15 +191,6 @@ def make_picker_label(version: Version) -> str:
     return f"{version.date} · {version.short_id} · {version.subject}"
 
 
-def make_dir_index_path(directory: str) -> str:
-    """Return the doc path of the index of a directory; empty for the docs root.
-
-    Args:
-        directory: Directory relative to ``docs/`` whose ``index.md`` is wanted; empty for ``docs/`` itself.
-    """
-    return f"{directory}/index.md" if directory else "index.md"
-
-
 def build_breadcrumb(path: str, titles: Mapping[str, str]) -> tuple[PageLink, ...]:
     """Return the breadcrumb links for a doc, root first.
 
@@ -206,18 +202,12 @@ def build_breadcrumb(path: str, titles: Mapping[str, str]) -> tuple[PageLink, ..
         titles: Titles of the latest docs by path relative to ``docs/``; give the link texts and decide which
             directory indexes exist.
     """
-    directory = posixpath.dirname(path)
-    if posixpath.basename(path) == "index.md":
-        if not directory:
-            return ()
-        directory = posixpath.dirname(directory)
-    chain: list[str] = []
-    while True:
-        chain.append(make_dir_index_path(directory))
-        if not directory:
-            break
-        directory = posixpath.dirname(directory)
-    return tuple(PageLink(titles[index], make_doc_url(index)) for index in reversed(chain) if index in titles)
+    index_paths = (make_dir_index_path(directory) for directory in ["", *list_ancestor_directories(path)])
+    return tuple(
+        PageLink(titles[index_path], make_doc_url(index_path))
+        for index_path in index_paths
+        if index_path != path and index_path in titles
+    )
 
 
 def create_environment() -> Environment:
@@ -238,12 +228,15 @@ class Templates:
 
     def __init__(self) -> None:
         self.environment = create_environment()
-        # Jinja leaves ``filters`` unannotated, so its inferred value type is the union of the built-in filters.
+        # Jinja leaves ``filters`` and ``globals`` unannotated, so their inferred value types are the unions of the
+        # built-in ones.
         filters = cast(dict[str, Callable[..., object]], self.environment.filters)
         filters["rel"] = self.make_relative
         filters["rel_href"] = self.make_relative_href
         filters["tag_url"] = make_tag_url
         filters["component_url"] = make_component_url
+        template_globals = cast(dict[str, object], self.environment.globals)
+        template_globals["status_page"] = STATUS_PAGE
 
     @staticmethod
     @pass_context

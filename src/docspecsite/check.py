@@ -1,4 +1,4 @@
-"""The ``docspecsite check`` command and its checks of the docs.
+"""The checks of a repository's docs: front matter, links, code links, indexes, names and staged deletes.
 
 Docs: behavior/requirements.md#checks
 Docs: architecture/docs-tooling.md
@@ -12,10 +12,10 @@ import griffe
 
 from .coderef import Codebase, CodeError
 from .config import ProjectConfig
-from .docs import DOCS, Doc
+from .docs import DOCS_DIR, Doc, is_dir_index, make_dir_index_path
 from .docset import DocSet
 from .git import Git
-from .links import collect_code_refs, collect_outgoing_refs
+from .links import DocLinks
 from .markdown import MarkdownText
 from .problems import DocCheck, Problem
 from .schema import FrontMatterValidator
@@ -50,18 +50,19 @@ class LinkCheck(DocCheck):
         """Check that the links of a doc resolve and return the problems found.
 
         Body and front-matter links count; a missing target or heading anchor is a problem. Link targets are looked up
-        as files under :attr:`root`, and anchors in the target docs' text through :meth:`read_heading_anchors`.
+        as files under :attr:`root`, and anchors are looked up among the headings of the target docs through
+        :meth:`read_heading_anchors`.
 
         Args:
             doc: Working-tree doc whose links are checked.
         """
-        refs, problems = collect_outgoing_refs(doc)
+        refs, problems = DocLinks(doc).collect_outgoing_refs()
         for ref in refs:
             file = self.root / ref.target
-            is_doc = ref.target.startswith(DOCS) and ref.target.endswith(".md")
+            is_existing_doc_target = ref.target.startswith(DOCS_DIR) and ref.target.endswith(".md") and file.is_file()
             if not file.exists():
                 problems.append(Problem(doc.path, ref.line_number, f"broken link: {ref.target} does not exist"))
-            elif ref.kind != "body" and not (is_doc and file.is_file()):
+            elif ref.kind != "body" and not is_existing_doc_target:
                 problems.append(
                     Problem(
                         doc.path,
@@ -69,16 +70,17 @@ class LinkCheck(DocCheck):
                         f'"{ref.kind}" must be a doc (path relative to docs/): {ref.target}',
                     )
                 )
-            elif ref.anchor and is_doc and file.is_file() and ref.anchor not in self.read_heading_anchors(ref.target):
+            elif ref.anchor and is_existing_doc_target and ref.anchor not in self.read_heading_anchors(ref.target):
                 problems.append(Problem(doc.path, ref.line_number, f'no heading "#{ref.anchor}" in {ref.target}'))
         return problems
 
     def read_heading_anchors(self, target: str) -> set[str]:
         """Return the heading anchors of a link target's text, read from the file once per target.
 
+        The anchors are kept in :attr:`heading_anchors_by_target`, so each file is read once.
+
         Args:
-            target: Path of an existing Markdown file relative to the repository root; the anchors are kept in
-                :attr:`heading_anchors_by_target` for later calls.
+            target: Path of an existing Markdown file relative to the repository root.
         """
         if target not in self.heading_anchors_by_target:
             target_text = MarkdownText(read_text(self.root / target))
@@ -110,13 +112,13 @@ class CodeLinkCheck(DocCheck):
             doc: Working-tree doc whose code links are looked up in :attr:`codebase`.
         """
         problems: list[Problem] = []
-        for ref in collect_code_refs(doc):
-            if self.codebase.index.get(ref.dotted) is not None:
+        for ref in DocLinks(doc).collect_code_refs():
+            if self.codebase.index.get(ref.dotted_path) is not None:
                 continue
             if ref.kind == "body":
-                message = f"code: link to unknown code element: {ref.dotted}"
+                message = f"code: link to unknown code element: {ref.dotted_path}"
             else:
-                message = f'"code" entry is not a code element: {ref.dotted}'
+                message = f'"code" entry is not a code element: {ref.dotted_path}'
             problems.append(Problem(doc.path, ref.line_number, message))
         return problems
 
@@ -132,7 +134,7 @@ class Checker:
     """Characters a file or directory name under ``docs/`` must not contain."""
 
     # Problem texts
-    ADVICE = "docs are never deleted or renamed; keep the file as a redirect doc (meta/versioning.md)"
+    KEEP_AS_REDIRECT_ADVICE = "docs are never deleted or renamed; keep the file as a redirect doc (meta/versioning.md)"
 
     FORBIDDEN_NAME_MESSAGE = 'name contains "#" or "%", which break links to the rendered page'
 
@@ -215,6 +217,11 @@ class Checker:
         return FrontMatterValidator(self.vocabulary, adr_prefixes)
 
     @cached_property
+    def link_check(self) -> LinkCheck:
+        """The check of the docs' links, with the heading anchors of each target read once for all checks."""
+        return LinkCheck(self.root)
+
+    @cached_property
     def codebase(self) -> Codebase | None:
         """The project code; None when the settings or the code failed to load. A code failure is recorded."""
         if self.config is None:
@@ -236,39 +243,46 @@ class Checker:
         file = error.file if isinstance(error, CodeError) else None
         return Problem(file or "(code)", None, f"cannot load code: {error}", under_docs=False)
 
-    def run(self, staged: bool, code: bool = False) -> list[Problem]:
+    def make_doc_checks(self) -> list[DocCheck]:
+        """Return the checks of single docs available for the loaded settings and code.
+
+        The front matter and the links are always checked; the code links only when the code is loaded.
+        """
+        doc_checks: list[DocCheck] = [self.front_matter_validator, self.link_check]
+        if self.codebase is not None:
+            doc_checks.append(CodeLinkCheck(self.codebase))
+        return doc_checks
+
+    def run(self, include_staged: bool, include_code: bool = False) -> list[Problem]:
         """Run all checks of the docs and return the problems found, sorted and without duplicates.
 
         The checks cover front matter, links and their heading anchors, directory indexes, file names, links from
-        the code, and the settings; the full list is the project's requirement DS-20. The checks of single docs
-        (front matter, links, code links) run in one pass over the docs, the others per directory, path or code
-        element. The references in the docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only with
-        ``code``, by :meth:`check_code_references`.
+        the code, and the settings; the full list is the project's requirement DS-20. The references in the
+        docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when ``include_code`` is set, by
+        :meth:`check_code_references`.
 
         Docs: behavior/requirements.md#checks
 
         Args:
-            staged: Also report docs staged as deleted or renamed; needs git.
-            code: Also check the references in the code's docstrings.
+            include_staged: Also report docs staged as deleted or renamed; needs git.
+            include_code: Also check the references in the code's docstrings.
 
         Raises:
-            GitError: ``staged`` is set and the repository root is not a git working tree.
+            GitError: ``include_staged`` is set and the repository root is not a git working tree.
         """
         problems: list[Problem] = []
-        doc_checks: list[DocCheck] = [self.front_matter_validator, LinkCheck(self.root)]
-        if self.codebase is not None:
-            doc_checks.append(CodeLinkCheck(self.codebase))
+        doc_checks = self.make_doc_checks()
         for doc in self.doc_set:
             for doc_check in doc_checks:
                 problems.extend(doc_check.check(doc))
         problems.extend(self.check_indexes())
         problems.extend(self.check_names())
         try:
-            if code:
+            if include_code:
                 problems.extend(self.check_code_references())
         except (CodeError, griffe.GriffeError) as error:
             problems.append(self.make_code_problem(error))
-        if staged:
+        if include_staged:
             problems.extend(self.find_staged_deletes_renames())
         # Read last: the checks above load the settings and the code, which records their problems.
         problems.extend(self.loading_problems)
@@ -308,7 +322,7 @@ class Checker:
             doc = self.doc_set.by_path.get(path)
             if doc is None:
                 message = f"Docs: line points to a missing doc: {path}"
-            elif anchor and anchor not in MarkdownText(doc.body).collect_heading_anchors():
+            elif anchor and anchor not in self.link_check.read_heading_anchors(DOCS_DIR + path):
                 message = f'no heading "#{anchor}" in docs/{path}'
             else:
                 continue
@@ -324,45 +338,48 @@ class Checker:
         docs_dir = self.root / "docs"
         problems: list[Problem] = []
         for directory, dir_names, file_names in self.docs_tree:
-            rel = directory.relative_to(docs_dir).as_posix()
-            rel = "" if rel == "." else rel
-            index_path = posixpath.join(rel, "index.md")
-            index = self.doc_set.by_path.get(index_path)
-            if index is None:
-                problems.append(Problem(rel, None, "directory has no index.md"))
+            directory_path = directory.relative_to(docs_dir).as_posix()
+            directory_path = "" if directory_path == "." else directory_path
+            index_path = make_dir_index_path(directory_path)
+            index_doc = self.doc_set.by_path.get(index_path)
+            if index_doc is None:
+                problems.append(Problem(directory_path, None, "directory has no index.md"))
                 continue
-            described: dict[str, bool] = {}
-            first_bare_line: dict[str, int] = {}
-            for entry in MarkdownText(index.body).list_entries(self.CHILDREN_HEADING):
+            # Keyed by the listed child's path relative to docs/: whether any of its entries has a description,
+            # and the file line of its first entry without one.
+            is_described_by_path: dict[str, bool] = {}
+            first_bare_line_number_by_path: dict[str, int] = {}
+            for entry in MarkdownText(index_doc.body).list_entries(self.CHILDREN_HEADING):
                 for target in entry.targets:
-                    path = target.partition("#")[0].partition("?")[0]
-                    if not path or ":" in path:
+                    target_path = target.partition("#")[0].partition("?")[0]
+                    if not target_path or ":" in target_path:
                         continue
-                    resolved = posixpath.normpath(posixpath.join(rel, path))
-                    resolved = resolved.removesuffix("/index.md")
+                    listed_path = posixpath.normpath(posixpath.join(directory_path, target_path))
+                    listed_path = listed_path.removesuffix("/index.md")
                     has_text = bool(entry.text)
-                    described[resolved] = described.get(resolved, False) or has_text
+                    is_described_by_path[listed_path] = is_described_by_path.get(listed_path, False) or has_text
                     if not has_text:
-                        first_bare_line.setdefault(resolved, index.body_line + entry.line_number - 1)
+                        line_number = index_doc.body_line + entry.line_number - 1
+                        first_bare_line_number_by_path.setdefault(listed_path, line_number)
             children = sorted([*((name, True) for name in dir_names), *((name, False) for name in file_names)])
             for name, is_dir in children:
-                child_rel = posixpath.join(rel, name)
+                child_path = posixpath.join(directory_path, name)
                 if is_dir:
                     entry_name = f"{name}/"
-                elif Path(name).suffix == ".md" and name != "index.md":
-                    child_doc = self.doc_set.by_path.get(child_rel)
-                    if child_doc and child_doc.front_matter and child_doc.front_matter.get("status") == "redirect":
+                elif Path(name).suffix == ".md" and not is_dir_index(name):
+                    child_doc = self.doc_set.by_path.get(child_path)
+                    if child_doc is not None and child_doc.is_redirect:
                         continue
                     entry_name = name
                 else:
                     continue
-                if child_rel not in described:
+                if child_path not in is_described_by_path:
                     problems.append(Problem(index_path, None, f"child {entry_name} is not listed"))
-                elif not described[child_rel]:
+                elif not is_described_by_path[child_path]:
                     problems.append(
                         Problem(
                             index_path,
-                            first_bare_line[child_rel],
+                            first_bare_line_number_by_path[child_path],
                             f"child {entry_name} is listed without a description",
                         )
                     )
@@ -402,10 +419,10 @@ class Checker:
             GitError: The repository root is not a git working tree.
         """
         problems: list[Problem] = []
-        for change in self.git.list_staged_changes(DOCS):
-            old = change.old_path.removeprefix(DOCS)
-            if change.status == "D":
-                problems.append(Problem(old, None, f"deleted; {self.ADVICE}"))
-            elif change.status.startswith("R"):
-                problems.append(Problem(old, None, f"renamed to {change.new_path}; {self.ADVICE}"))
+        for change in self.git.list_staged_changes(DOCS_DIR):
+            old = change.old_path.removeprefix(DOCS_DIR)
+            if change.is_deleted:
+                problems.append(Problem(old, None, f"deleted; {self.KEEP_AS_REDIRECT_ADVICE}"))
+            elif change.is_renamed:
+                problems.append(Problem(old, None, f"renamed to {change.new_path}; {self.KEEP_AS_REDIRECT_ADVICE}"))
         return problems

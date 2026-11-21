@@ -67,7 +67,7 @@ class MarkdownText:
     """Markdown text parsed once, with what is read from its tokens."""
 
     # Constants
-    BREAKS = ("softbreak", "hardbreak")
+    BREAK_TOKEN_TYPES = ("softbreak", "hardbreak")
     """Types of the inline child tokens that break a line."""
 
     # Arguments of __init__
@@ -112,16 +112,16 @@ class MarkdownText:
             inline: Inline token of one block; its ``map`` gives the first line, and line breaks inside count on from
                 it, including those inside a role's written text.
         """
-        line = (inline.map[0] if inline.map else 0) + 1
+        line_number = (inline.map[0] if inline.map else 0) + 1
         for child in inline.children or []:
-            if child.type in MarkdownText.BREAKS:
-                line += 1
+            if child.type in MarkdownText.BREAK_TOKEN_TYPES:
+                line_number += 1
             elif child.type == "link_open":
                 role_source: str | None = child.meta.get("role_source")
-                yield Link(unquote(str(child.attrGet("href") or "")), line, role_source)
-                line += role_source.count("\n") if role_source is not None else 0
+                yield Link(unquote(str(child.attrGet("href") or "")), line_number, role_source)
+                line_number += role_source.count("\n") if role_source is not None else 0
             elif child.type == "image":
-                yield Link(unquote(str(child.attrGet("src") or "")), line)
+                yield Link(unquote(str(child.attrGet("src") or "")), line_number)
 
     @staticmethod
     def join_inline_text(inline: Token, *, skip_links: bool) -> str:
@@ -132,17 +132,17 @@ class MarkdownText:
             skip_links: Leave out the text inside links, to get a list item's description apart from its link titles.
         """
         parts: list[str] = []
-        in_link = 0
+        link_depth = 0
         for child in inline.children or []:
             if child.type == "link_open":
-                in_link += 1
+                link_depth += 1
             elif child.type == "link_close":
-                in_link -= 1
-            elif in_link and skip_links:
+                link_depth -= 1
+            elif link_depth > 0 and skip_links:
                 continue
             elif child.type in ("text", "code_inline"):
                 parts.append(child.content)
-            elif child.type in MarkdownText.BREAKS:
+            elif child.type in MarkdownText.BREAK_TOKEN_TYPES:
                 parts.append(" ")
         return "".join(parts)
 
@@ -197,21 +197,21 @@ class MarkdownText:
                 level. None counts every table.
         """
         tokens = self.tokens
-        inside = self.mark_in_section(section)
+        in_section_flags = self.mark_in_section(section)
         codes: list[str] = []
         in_body = False
-        first_cell = False
+        is_first_cell = False
         for token_index, token in enumerate(tokens):
             if token.type == "tbody_open":
                 in_body = True
             elif token.type == "tbody_close":
                 in_body = False
             elif token.type == "tr_open":
-                first_cell = True
-            elif token.type == "inline" and in_body and first_cell:
-                first_cell = False
+                is_first_cell = True
+            elif token.type == "inline" and in_body and is_first_cell:
+                is_first_cell = False
                 children = token.children or []
-                if inside[token_index] and children and children[0].type == "code_inline":
+                if in_section_flags[token_index] and children and children[0].type == "code_inline":
                     codes.append(children[0].content)
         return codes
 
@@ -225,10 +225,10 @@ class MarkdownText:
                 included), up to the next heading of the same or a higher level. None counts every list item.
         """
         tokens = self.tokens
-        inside = self.mark_in_section(section)
+        in_section_flags = self.mark_in_section(section)
         entries: list[Entry] = []
         for token_index, token in enumerate(tokens):
-            if token.type != "list_item_open" or not token.map or not inside[token_index]:
+            if token.type != "list_item_open" or not token.map or not in_section_flags[token_index]:
                 continue
             inlines: list[Token] = []
             depth = 0
@@ -244,8 +244,9 @@ class MarkdownText:
                 scan_index += 1
             targets = tuple(link.target for inline in inlines for link in self.iter_inline_links(inline))
             if targets:
-                text_parts = (self.join_inline_text(t, skip_links=True) for t in inlines)
-                entries.append(Entry(targets, " ".join(p.strip() for p in text_parts if p.strip()), token.map[0] + 1))
+                text_parts = (self.join_inline_text(inline, skip_links=True) for inline in inlines)
+                text = " ".join(part.strip() for part in text_parts if part.strip())
+                entries.append(Entry(targets, text, token.map[0] + 1))
         return entries
 
 
@@ -273,7 +274,7 @@ class RenderedLink:
     """Whether link text left without an ``href`` is shown as code, as a link to code would be, unless it already is
     one code span."""
 
-    text: str | None = None
+    code_text: str | None = None
     """Text that replaces the link's content, shown as one code span; None keeps the content."""
 
 
@@ -304,7 +305,7 @@ class HtmlRenderer:
     """
 
     # Arguments of __init__
-    link: Callable[[str], RenderedLink]
+    resolve_link: Callable[[str], RenderedLink]
     """See :meth:`__init__`."""
 
     toc_min_headings: int
@@ -314,20 +315,20 @@ class HtmlRenderer:
     """See :meth:`__init__`."""
 
     def __init__(
-        self, link: Callable[[str], RenderedLink], toc_min_headings: int = 0, *, use_roles: bool = False
+        self, resolve_link: Callable[[str], RenderedLink], toc_min_headings: int = 0, *, use_roles: bool = False
     ) -> None:
         """Prepare the rendering of texts whose links are resolved the same way.
 
         Args:
-            link: Called for every link and image target (as :meth:`MarkdownText.extract_links` returns it) to
+            resolve_link: Called for every link and image target (as :meth:`MarkdownText.extract_links` returns it) to
                 decide how it renders; a result with no href leaves the link text as plain text, and its markers
                 follow the link.
             toc_min_headings: Fewest ``##`` headings from which a "Contents" list of them (``###`` nested) is
                 inserted before the first ``##``; 0 turns it off.
             use_roles: Read Sphinx's Python roles as links whose target starts with ``role:``, as in a docstring; their
-                link text is set by the ``text`` of what ``link`` returns.
+                link text is set by the :attr:`~RenderedLink.code_text` of what ``resolve_link`` returns.
         """
-        self.link = link
+        self.resolve_link = resolve_link
         self.toc_min_headings = toc_min_headings
         self.use_roles = use_roles
 
@@ -361,7 +362,9 @@ class HtmlRenderer:
         Args:
             markers: Labels in the order they are shown; empty gives no HTML.
         """
-        return "".join(f'<span class="marker {escapeHtml(css)}">{escapeHtml(text)}</span>' for css, text in markers)
+        return "".join(
+            f'<span class="marker {escapeHtml(css_class)}">{escapeHtml(text)}</span>' for css_class, text in markers
+        )
 
     @staticmethod
     def render_toc_item(anchor: str, label: str) -> str:
@@ -374,14 +377,14 @@ class HtmlRenderer:
         return f'<a href="#{escapeHtml(anchor)}">{escapeHtml(label)}</a>'
 
     @staticmethod
-    def render_toc_sublist(subs: list[tuple[str, str]]) -> str:
+    def render_toc_sublist(subsections: list[tuple[str, str]]) -> str:
         """Return the HTML list of a section's subsections in the Contents list.
 
         Args:
-            subs: The ``(anchor, label)`` of each ``###`` heading of the section, in order; empty gives no HTML.
+            subsections: The ``(anchor, label)`` of each ``###`` heading of the section, in order; empty gives no HTML.
         """
-        items = "".join(f"<li>{HtmlRenderer.render_toc_item(*sub)}</li>" for sub in subs)
-        return "<ol>" + items + "</ol>" if subs else ""
+        items = "".join(f"<li>{HtmlRenderer.render_toc_item(*subsection)}</li>" for subsection in subsections)
+        return "<ol>" + items + "</ol>" if subsections else ""
 
     def render(self, text: str) -> str:
         """Render Markdown to HTML.
@@ -394,20 +397,21 @@ class HtmlRenderer:
         for token in tokens:
             if token.type == "inline":
                 self.rewrite_inline(token)
-        contents = self.build_toc(tokens)
-        if contents:
+        toc = self.build_toc(tokens)
+        if toc is not None:
+            toc_index, toc_html = toc
             block = Token("html_block", "", 0)
-            block.content = contents[1]
-            tokens.insert(contents[0], block)
+            block.content = toc_html
+            tokens.insert(toc_index, block)
         renderer = BodyRenderer(parser)
         return renderer.render(tokens, parser.options, {})
 
     def rewrite_inline(self, inline: Token) -> None:
         """Rewrite in place the link and image targets of an inline token.
 
-        Each target goes through :attr:`link`: its href replaces the target, and its markers are added after the link.
-        A link with a :attr:`~RenderedLink.text` gets that text as its only content, in one code span. A link whose
-        :attr:`href <RenderedLink.href>` is None is reduced to its text, in ``<code>`` when its
+        Each target goes through :attr:`resolve_link`: its href replaces the target, and its markers are added after the
+        link. A link with a :attr:`~RenderedLink.code_text` gets that text as its only content, in one code span. A link
+        whose :attr:`href <RenderedLink.href>` is None is reduced to its text, in ``<code>`` when its
         :attr:`~RenderedLink.use_code_style` is set and the text is not one code span already.
 
         Args:
@@ -415,36 +419,36 @@ class HtmlRenderer:
         """
         rewritten_tokens: list[Token] = []
         # One (link, index in rewritten_tokens of its first content token) per open link, innermost last.
-        pending: list[tuple[RenderedLink, int]] = []
+        open_links: list[tuple[RenderedLink, int]] = []
         for child in inline.children or []:
             if child.type == "link_open":
                 raw = str(child.attrGet("href") or "")
                 decoded = unquote(raw)
-                rendered_link = self.link(decoded)
+                rendered_link = self.resolve_link(decoded)
                 if rendered_link.href is not None:
                     child.attrSet("href", self.make_out_href(raw, decoded, rendered_link.href))
                     rewritten_tokens.append(child)
-                pending.append((rendered_link, len(rewritten_tokens)))
+                open_links.append((rendered_link, len(rewritten_tokens)))
                 continue
             elif child.type == "link_close":
-                rendered_link, content_start = pending.pop()
-                if rendered_link.text is not None:
-                    code = Token("code_inline", "code", 0)
-                    code.content = rendered_link.text
-                    rewritten_tokens[content_start:] = [code]
+                rendered_link, content_start = open_links.pop()
+                if rendered_link.code_text is not None:
+                    code_token = Token("code_inline", "code", 0)
+                    code_token.content = rendered_link.code_text
+                    rewritten_tokens[content_start:] = [code_token]
                 if rendered_link.href is not None:
                     rewritten_tokens.append(child)
                 elif rendered_link.use_code_style:
                     self.wrap_in_code(rewritten_tokens, content_start)
                 if rendered_link.markers:
-                    marker = Token("html_inline", "", 0)
-                    marker.content = self.render_markers_html(rendered_link.markers)
-                    rewritten_tokens.append(marker)
+                    markers_token = Token("html_inline", "", 0)
+                    markers_token.content = self.render_markers_html(rendered_link.markers)
+                    rewritten_tokens.append(markers_token)
                 continue
             elif child.type == "image":
                 raw = str(child.attrGet("src") or "")
                 decoded = unquote(raw)
-                rendered_link = self.link(decoded)
+                rendered_link = self.resolve_link(decoded)
                 if rendered_link.href is not None:
                     child.attrSet("src", self.make_out_href(raw, decoded, rendered_link.href))
             rewritten_tokens.append(child)
@@ -496,6 +500,7 @@ class HtmlRenderer:
         if first_h2_index is None or len(sections) < self.toc_min_headings:
             return None
         items = "".join(
-            f"<li>{self.render_toc_item(a, label)}{self.render_toc_sublist(subs)}</li>" for a, label, subs in sections
+            f"<li>{self.render_toc_item(anchor, label)}{self.render_toc_sublist(subsections)}</li>"
+            for anchor, label, subsections in sections
         )
         return first_h2_index, f'<nav class="toc"><h2 class="toc-title">Contents</h2><ol>{items}</ol></nav>\n'

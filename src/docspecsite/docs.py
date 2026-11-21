@@ -1,15 +1,19 @@
 """The docs tree as read from the working tree."""
 
+import posixpath
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, TypeGuard
 
 import yaml
 
 from .markdown import MarkdownText
 
-DOCS = "docs/"
+DOCS_DIR = "docs/"
 """Directory of the docs, as a prefix of repository-relative POSIX paths."""
 TEMPLATES_DIR = "meta/templates/"
+DIR_INDEX_NAME = "index.md"
+"""File name of a directory's index doc."""
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,11 @@ class Doc:
         """The front matter's ``title``; the path when there is none."""
         return str((self.front_matter or {}).get("title", self.path))
 
+    @property
+    def is_redirect(self) -> bool:
+        """Whether the doc is a redirect doc; see :func:`is_redirect`."""
+        return is_redirect(self.front_matter or {})
+
     @classmethod
     def parse(cls, path: str, text: str) -> Self:
         """Split the text of a doc into front matter and body.
@@ -61,21 +70,48 @@ class Doc:
         return cls(path, {str(k): v for k, v in front_matter.items()}, body, body_line, None)
 
 
+def is_redirect(front_matter: Mapping[str, object]) -> bool:
+    """Return whether front matter belongs to a redirect doc (``status: redirect``).
+
+    A redirect doc is kept in place of a doc that moved or went away.
+
+    Args:
+        front_matter: Parsed front matter of a doc; only its ``status`` field is read.
+    """
+    return front_matter.get("status") == "redirect"
+
+
 def make_string_tuple(value: object, *, strings_only: bool = False) -> tuple[str, ...]:
     """Return the items of a list value as strings.
 
     The result is empty when the value is not a list.
 
     Args:
-        value: Parsed front-matter or TOML value expected to be a list, such as ``tags``, ``code`` or
-            ``code-dirs``.
-        strings_only: Leave out the items that are not strings, instead of converting them with ``str``.
+        value: Parsed front-matter or TOML setting value expected to be a list, such as the ``tags`` field or the
+            ``code-dirs`` setting.
+        strings_only: Whether to skip items that are not strings instead of converting them with ``str``.
     """
     if not isinstance(value, list):
         return ()
-    if strings_only:
-        return tuple(item for item in value if isinstance(item, str))
-    return tuple(str(item) for item in value)
+    return tuple(str(item) for item in value if not strings_only or isinstance(item, str))
+
+
+def is_str_list(value: object) -> TypeGuard[list[str]]:
+    """Return whether a value is a list whose items are all strings; an empty list counts.
+
+    Args:
+        value: Parsed front-matter or TOML setting value of any type, such as ``components`` or ``code-dirs``.
+    """
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def derive_doc_path(repo_path: str) -> str | None:
+    """Return the path relative to ``docs/`` of a repo path under ``docs/``; None for a path outside it.
+
+    Args:
+        repo_path: Path relative to the repository root, such as a link target.
+    """
+    return repo_path.removeprefix(DOCS_DIR) if repo_path.startswith(DOCS_DIR) else None
 
 
 def is_template(path: str) -> bool:
@@ -88,3 +124,32 @@ def is_template(path: str) -> bool:
             as templates too).
     """
     return path.startswith(TEMPLATES_DIR) and path != f"{TEMPLATES_DIR}index.md"
+
+
+def make_dir_index_path(directory: str) -> str:
+    """Return the doc path of a directory's index doc; ``index.md`` for the docs root.
+
+    Args:
+        directory: Directory relative to ``docs/`` whose index is wanted; empty for ``docs/`` itself.
+    """
+    return posixpath.join(directory, DIR_INDEX_NAME)
+
+
+def is_dir_index(path: str) -> bool:
+    """Return whether a doc is the index doc of its directory.
+
+    Args:
+        path: Doc path relative to ``docs/``, or a bare file name.
+    """
+    return posixpath.basename(path) == DIR_INDEX_NAME
+
+
+def is_docs_asset(path: str) -> bool:
+    """Return whether a repo file is copied into the site as it is: a non-Markdown file under ``docs/``.
+
+    Templates are left out.
+
+    Args:
+        path: Repo path of the file to classify.
+    """
+    return path.startswith(DOCS_DIR) and not path.endswith(".md") and not is_template(path.removeprefix(DOCS_DIR))

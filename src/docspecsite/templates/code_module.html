@@ -8,10 +8,10 @@
 {% if section.rows -%}
 <table class="doc-section">
 <caption>{{ section.title }}</caption>
-<thead><tr>{% if section.named %}<th>Name</th>{% endif %}<th>Type</th><th>Description</th></tr></thead>
+<thead><tr>{% if section.has_name_column %}<th>Name</th>{% endif %}<th>Type</th><th>Description</th></tr></thead>
 <tbody>
 {% for row in section.rows -%}
-<tr>{% if section.named %}<td><code>{{ row.name }}</code></td>{% endif %}<td><code>{{ pieces(row.type) }}</code></td><td>{{ row.description_html|safe }}</td></tr>
+<tr>{% if section.has_name_column %}<td><code>{{ row.name }}</code></td>{% endif %}<td><code>{{ pieces(row.type) }}</code></td><td>{{ row.description_html|safe }}</td></tr>
 {% endfor -%}
 </tbody>
 </table>
@@ -47,12 +47,12 @@
 {%- for overload in member.overloads %}{{ pieces(overload) }}<br>{% endfor -%}
 {% for decorator in member.decorators %}<span class="decorator">{{ pieces(decorator) }}</span><br>{% endfor -%}
 {{ pieces(member.signature) }}</code>
-{%- if member.source %} <a class="source" href="{{ member.source }}">source</a>{% endif %}</summary>
+{%- if member.source_url %} <a class="source" href="{{ member.source_url }}">source</a>{% endif %}</summary>
 {{ docstring(member.sections, member.docs) }}
 {%- for child in member.members %}
 {{ render_member(child) }}
 {%- endfor %}
-{% for group in member.inherited -%}
+{% for group in member.inherited_groups -%}
 <div class="inherited">
 <p class="doc-section-title">Inherited from {{ pieces([group.base]) }}</p>
 <ul>
@@ -66,7 +66,7 @@
 {%- endmacro %}
 <div class="module-doc">
 {{ docstring(sections, docs) }}
-{%- if source %}<p class="source"><a href="{{ source }}">source</a></p>
+{%- if source_url %}<p class="source"><a href="{{ source_url }}">source</a></p>
 {% endif -%}
 </div>
 {% if groups -%}

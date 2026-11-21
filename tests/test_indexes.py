@@ -11,7 +11,7 @@ _NO_VOCABULARY = Vocabulary(frozenset(), ())
 
 def _make_entry(path: str, **front_matter: object) -> IndexEntry:
     base: dict[str, object] = {"title": path, "summary": "S", "status": "specified", "layer": "meta"}
-    return IndexEntry(path, path.replace(".md", ".html"), {**base, **front_matter})
+    return IndexEntry.from_front_matter(path, path.replace(".md", ".html"), {**base, **front_matter})
 
 
 def _build_index_pages(

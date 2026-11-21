@@ -1,4 +1,4 @@
-"""The ``docspecsite build`` command and the static site it writes from a ref's history.
+"""The static site built from a ref's history: its pages, the files they need and their writing.
 
 Docs: architecture/docs-tooling.md
 """
@@ -18,16 +18,17 @@ from types import MappingProxyType
 
 import griffe
 
-from .cache import BodyCache, compute_fingerprint, make_targets_key
+from .cache import BodyCache
 from .codeindex import CodeTarget
 from .coderef import Codebase, CodeError, CodeReference
 from .config import ConfigError, ProjectConfig
-from .docs import DOCS, Doc, is_template, make_string_tuple
+from .docs import DOCS_DIR, Doc, is_docs_asset, is_redirect, make_string_tuple
 from .docset import DocSet
-from .errors import DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
+from .errors import DOCSPECSITE_WARNINGS, DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from .git import Git
 from .history import History, Version
 from .indexes import IndexEntry, IndexRenderer
+from .links import list_front_matter_paths
 from .markdown import HtmlRenderer, MarkdownText, RenderedLink
 from .pages import (
     OldBanner,
@@ -42,7 +43,8 @@ from .pages import (
 )
 from .parts import Part
 from .urls import (
-    CODE_INDEX,
+    CODE_INDEX_DOC,
+    STATUS_PAGE,
     PageLinks,
     Resolver,
     encode_href_path,
@@ -55,6 +57,9 @@ from .urls import (
     make_version_url,
 )
 from .vocabulary import Vocabulary
+
+# A built page: its name in error lines, and the page.
+type BuiltPage = tuple[str, Page]
 
 # A page not built yet: its name in error lines, and how to build it.
 type Pending = tuple[str, Callable[[], Page]]
@@ -86,15 +91,113 @@ class BuildResult:
     """Number of pages that failed, through a :exc:`~docspecsite.errors.DocspecsiteError` or an internal error."""
 
 
+class SiteWriter:
+    """The output directory a site is written to, with the manifest of the files the last build wrote there."""
+
+    MANIFEST_FILENAME = ".docspecsite-manifest"
+    """Name of the file in the output directory that lists the files the last build wrote."""
+
+    # Resolved
+    resolved_out: Path
+    """The output directory resolved to follow symlinks: nothing is written or deleted outside of it."""
+
+    # Arguments of __init__
+    out: Path
+    """See :meth:`__init__`."""
+
+    def __init__(self, out: Path) -> None:
+        """Prepare to write below an output directory.
+
+        Args:
+            out: Output directory; created on the first write when missing, and holding the manifest of the previous
+                build.
+        """
+        self.out = out
+        self.resolved_out = out.resolve()
+
+    def find_outside(self, paths: Iterable[str]) -> list[str]:
+        """Return those paths that the write would refuse to write below the output directory.
+
+        :meth:`write` refuses them: they land outside the output directory, also through a symlink.
+
+        Args:
+            paths: Site paths of the files about to be written.
+        """
+        return [path for path in paths if not self.is_inside(path)]
+
+    def write(self, files: Mapping[str, bytes]) -> list[str]:
+        """Write the site's files below the output directory and remove files left over from the previous build.
+
+        Only files whose bytes changed are rewritten. ``<out>/.docspecsite-manifest`` lists the files written; nothing
+        outside the previous manifest is ever deleted.
+
+        Args:
+            files: Every file of the new site, as bytes by site path relative to the output directory; files of the
+                previous build not in it are deleted.
+
+        Returns:
+            The paths that would land outside the output directory (also through a symlink); they are neither written
+            nor deleted.
+        """
+        self.out.mkdir(parents=True, exist_ok=True)
+        manifest = self.out / self.MANIFEST_FILENAME
+        previous_paths = manifest.read_text(encoding="utf-8").splitlines() if manifest.is_file() else []
+        refused_paths: list[str] = []
+        for path, data in files.items():
+            if self.is_inside(path):
+                self.write_if_changed(self.out / path, data)
+            else:
+                refused_paths.append(path)
+        for path in previous_paths:
+            if path in files or not self.is_inside(path):
+                continue
+            target = self.out / path
+            if target.is_file() and not target.is_symlink():
+                target.unlink()
+        written = sorted(path for path in files if path not in refused_paths)
+        self.write_if_changed(manifest, "".join(f"{path}\n" for path in written).encode())
+        return refused_paths
+
+    @staticmethod
+    def is_relative_down(path: str) -> bool:
+        """Return whether a path is a non-empty relative path without ``..`` or NUL.
+
+        Args:
+            path: Site path to be written under the output directory, or a page URL to be linked as an index.
+        """
+        pure = PurePosixPath(path)
+        return bool(path) and "\0" not in path and not pure.is_absolute() and ".." not in pure.parts
+
+    def is_inside(self, path: str) -> bool:
+        """Return whether a path stays below the output directory, also after resolving symlinks.
+
+        Args:
+            path: Site path to write or delete, relative to the output directory.
+        """
+        return self.is_relative_down(path) and (self.resolved_out / path).resolve().is_relative_to(self.resolved_out)
+
+    @staticmethod
+    def write_if_changed(target: Path, data: bytes) -> None:
+        """Write a file unless it already holds exactly these bytes.
+
+        The modification time of an unchanged file is kept.
+
+        Args:
+            target: File in the output directory (a site file or the manifest); parent directories are created.
+            data: New contents; when the file already holds exactly them, it is left untouched.
+        """
+        if target.is_file() and target.read_bytes() == data:
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+
 class SiteBuilder:
     """One site build: what is read from the ref, the pages built from it and the files produced."""
 
     # Paths
     CACHE_DIR = ".docspecsite-cache"
     """Directory under the repository root that holds the cache of the rendered page bodies."""
-
-    MANIFEST = ".docspecsite-manifest"
-    """Name of the file in the output directory that lists the files the last build wrote."""
 
     ROOT_PAGE = "index.html"
     """Root-level page: a URL resolved "as seen from" it stays site-root-relative."""
@@ -128,12 +231,6 @@ class SiteBuilder:
 
     ref_tree: dict[str, str]
     """Blob SHA hashes of the ref's files, by repo path."""
-
-    source_url_missing_reported: bool
-    """Whether the build warned at its start that the settings have ``code-dirs`` but no ``source-url``.
-
-    Then the resolver does not warn again about the links it turns into plain text.
-    """
 
     worktree_files: frozenset[str]
     """Working-tree non-Markdown files under ``docs/`` with :attr:`include_worktree`, else none."""
@@ -188,7 +285,7 @@ class SiteBuilder:
     vendor_dir: Path | None
     """See :meth:`__init__`."""
 
-    strict: bool
+    is_strict: bool
     """See :meth:`__init__`."""
 
     def __init__(
@@ -198,7 +295,7 @@ class SiteBuilder:
         *,
         include_worktree: bool,
         vendor_dir: Path | None,
-        strict: bool,
+        is_strict: bool,
         parts: frozenset[Part] | None,
     ) -> None:
         """Read the ref's history, project settings and docs, ready to build pages.
@@ -209,9 +306,8 @@ class SiteBuilder:
                 ``include_worktree``, its ``docspecsite.toml`` the settings.
             include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read
                 ``docspecsite.toml``, the code and the non-Markdown files under ``docs/`` from the working tree.
-            vendor_dir: Directory of the vendored third-party files the site uses, already taken from
-                ``$DOCSPECSITE_VENDOR_DIR`` by :func:`run_build`; None means there are none.
-            strict: Raise on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page instead of recording it.
+            vendor_dir: Directory of the vendored third-party files the site uses; None means there are none.
+            is_strict: Raise on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page instead of recording it.
             parts: The parts of the site to build; None means the docs, and the code too when the settings have
                 ``code-dirs``.
 
@@ -219,7 +315,7 @@ class SiteBuilder:
             BuildError: The settings cannot be read, or the code part is asked for without ``code-dirs``.
         """
         self.root = root
-        self.strict = strict
+        self.is_strict = is_strict
         self.errors = []
         self.failed_names = set()
         # Absolute paths cut from error messages (never relative ones: "./" would match anywhere).
@@ -227,9 +323,9 @@ class SiteBuilder:
         self.git = Git(root)
         self.include_worktree = include_worktree
         self.vendor_dir = vendor_dir
-        self.history = History.load(self.git, ref, worktree=root if include_worktree else None)
+        self.history = History.load(self.git, ref, worktree_root=root if include_worktree else None)
         self.worktree_files = (
-            frozenset(p for p in self.git.list_worktree_files(DOCS) if not p.endswith(".md"))
+            frozenset(p for p in self.git.list_worktree_files(DOCS_DIR) if not p.endswith(".md"))
             if include_worktree
             else frozenset[str]()
         )
@@ -239,7 +335,7 @@ class SiteBuilder:
         self.templates = Templates()
         # Parsed docs by (doc path relative to docs/, blob SHA hash): each blob of a doc is parsed once.
         self.docs_by_path_and_blob = {}
-        latest_versions = (self.history.find_latest(path) for path in sorted(self.history.docs))
+        latest_versions = (self.history.find_latest(path) for path in sorted(self.history.versions_by_path))
         self.latest_docs = DocSet(self.parse_doc_version(v) for v in latest_versions if self.history.is_decodable(v))
         self.config = self.load_config()
         available_parts = self.get_available_parts()
@@ -248,16 +344,15 @@ class SiteBuilder:
         elif not parts <= available_parts:
             raise BuildError("the code part needs code-dirs in %s", ProjectConfig.CONFIG_FILE)
         self.parts = parts
-        self.cache = BodyCache(root / self.CACHE_DIR, compute_fingerprint(), self.parts_label)
-        if not self.builds_docs and CODE_INDEX not in self.latest_docs.by_path:
+        self.cache = BodyCache(root / self.CACHE_DIR, BodyCache.compute_fingerprint(), self.parts_label)
+        if not self.is_docs_part_built and CODE_INDEX_DOC not in self.latest_docs.by_path:
             warnings.warn(
                 DocspecsiteWarning(
-                    "no code reference entry page %s%s: the code-only site has no root page", DOCS, CODE_INDEX
+                    "no code reference entry page %s%s: the code-only site has no root page", DOCS_DIR, CODE_INDEX_DOC
                 ),
                 stacklevel=1,
             )
-        self.source_url_missing_reported = self.builds_code and not self.config.source_url
-        if self.source_url_missing_reported:
+        if self.is_missing_source_url_reported:
             warnings.warn(
                 DocspecsiteWarning(
                     "%s has no source-url: links to repository files cannot be made", ProjectConfig.CONFIG_FILE
@@ -279,7 +374,7 @@ class SiteBuilder:
         Args:
             version: Decodable version of a doc; its path and blob key the reused parse.
         """
-        key = (version.path, version.blob)
+        key = (version.path, version.blob_sha)
         if key not in self.docs_by_path_and_blob:
             self.docs_by_path_and_blob[key] = Doc.parse(version.path, self.history.read_text(version))
         return self.docs_by_path_and_blob[key]
@@ -309,7 +404,16 @@ class SiteBuilder:
         Args:
             path: Doc path relative to ``docs/``.
         """
-        return Part.CODE if path == CODE_INDEX else Part.DOCS
+        return Part.CODE if path == CODE_INDEX_DOC else Part.DOCS
+
+    @classmethod
+    def is_code_doc(cls, path: str) -> bool:
+        """Return whether a doc belongs to the code part of the site.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        return cls.find_part(path) is Part.CODE
 
     @classmethod
     def is_versionless(cls, path: str) -> bool:
@@ -320,7 +424,7 @@ class SiteBuilder:
         Args:
             path: Doc path relative to ``docs/``.
         """
-        return cls.find_part(path) is Part.CODE
+        return cls.is_code_doc(path)
 
     def is_built_doc(self, path: str) -> bool:
         """Return whether the pages of a doc are built, given the parts built.
@@ -331,14 +435,22 @@ class SiteBuilder:
         return self.find_part(path) in self.parts
 
     @property
-    def builds_docs(self) -> bool:
+    def is_docs_part_built(self) -> bool:
         """Whether the docs part is built, and with it the index pages and ``llms.txt``."""
         return Part.DOCS in self.parts
 
     @property
-    def builds_code(self) -> bool:
+    def is_code_part_built(self) -> bool:
         """Whether the code part is built: the code reference pages and their entry page."""
         return Part.CODE in self.parts
+
+    @property
+    def is_missing_source_url_reported(self) -> bool:
+        """Whether the build warns at its start that the code part is built but the settings have no ``source-url``.
+
+        Then the resolver does not warn again about the links it turns into plain text.
+        """
+        return self.is_code_part_built and not self.config.source_url
 
     def is_root_doc(self, path: str) -> bool:
         """Return whether the latest page of a doc is also written as the site's root page, ``index.html``.
@@ -349,7 +461,7 @@ class SiteBuilder:
         Args:
             path: Doc path relative to ``docs/``.
         """
-        return self.find_part(path) is Part.CODE and not self.builds_docs
+        return self.is_code_doc(path) and not self.is_docs_part_built
 
     def locate_doc(self, path: str) -> str | None:
         """Return the URL a link to a doc goes to, or None to show the link as text.
@@ -365,17 +477,17 @@ class SiteBuilder:
             path: Doc path relative to ``docs/``, e.g. from a ``Docs:`` line, a doc whose ``code`` names a module or a
                 link in a doc's body or front matter.
         """
-        if path not in self.history.docs:
+        if path not in self.history.versions_by_path:
             return None
         if self.is_built_doc(path):
             return make_doc_url(path)
-        if self.find_part(path) is not Part.DOCS:
+        if self.is_code_doc(path):
             return None  # the code part's entry page, linked from the docs
         if not self.config.source_url:
             return None
-        if f"{DOCS}{path}" not in self.ref_tree:
+        if f"{DOCS_DIR}{path}" not in self.ref_tree:
             return None  # a working-tree doc, not in the built commit
-        return f"{self.config.source_url}/blob/{self.history.head}/{DOCS}{encode_href_path(path)}"
+        return f"{self.config.source_url}/blob/{self.history.head}/{DOCS_DIR}{encode_href_path(path)}"
 
     @cached_property
     def doc_paths_by_url(self) -> Mapping[str, str]:
@@ -383,7 +495,7 @@ class SiteBuilder:
 
         Kept once for the build: every page's breadcrumb looks its links up in it.
         """
-        return MappingProxyType({make_doc_url(path): path for path in self.history.docs})
+        return MappingProxyType({make_doc_url(path): path for path in self.history.versions_by_path})
 
     def limit_breadcrumb(
         self, breadcrumb: Iterable[PageLink], module_urls: Container[str] = frozenset()
@@ -412,19 +524,26 @@ class SiteBuilder:
         """The names of the parts built, sorted and joined by ``+``, e.g. ``code+docs``."""
         return "+".join(sorted(self.parts))
 
+    def get_home_field(self, key: str, default: str) -> str:
+        """Return a front-matter field of the home doc as text.
+
+        Args:
+            key: Field to read, e.g. ``title``.
+            default: Text returned when there is no home doc, it has no front matter or the field is missing.
+        """
+        home_doc = self.home_doc
+        front_matter = home_doc.front_matter if home_doc else None
+        return str((front_matter or {}).get(key, default))
+
     @property
     def site_title(self) -> str:
         """Title of the home doc; ``Docs`` when it has none."""
-        home_doc = self.home_doc
-        front_matter = home_doc.front_matter if home_doc else None
-        return str((front_matter or {}).get("title", "Docs"))
+        return self.get_home_field("title", "Docs")
 
     @property
     def site_summary(self) -> str:
         """Summary of the home doc, for ``llms.txt``; empty when it has none."""
-        home_doc = self.home_doc
-        front_matter = home_doc.front_matter if home_doc else None
-        return str((front_matter or {}).get("summary", ""))
+        return self.get_home_field("summary", "")
 
     def attempt[T](self, name: str, make: Callable[[], T]) -> T | None:
         """Call a function and return its result, or None if it raises.
@@ -447,7 +566,7 @@ class SiteBuilder:
             return make()
         except DocspecsiteError as error:
             message = self.describe_error(error)
-            if self.strict:
+            if self.is_strict:
                 raise BuildError("%s: %s", name, message) from error
             self.failed_names.add(name)
             error_line = f"{name}: {message}"
@@ -462,6 +581,22 @@ class SiteBuilder:
             )
             self.failed_names.add(name)
             return None
+
+    @staticmethod
+    @contextmanager
+    def make_warnings_fatal() -> Generator[None]:
+        """Turn docspecsite's warnings into exceptions in the block, and the first one raised into a ``BuildError``.
+
+        Raises:
+            BuildError: A warning of :data:`~docspecsite.errors.DOCSPECSITE_WARNINGS` was issued in the block.
+        """
+        with warnings.catch_warnings():
+            for category in DOCSPECSITE_WARNINGS:
+                warnings.simplefilter("error", category)
+            try:
+                yield
+            except DOCSPECSITE_WARNINGS as warning:
+                raise BuildError("strict: %s", warning) from warning
 
     def describe_error(self, error: Exception) -> str:
         """Return an exception's type and message on one line, without the absolute paths of the build's directories.
@@ -505,7 +640,7 @@ class SiteBuilder:
             warnings.warn(DocspecsiteWarning("cannot load code: %s", error), stacklevel=1)
             return None
 
-    def emit(self, name: str, page: Page, indexes: Container[str]) -> None:
+    def emit(self, name: str, page: Page, index_urls: Container[str]) -> None:
         """Render a page and add it to the site files.
 
         A page whose rendering fails is recorded as an error and not added.
@@ -513,10 +648,10 @@ class SiteBuilder:
         Args:
             name: Name of the page in error lines.
             page: Page to render; it is stored at its :attr:`~docspecsite.pages.Page.url`.
-            indexes: URLs of the index pages that were built (status, tag and component pages); links to other tags
+            index_urls: URLs of the index pages that were built (status, tag and component pages); links to other tags
                 and components are shown as plain text, and the Status link is left out without the status page.
         """
-        html = self.attempt(name, lambda: self.templates.render(page, self.site_title, indexes=indexes).encode())
+        html = self.attempt(name, lambda: self.templates.render(page, self.site_title, indexes=index_urls).encode())
         if html is not None:
             self.site_files[page.url] = html
             self.page_urls.append(page.url)
@@ -532,18 +667,20 @@ class SiteBuilder:
         """
         version = links.version
         text = self.history.read_text(version)
-        hrefs = self.cache.get_hrefs(version.blob, lambda: [link.target for link in MarkdownText(text).extract_links()])
-        resolved = {href: links.resolve_link(href) for href in hrefs}
+        hrefs = self.cache.get_hrefs(
+            version.blob_sha, lambda: [link.target for link in MarkdownText(text).extract_links()]
+        )
+        links_by_href = {href: links.resolve_link(href) for href in hrefs}
 
-        def link(href: str) -> RenderedLink:
-            found = resolved.get(href)
+        def resolve_href(href: str) -> RenderedLink:
+            found = links_by_href.get(href)
             return found if found is not None else links.resolve_link(href)
 
         minimum = self.config.toc_min_headings
-        key = f"{make_targets_key(resolved)}\0toc={minimum}"
-        return self.cache.get_body(version.blob, key, lambda: HtmlRenderer(link, minimum).render(text))
+        key = f"{self.cache.make_targets_key(links_by_href)}\0toc={minimum}"
+        return self.cache.get_body(version.blob_sha, key, lambda: HtmlRenderer(resolve_href, minimum).render(text))
 
-    def build_front_matter_link(self, root_links: PageLinks, value: str) -> PageLink | None:
+    def build_front_matter_link(self, root_links: PageLinks, front_matter_path: str) -> PageLink | None:
         """Return the page link for a front-matter path of a version, or None if it cannot be linked.
 
         The URL is site-root-relative.
@@ -552,17 +689,20 @@ class SiteBuilder:
             root_links: Links of the version holding the front matter, resolved for the site root; the path is
                 resolved as if it were a body link of that version, so the target's version and markers match, and
                 links from an old version go to the version current then.
-            value: Path relative to ``docs/`` with an optional ``#anchor``, as written in ``related`` or
+            front_matter_path: Path relative to ``docs/`` with an optional ``#anchor``, as written in ``related`` or
                 ``redirect_to``.
         """
-        path, sep, anchor = value.partition("#")
+        path, sep, anchor = front_matter_path.partition("#")
         target = posixpath.normpath(path)
         href = posixpath.relpath(target, posixpath.dirname(root_links.version.path) or ".") + sep + anchor
         rendered_link = root_links.resolve_link(href)
         if rendered_link.href is None:
             return None
-        doc_path = f"{target}/index.md" if f"{target}/index.md" in self.history.docs else target
-        return PageLink(self.latest_docs.titles.get(doc_path, value), rendered_link.href, markers=rendered_link.markers)
+        return PageLink(
+            self.latest_docs.titles.get(self.history.find_doc_path(target), front_matter_path),
+            rendered_link.href,
+            markers=rendered_link.markers,
+        )
 
     def build_front_matter_links(
         self, root_links: PageLinks, front_matter: Mapping[str, object], key: str
@@ -576,9 +716,8 @@ class SiteBuilder:
             key: Field holding a path or a list of paths, ``related`` or ``redirect_to``; non-strings and unresolvable
                 paths are skipped.
         """
-        front_matter_value = front_matter.get(key)
-        paths = front_matter_value if isinstance(front_matter_value, list) else [front_matter_value]
-        links = (self.build_front_matter_link(root_links, item) for item in paths if isinstance(item, str))
+        paths = list_front_matter_paths(front_matter, key)
+        links = (self.build_front_matter_link(root_links, path) for path in paths)
         return tuple(link for link in links if link is not None)
 
     def build_doc_pages(self, extra_children: Mapping[str, tuple[PageLink, ...]]) -> list[Pending]:
@@ -592,18 +731,18 @@ class SiteBuilder:
                 code reference index its top-level packages. Docs missing from it get none.
         """
         pages: list[Pending] = []
-        for path in sorted(filter(self.is_built_doc, self.history.docs)):
-            versions = self.history.docs[path]
+        for path in sorted(filter(self.is_built_doc, self.history.versions_by_path)):
+            versions = self.history.versions_by_path[path]
             backlink_list = tuple(
-                PageLink(b.title or b.source, make_doc_url(b.source))
+                PageLink(b.title or b.doc.path, make_doc_url(b.doc.path))
                 for b in self.latest_docs.backlinks_by_target.get(path, ())
-                if self.is_built_doc(b.source)
+                if self.is_built_doc(b.doc.path)
             )
             child_list = extra_children.get(path, ())
             if self.is_versionless(path):
                 versions = [self.history.find_latest(path)]
             for version in versions:
-                name = f"{DOCS}{path}@{version.short_id}"
+                name = f"{DOCS_DIR}{path}@{version.short_id}"
                 urls = self.list_page_urls(version)
                 pages.extend(
                     (name, partial(self.build_doc_page, version, url, backlink_list, child_list)) for url in urls
@@ -644,8 +783,8 @@ class SiteBuilder:
         if self.is_versionless(version.path):
             return None
         previous = self.history.find_previous(version)
-        decodable = previous is not None and self.history.is_decodable(previous) and self.history.is_decodable(version)
-        return previous if decodable else None
+        has_diff = previous is not None and self.history.is_decodable(previous) and self.history.is_decodable(version)
+        return previous if has_diff else None
 
     def build_common_page(self, version: Version, url: str) -> Page:
         """Return the page of a version at a URL with the parts every doc page shares.
@@ -659,9 +798,9 @@ class SiteBuilder:
         """
         front_matter = self.get_front_matter(version) or {}
         status = front_matter.get("status")
-        old = None
+        old_banner = None
         if not self.history.is_latest(version):
-            old = OldBanner(version.date, version.short_id, make_doc_url(version.path))
+            old_banner = OldBanner(version, make_doc_url(version.path))
         return Page(
             url=url,
             title=str(front_matter.get("title", version.path)),
@@ -670,7 +809,7 @@ class SiteBuilder:
             tags=make_string_tuple(front_matter.get("tags")),
             body_html="",
             breadcrumb=self.limit_breadcrumb(build_breadcrumb(version.path, self.latest_docs.titles)),
-            old=old,
+            old_banner=old_banner,
         )
 
     def build_doc_page(
@@ -693,21 +832,23 @@ class SiteBuilder:
             raise RuntimeError("the resolver is made by run(), before the pages are built")
         front_matter = self.get_front_matter(version) or {}
         root_links = PageLinks(self.resolver, version, self.ROOT_PAGE)
-        latest = self.history.find_latest(version.path)
+        latest_version = self.history.find_latest(version.path)
         picker = (
             ()
             if self.is_versionless(version.path)
             else tuple(
                 PickerEntry(
                     make_picker_label(other),
-                    make_doc_url(version.path) if other == latest else make_version_url(version.path, other.short_id),
+                    make_doc_url(version.path)
+                    if other == latest_version
+                    else make_version_url(version.path, other.short_id),
                     other == version,
                 )
-                for other in self.history.docs[version.path]
+                for other in self.history.versions_by_path[version.path]
             )
         )
         redirect = None
-        if front_matter.get("status") == "redirect":
+        if is_redirect(front_matter):
             kind = str(front_matter.get("redirect_kind", ""))
             redirect = RedirectNotice(
                 RedirectNotice.REDIRECT_LABELS.get(kind, kind),
@@ -725,9 +866,9 @@ class SiteBuilder:
             redirect=redirect,
             children=child_list,
             children_heading="Packages",
-            related=self.build_front_matter_links(root_links, front_matter, "related"),
+            related_links=self.build_front_matter_links(root_links, front_matter, "related"),
             backlinks=backlink_list,
-            mermaid=self.MERMAID_MARK in body,
+            has_mermaid=self.MERMAID_MARK in body,
         )
 
     def build_diff_page(self, version: Version, previous: Version) -> Page:
@@ -737,20 +878,21 @@ class SiteBuilder:
             version: Version the diff page is for, the newer side.
             previous: Version just before ``version``, as :meth:`find_diff_base` returns it; the older side.
         """
-        url = make_diff_url(version.path, version.short_id)
-        this_url = (
+        diff_url = make_diff_url(version.path, version.short_id)
+        version_url = (
             make_doc_url(version.path)
             if self.history.is_latest(version)
             else make_version_url(version.path, version.short_id)
         )
-        prev_url = make_version_url(previous.path, previous.short_id)
+        previous_url = make_version_url(previous.path, previous.short_id)
+        previous_href = escape(make_relative_url(previous_url, diff_url))
+        version_href = escape(make_relative_url(version_url, diff_url))
         heading = (
-            f'<p class="diff-versions">Changes from <a href="{escape(make_relative_url(prev_url, url))}">'
-            f'{escape(make_picker_label(previous))}</a> to <a href="{escape(make_relative_url(this_url, url))}">'
-            f"{escape(make_picker_label(version))}</a></p>\n"
+            f'<p class="diff-versions">Changes from <a href="{previous_href}">{escape(make_picker_label(previous))}</a>'
+            f' to <a href="{version_href}">{escape(make_picker_label(version))}</a></p>\n'
         )
         body = heading + self.render_diff_html(self.history.read_text(previous), self.history.read_text(version))
-        page = self.build_common_page(version, url)
+        page = self.build_common_page(version, diff_url)
         return replace(page, title=f"Diff: {page.title}", body_html=body)
 
     # --- other pages and files ---
@@ -790,23 +932,25 @@ class SiteBuilder:
                 docs' ``code`` entries to modules.
         """
         codebase = code_reference.codebase
-        described: dict[str, list[PageLink]] = {}
+        # Links to the latest docs whose front matter ``code`` names a module, by module path.
+        doc_links_by_module: dict[str, list[PageLink]] = {}
         for doc in self.latest_docs:
+            # Ordered set of the module paths the doc's ``code`` entries name (an unresolved entry as itself).
             modules: dict[str, None] = {}
             for entry in make_string_tuple((doc.front_matter or {}).get("code")):
                 target = codebase.index.get(entry)
                 modules[target.module if target is not None else entry] = None
             link = code_reference.build_doc_link(doc.path)
             for module in modules:
-                described.setdefault(module, []).append(link)
+                doc_links_by_module.setdefault(module, []).append(link)
         module_urls = {make_code_url(CodeTarget(m.path, None)) for m in codebase.modules}
 
         def make(module: griffe.Module) -> Page:
-            page = code_reference.build_page(module, described.get(module.path, ()))
+            page = code_reference.build_page(module, doc_links_by_module.get(module.path, ()))
             return replace(
                 page,
                 breadcrumb=self.limit_breadcrumb(page.breadcrumb, module_urls),
-                mermaid=self.MERMAID_MARK in page.body_html,
+                has_mermaid=self.MERMAID_MARK in page.body_html,
             )
 
         return [(f"reference/code/{module.path}", partial(make, module)) for module in codebase.modules]
@@ -817,19 +961,21 @@ class SiteBuilder:
         Templates are left out. With :attr:`include_worktree` the files come from the working tree. A file whose site
         path collides with a generated file or directory is not copied and a warning is issued.
         """
-        wanted = {
-            path: path.removeprefix(DOCS)
+        site_paths_by_repo_path = {
+            path: path.removeprefix(DOCS_DIR)
             for path in sorted(self.history.tree | self.worktree_files)
-            if path.startswith(DOCS) and not path.endswith(".md") and not is_template(path.removeprefix(DOCS))
+            if is_docs_asset(path)
         }
-        generated = set(self.site_files)
-        generated_dirs = {parent for path in generated for parent in list_ancestor_directories(path)}
-        blobs = self.git.read_blobs(self.ref_tree[path] for path in wanted if path not in self.worktree_files)
-        for path, site_path in wanted.items():
+        generated_paths = set(self.site_files)
+        generated_dirs = {parent for path in generated_paths for parent in list_ancestor_directories(path)}
+        blobs = self.git.read_blobs(
+            self.ref_tree[path] for path in site_paths_by_repo_path if path not in self.worktree_files
+        )
+        for path, site_path in site_paths_by_repo_path.items():
             if (
-                site_path in generated
+                site_path in generated_paths
                 or site_path in generated_dirs
-                or generated.intersection(list_ancestor_directories(site_path))
+                or generated_paths.intersection(list_ancestor_directories(site_path))
             ):
                 warnings.warn(DocspecsiteWarning("%s: collides with a generated file, not copied", path), stacklevel=1)
                 continue
@@ -844,14 +990,14 @@ class SiteBuilder:
         None is returned, with a warning, when the bundle is not found.
         """
         directory = self.vendor_dir / "mermaid" if self.vendor_dir is not None else None
-        script = directory / "mermaid.min.js" if directory is not None else None
-        if directory is None or script is None or not script.is_file():
+        script_file = directory / "mermaid.min.js" if directory is not None else None
+        if directory is None or script_file is None or not script_file.is_file():
             where = f"in {directory}" if directory is not None else f"({VENDOR_ENV} is not set)"
             warnings.warn(
                 DocspecsiteWarning("mermaid bundle not found %s; diagrams are shown as source", where), stacklevel=1
             )
             return None
-        files = {"assets/mermaid.min.js": script.read_bytes()}
+        files = {"assets/mermaid.min.js": script_file.read_bytes()}
         license_file = directory / "LICENSE"
         if license_file.is_file():
             files["assets/mermaid.LICENSE.txt"] = license_file.read_bytes()
@@ -879,7 +1025,7 @@ class SiteBuilder:
         That is the working tree with :attr:`include_worktree`, or else the ref's code directories extracted to a
         temporary directory that is removed on exit.
         """
-        if not self.builds_code:
+        if not self.is_code_part_built:
             yield None
             return
         if self.include_worktree:
@@ -897,13 +1043,13 @@ class SiteBuilder:
         Args:
             path: Doc path relative to ``docs/``, as the vocabulary names its source docs.
         """
-        latest = self.history.find_latest(path) if path in self.history.docs else None
+        latest = self.history.find_latest(path) if path in self.history.versions_by_path else None
         return self.history.read_text(latest) if latest is not None and self.history.is_decodable(latest) else None
 
     def collect_index_entries(self) -> list[IndexEntry]:
         """Return the index entries of the built latest docs that have front matter, ordered by doc path."""
         return [
-            IndexEntry(doc.path, make_doc_url(doc.path), doc.front_matter)
+            IndexEntry.from_front_matter(doc.path, make_doc_url(doc.path), doc.front_matter)
             for doc in sorted(self.latest_docs, key=lambda doc: doc.path)
             if doc.front_matter is not None and self.is_built_doc(doc.path)
         ]
@@ -918,30 +1064,32 @@ class SiteBuilder:
             return []
         return [
             IndexEntry(
-                m.path,
-                make_code_url(CodeTarget(m.path, None)),
-                {
-                    "title": m.path,
-                    "layer": "reference",
-                    "status": "implemented",
-                    "tags": [],
-                    "components": list(self.config.get_components(m.path)),
-                },
-            )  # fmt: skip
+                path=m.path,
+                url=make_code_url(CodeTarget(m.path, None)),
+                title=m.path,
+                summary="",
+                status="implemented",
+                layer="reference",
+                milestone=None,
+                priority=None,
+                tags=(),
+                components=self.config.find_components(m.path),
+            )
             for m in self.codebase.modules
         ]
 
     @staticmethod
-    def keep_built_links(page: Page, built: Container[str]) -> Page:
+    def keep_built_links(page: Page, built_urls: Container[str]) -> Page:
         """Return a page with its version-picker entries and diff link limited to pages that were built.
 
         Args:
             page: Built page whose picker and diff link may point to pages that failed.
-            built: URLs of every page built without error.
+            built_urls: URLs of every page built without error.
         """
-        picker = tuple(entry for entry in page.picker if entry.url in built)
-        diff = page.diff_url if page.diff_url is not None and page.diff_url in built else None
-        return replace(page, picker=picker, diff_url=diff) if (picker, diff) != (page.picker, page.diff_url) else page
+        picker = tuple(entry for entry in page.picker if entry.url in built_urls)
+        diff_url = page.diff_url if page.diff_url is not None and page.diff_url in built_urls else None
+        is_changed = (picker, diff_url) != (page.picker, page.diff_url)
+        return replace(page, picker=picker, diff_url=diff_url) if is_changed else page
 
     @staticmethod
     def strip_mermaid(page: Page) -> Page:
@@ -950,88 +1098,7 @@ class SiteBuilder:
         Args:
             page: Built page, whose body may hold diagrams; they are then shown as source.
         """
-        return replace(page, mermaid=False) if page.mermaid else page
-
-    @classmethod
-    def find_outside(cls, out: Path, paths: Iterable[str]) -> list[str]:
-        """Return those paths that the ``write_site`` method would refuse to write below a directory.
-
-        Args:
-            out: Output directory, resolved to follow symlinks.
-            paths: Site paths of the files about to be written.
-        """
-        base = out.resolve()
-        return [path for path in paths if not cls.is_inside(base, path)]
-
-    @classmethod
-    def write_site(cls, out: Path, files: Mapping[str, bytes]) -> list[str]:
-        """Write the site's files below ``out`` and remove files left over from the previous build.
-
-        Only files whose bytes changed are rewritten. ``<out>/.docspecsite-manifest`` lists the files written; nothing
-        outside the previous manifest is ever deleted.
-
-        Args:
-            out: Output directory; created when missing, and holding the manifest of the previous build.
-            files: Every file of the new site, as bytes by site path relative to ``out``; files of the previous build
-                not in it are deleted.
-
-        Returns:
-            The paths that would land outside ``out`` (also through a symlink); they are neither written nor deleted.
-        """
-        out.mkdir(parents=True, exist_ok=True)
-        base = out.resolve()
-        manifest = out / cls.MANIFEST
-        previous = manifest.read_text(encoding="utf-8").splitlines() if manifest.is_file() else []
-        refused: list[str] = []
-        for path, data in files.items():
-            if cls.is_inside(base, path):
-                cls.write_if_changed(out / path, data)
-            else:
-                refused.append(path)
-        for path in previous:
-            if path in files or not cls.is_inside(base, path):
-                continue
-            target = out / path
-            if target.is_file() and not target.is_symlink():
-                target.unlink()
-        written = sorted(path for path in files if path not in refused)
-        cls.write_if_changed(manifest, "".join(f"{path}\n" for path in written).encode())
-        return refused
-
-    @staticmethod
-    def is_relative_down(path: str) -> bool:
-        """Return whether a path is a non-empty relative path without ``..`` or NUL.
-
-        Args:
-            path: Site path to be written under the output directory, or a page URL to be linked as an index.
-        """
-        pure = PurePosixPath(path)
-        return bool(path) and "\0" not in path and not pure.is_absolute() and ".." not in pure.parts
-
-    @classmethod
-    def is_inside(cls, base: Path, path: str) -> bool:
-        """Return whether a path stays below a directory, also after resolving symlinks.
-
-        Args:
-            base: Resolved output directory that nothing may be written outside of.
-            path: Site path to write or delete, relative to ``base``.
-        """
-        return cls.is_relative_down(path) and (base / path).resolve().is_relative_to(base)
-
-    @staticmethod
-    def write_if_changed(target: Path, data: bytes) -> None:
-        """Write a file unless it already holds exactly these bytes.
-
-        The modification time of an unchanged file is kept.
-
-        Args:
-            target: File in the output directory (a site file or the manifest); parent directories are created.
-            data: New contents; when the file already holds exactly them, it is left untouched.
-        """
-        if target.is_file() and target.read_bytes() == data:
-            return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        return replace(page, has_mermaid=False) if page.has_mermaid else page
 
     def make_index_renderer(self) -> IndexRenderer:
         """Return the renderer of the index pages and ``llms.txt``, with the index entries of the built docs and code.
@@ -1041,7 +1108,7 @@ class SiteBuilder:
         if self.vocabulary is None:
             raise RuntimeError("the vocabulary is read by run(), before the index renderer is made")
         entries = self.collect_index_entries()
-        tags = sorted({tag for entry in entries for tag in make_string_tuple(entry.front_matter.get("tags"))})
+        tags = sorted({tag for entry in entries for tag in entry.tags})
         for tag in tags:
             if not is_usable_tag(tag):
                 warnings.warn(DocspecsiteWarning('tag "%s" cannot be a file name, no index page', tag), stacklevel=1)
@@ -1078,7 +1145,7 @@ class SiteBuilder:
                 self.get_front_matter,
                 doc_pages=self,
                 extra_files=self.worktree_files,
-                warn_on_dropped_repo_link=not self.source_url_missing_reported,
+                should_warn_on_dropped_repo_link=not self.is_missing_source_url_reported,
             )
             self.vocabulary = Vocabulary.parse(self.read_latest_text)
             code_reference = (
@@ -1088,34 +1155,34 @@ class SiteBuilder:
                 if self.codebase
                 else None
             )
-            extra_children = {CODE_INDEX: code_reference.build_module_children()} if code_reference else {}
-            self.index_renderer = self.make_index_renderer() if self.builds_docs else None
+            extra_children = {CODE_INDEX_DOC: code_reference.build_module_children()} if code_reference else {}
+            self.index_renderer = self.make_index_renderer() if self.is_docs_part_built else None
             pending = [
                 *self.build_doc_pages(extra_children),
                 *(self.build_code_pages(code_reference) if code_reference else []),
                 *(self.index_renderer.make_page_makers().items() if self.index_renderer else []),
             ]
-            pages: list[tuple[str, Page]] = []
+            pages: list[BuiltPage] = []
             for name, make in pending:
                 page = self.attempt(name, make)
                 if page is not None:
                     pages.append((name, page))
-        built = frozenset(page.url for _, page in pages)
-        pages = [(name, self.keep_built_links(page, built)) for name, page in pages]
+        built_urls = frozenset(page.url for _, page in pages)
+        pages = [(name, self.keep_built_links(page, built_urls)) for name, page in pages]
 
-        mermaid = self.load_mermaid_bundle() if any(page.mermaid for _, page in pages) else None
-        if mermaid is None:
+        mermaid_files = self.load_mermaid_bundle() if any(page.has_mermaid for _, page in pages) else None
+        if mermaid_files is None:
             pages = [(name, self.strip_mermaid(page)) for name, page in pages]
         else:
-            self.site_files.update(mermaid)
-        indexes = frozenset(
+            self.site_files.update(mermaid_files)
+        index_urls = frozenset(
             page.url
             for _, page in pages
-            if page.url == IndexRenderer.STATUS_PAGE
-            or (page.url.startswith(("tags/", "components/")) and self.is_relative_down(page.url))
+            if page.url == STATUS_PAGE
+            or (page.url.startswith(("tags/", "components/")) and SiteWriter.is_relative_down(page.url))
         )
         for name, page in pages:
-            self.emit(name, page, indexes)
+            self.emit(name, page, index_urls)
         index_renderer = self.index_renderer
         if index_renderer is not None:
             llms = self.attempt("llms.txt", lambda: index_renderer.render_llms_txt(self.site_summary).encode())
@@ -1123,35 +1190,19 @@ class SiteBuilder:
                 self.site_files["llms.txt"] = llms
         self.site_files.update(load_static_files())
         self.copy_docs_files()
-        refused = self.find_outside(out, self.site_files)
-        for path in refused:
+        writer = SiteWriter(out)
+        refused_paths = writer.find_outside(self.site_files)
+        for path in refused_paths:
             warnings.warn(DocspecsiteWarning("refusing to write outside --out: %s", path), stacklevel=1)
-        self.write_site(out, self.site_files)
+        writer.write(self.site_files)
         self.cache.prune()
         return BuildResult(
-            page_count=len(set(self.page_urls) - set(refused)),
+            page_count=len(set(self.page_urls) - set(refused_paths)),
             rendered_count=self.cache.miss_count,
             cached_count=self.cache.hit_count,
             errors=tuple(self.errors),
             failed_count=len(self.failed_names),
         )
-
-
-@contextmanager
-def make_warnings_fatal() -> Generator[None]:
-    """Turn docspecsite's warnings into exceptions in the block, and the first one raised into a ``BuildError``.
-
-    Raises:
-        BuildError: A :exc:`~docspecsite.errors.DocspecsiteWarning` or :exc:`~docspecsite.errors.InternalErrorWarning`
-            was issued in the block.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DocspecsiteWarning)
-        warnings.simplefilter("error", InternalErrorWarning)
-        try:
-            yield
-        except (DocspecsiteWarning, InternalErrorWarning) as warning:
-            raise BuildError("strict: %s", warning) from warning
 
 
 def run_build(
@@ -1161,7 +1212,7 @@ def run_build(
     *,
     include_worktree: bool = False,
     vendor_dir: Path | None = None,
-    strict: bool = False,
+    is_strict: bool = False,
     parts: frozenset[Part] | None = None,
 ) -> BuildResult:
     """Build the static site for a git ref.
@@ -1180,7 +1231,7 @@ def run_build(
             ``docspecsite.toml`` and docs assets from the working tree.
         vendor_dir: Directory of the vendored third-party files the site uses; None reads ``$DOCSPECSITE_VENDOR_DIR``,
             and without either the site is built without them.
-        strict: Fail on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or warning,
+        is_strict: Fail on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or warning,
             before anything is written: ``error`` warning filters are set for
             :exc:`~docspecsite.errors.DocspecsiteWarning` and :exc:`~docspecsite.errors.InternalErrorWarning` during the
             build.
@@ -1192,13 +1243,13 @@ def run_build(
 
     Raises:
         BuildError: The root ``docspecsite.toml`` cannot be read, is not valid TOML or has an invalid value; with
-            ``strict``, also on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or
+            ``is_strict``, also on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or
             warning; also when ``parts`` has the code part and the settings have no ``code-dirs``.
     """
     if vendor_dir is None and os.environ.get(VENDOR_ENV):
         vendor_dir = Path(os.environ[VENDOR_ENV])
-    with make_warnings_fatal() if strict else nullcontext():
+    with SiteBuilder.make_warnings_fatal() if is_strict else nullcontext():
         builder = SiteBuilder(
-            root, ref, include_worktree=include_worktree, vendor_dir=vendor_dir, strict=strict, parts=parts
+            root, ref, include_worktree=include_worktree, vendor_dir=vendor_dir, is_strict=is_strict, parts=parts
         )
         return builder.run(out)

@@ -48,3 +48,7 @@ class DocspecsiteWarning(MessageWithValues, UserWarning):
 
 class InternalErrorWarning(MessageWithValues, RuntimeWarning):
     """Warning for an unexpected exception, a bug in docspecsite, issued while that exception is handled."""
+
+
+DOCSPECSITE_WARNINGS: tuple[type[Warning], ...] = (DocspecsiteWarning, InternalErrorWarning)
+"""The warning classes that docspecsite issues itself; it prints them, and a strict build makes them fatal."""

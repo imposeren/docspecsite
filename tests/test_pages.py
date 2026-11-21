@@ -3,6 +3,7 @@ from dataclasses import replace
 
 from conftest import extract_aside
 
+from docspecsite.git import Commit
 from docspecsite.history import Version
 from docspecsite.markdown import Marker
 from docspecsite.pages import (
@@ -38,7 +39,7 @@ def test_page_chrome() -> None:
     assert "<p>Body</p>" in html
 
 
-def test_render_page_link_without_url() -> None:
+def test_page_link_without_url() -> None:
     html = _render(replace(_PAGE, breadcrumb=(PageLink("Home", None),), described_in=(PageLink("meta/d.md", None),)))
     breadcrumb = html.split('<nav class="breadcrumb">', 1)[1].split("</nav>", 1)[0]
     assert "Home" in breadcrumb
@@ -49,7 +50,8 @@ def test_render_page_link_without_url() -> None:
 
 
 def test_old_version_banner() -> None:
-    page = replace(_PAGE, url="meta/a/v/abc123def456.html", old=OldBanner("2026-11-01", "abc123def456", "meta/a.html"))
+    version = Version("meta/a.md", Commit("abc123def456" + "0" * 28, "2026-11-01", "add a"), 3, "f" * 40)
+    page = replace(_PAGE, url="meta/a/v/abc123def456.html", old_banner=OldBanner(version, "meta/a.html"))
     html = _render(page)
     assert "⚠ OLD VERSION — 2026-11-01, abc123def456 — this is NOT the current spec." in html
     assert '<a href="../../a.html">→ Latest version</a>' in html
@@ -59,8 +61,8 @@ def test_old_version_banner() -> None:
 
 def test_picker() -> None:
     picker = (
-        PickerEntry("2026-11-02 · bbb · second", "meta/a.html", current=False),
-        PickerEntry("2026-11-01 · aaa · first", "meta/a/v/aaa.html", current=True),
+        PickerEntry("2026-11-02 · bbb · second", "meta/a.html", is_current=False),
+        PickerEntry("2026-11-01 · aaa · first", "meta/a/v/aaa.html", is_current=True),
     )
     html = _render(replace(_PAGE, picker=picker))
     assert '<select class="version-picker"' in html
@@ -96,7 +98,7 @@ def test_panels() -> None:
     page = replace(
         _PAGE,
         children=(PageLink("Child", "meta/a/c.html", "Child summary."),),
-        related=(PageLink("Rel", "meta/r.html", markers=(Marker("moved", "→ moved"),)),),
+        related_links=(PageLink("Rel", "meta/r.html", markers=(Marker("moved", "→ moved"),)),),
         backlinks=(PageLink("Back", "x/y.html"),),
     )
     html = _render(page)
@@ -124,11 +126,11 @@ def test_escaping() -> None:
         _PAGE,
         title=nasty,
         body_html="<p><em>raw</em></p>",
-        picker=(PickerEntry(f"2026-11-01 · aaa · {nasty}", "meta/a.html", current=True),),
+        picker=(PickerEntry(f"2026-11-01 · aaa · {nasty}", "meta/a.html", is_current=True),),
         redirect=RedirectNotice("Moved", (PageLink(nasty, "meta/b.html"),), nasty),
-        related=(PageLink(nasty, "meta/r.html", nasty),),
+        related_links=(PageLink(nasty, "meta/r.html", nasty),),
         breadcrumb=(PageLink(nasty, "index.html"),),
-        old=OldBanner(nasty, nasty, "meta/a.html"),
+        old_banner=OldBanner(Version("meta/a.md", Commit("a" * 40, nasty, nasty), 0, "f" * 40), "meta/a.html"),
     )
     html = Templates().render(page, nasty)
     assert f"<title>[OLD] {escaped} — {escaped}</title>" in html
@@ -141,7 +143,7 @@ def test_escaping() -> None:
 
 
 def test_mermaid_scripts() -> None:
-    html = _render(replace(_PAGE, mermaid=True))
+    html = _render(replace(_PAGE, has_mermaid=True))
     assert '<script src="../assets/mermaid.min.js"></script>' in html
     assert 'mermaid.initialize({ startOnLoad: true, securityLevel: "strict" })' in html
     plain = _render(_PAGE)
@@ -160,9 +162,9 @@ def test_breadcrumb() -> None:
 
 
 def test_picker_label() -> None:
-    version = Version("meta/a.md", "abc123def456", "abc123def456" + "0" * 28, 3, "2026-11-01", "add a", "f" * 40)
+    version = Version("meta/a.md", Commit("abc123def456" + "0" * 28, "2026-11-01", "add a"), 3, "f" * 40)
     assert make_picker_label(version) == "2026-11-01 · abc123def456 · add a"
-    worktree = Version("meta/a.md", Version.WORKTREE, None, -1, "", "working copy (uncommitted)", "f" * 40)
+    worktree = Version("meta/a.md", None, -1, "f" * 40)
     assert make_picker_label(worktree) == "working copy (uncommitted)"
 
 

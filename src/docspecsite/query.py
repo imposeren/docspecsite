@@ -1,4 +1,4 @@
-"""The filters and output formats of the ``docspecsite list`` and ``docspecsite backlinks`` commands.
+"""Front-matter filters for docs, and the text and JSON formats of doc listings and backlinks.
 
 Docs: architecture/docs-tooling.md
 """
@@ -22,7 +22,7 @@ LIST_FIELDS = ("title", "summary", "layer", "status", "components", "tags", "mil
 class Filters:
     """Front-matter values a doc must have to be listed; a field left None is not filtered on."""
 
-    MEMBERSHIP: ClassVar[dict[str, str]] = {"component": "components", "tag": "tags"}
+    LIST_FIELD_BY_FILTER: ClassVar[dict[str, str]] = {"component": "components", "tag": "tags"}
     """Front-matter list field of each membership filter; the filter matches when its value is among the items."""
 
     layer: str | None = None
@@ -56,8 +56,8 @@ class Filters:
             wanted = getattr(self, f.name)
             if wanted is None:
                 continue
-            if f.name in self.MEMBERSHIP:
-                member_values = front_matter.get(self.MEMBERSHIP[f.name])
+            if f.name in self.LIST_FIELD_BY_FILTER:
+                member_values = front_matter.get(self.LIST_FIELD_BY_FILTER[f.name])
                 if not (isinstance(member_values, list) and wanted in member_values):
                     return False
             elif front_matter.get(f.name) != wanted:
@@ -66,7 +66,7 @@ class Filters:
 
 
 def format_list(docs: list[Doc], fmt: Format) -> str:
-    """Format docs for ``docspecsite list``.
+    """Format docs as a listing, one entry per doc in the given order.
 
     The result is tab-separated lines, or a JSON list with the ``json`` format.
 
@@ -90,14 +90,16 @@ def format_list(docs: list[Doc], fmt: Format) -> str:
 class Backlink:
     """Doc that links to another doc."""
 
-    source: str
-    """Path of the linking doc, relative to ``docs/``."""
-
-    title: str
-    """Title of the linking doc."""
+    doc: Doc
+    """The linking doc."""
 
     kinds: tuple[str, ...]
     """Kinds of its links to the doc, sorted: ``body`` or the front-matter field holding the link."""
+
+    @property
+    def title(self) -> str:
+        """Title of the linking doc on one line; empty when it has none."""
+        return collapse_to_one_line((self.doc.front_matter or {}).get("title"))
 
 
 def resolve_doc_path(root: Path, path: str) -> str | None:
@@ -128,7 +130,7 @@ def resolve_doc_path(root: Path, path: str) -> str | None:
 
 
 def format_backlinks(links: Sequence[Backlink], fmt: Format) -> str:
-    """Format backlinks for ``docspecsite backlinks``.
+    """Format backlinks as a listing, one entry per backlink in the given order.
 
     The result is tab-separated lines, or a JSON list with the ``json`` format.
 
@@ -137,6 +139,6 @@ def format_backlinks(links: Sequence[Backlink], fmt: Format) -> str:
         fmt: ``json`` for a JSON list, else tab-separated source, kinds and title.
     """
     if fmt == "json":
-        items = [{"source": b.source, "title": b.title, "kinds": list(b.kinds)} for b in links]
+        items = [{"source": b.doc.path, "title": b.title, "kinds": list(b.kinds)} for b in links]
         return json.dumps(items, indent=2, ensure_ascii=False) + "\n"
-    return "".join(f"{b.source}\t{','.join(b.kinds)}\t{b.title}\n" for b in links)
+    return "".join(f"{b.doc.path}\t{','.join(b.kinds)}\t{b.title}\n" for b in links)

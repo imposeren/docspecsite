@@ -87,11 +87,12 @@ def test_backlinks_kinds() -> None:
         make_doc("guides/g.md", "[t](../meta/target.md#section)\n", title="T guides/g.md"),
         make_doc("guides/other.md", "[o](g.md)\n"),
     ]
-    assert DocSet(docs).backlinks_by_target.get("meta/target.md", ()) == (
-        Backlink("guides/g.md", "T guides/g.md", ("body",)),
-        Backlink("meta/a.md", "T meta/a.md", ("body", "related")),
-        Backlink("old.md", "T old.md", ("redirect_to",)),
-    )
+    backlinks = DocSet(docs).backlinks_by_target.get("meta/target.md", ())
+    assert [(b.doc.path, b.title, b.kinds) for b in backlinks] == [
+        ("guides/g.md", "T guides/g.md", ("body",)),
+        ("meta/a.md", "T meta/a.md", ("body", "related")),
+        ("old.md", "T old.md", ("redirect_to",)),
+    ]
 
 
 def test_backlinks_excludes_self_links() -> None:
@@ -109,7 +110,7 @@ def test_resolve_doc_path(tmp_path: Path) -> None:
 
 
 def test_format_backlinks() -> None:
-    links = [Backlink("a.md", "A", ("body", "related"))]
+    links = [Backlink(make_doc("a.md", title="A"), ("body", "related"))]
     assert format_backlinks(links, "text") == "a.md\tbody,related\tA\n"
     assert json.loads(format_backlinks(links, "json")) == [
         {"source": "a.md", "title": "A", "kinds": ["body", "related"]}
@@ -122,8 +123,8 @@ def test_backlinks_via_directory_link() -> None:
         make_doc("sub/index.md"),
         make_doc("sub/a.md", "[up](..)\n", title="T sub/a.md"),
     ]
-    assert DocSet(docs).backlinks_by_target.get("sub/index.md", ()) == (Backlink("index.md", "T index.md", ("body",)),)
-    assert DocSet(docs).backlinks_by_target.get("index.md", ()) == (Backlink("sub/a.md", "T sub/a.md", ("body",)),)
+    assert DocSet(docs).backlinks_by_target.get("sub/index.md", ()) == (Backlink(docs[0], ("body",)),)
+    assert DocSet(docs).backlinks_by_target.get("index.md", ()) == (Backlink(docs[2], ("body",)),)
 
 
 def test_backlinks_of_every_doc() -> None:
@@ -138,9 +139,9 @@ def test_backlinks_of_every_doc() -> None:
     expected: dict[str, tuple[Backlink, ...]] = {
         "meta/a.md": (),
         "guides/g.md": (),
-        "index.md": (Backlink("meta/a.md", "meta/a.md", ("body",)),),
+        "index.md": (Backlink(docs.by_path["meta/a.md"], ("body",)),),
         "sub/a.md": (),
-        "sub/missing.md": (Backlink("sub/a.md", "sub/a.md", ("body",)),),
+        "sub/missing.md": (Backlink(docs.by_path["sub/a.md"], ("body",)),),
     }
     assert {path: docs.backlinks_by_target.get(path, ()) for path in expected} == expected
 

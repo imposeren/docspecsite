@@ -9,7 +9,7 @@ import griffe
 import pytest
 from conftest import HistoryRepo, edit_text, extract_aside, make_commit, move_sample_package_to_root, run_git, write_doc
 
-from docspecsite.build import BuildError, BuildResult, SiteBuilder, run_build
+from docspecsite.build import BuildError, BuildResult, SiteBuilder, SiteWriter, run_build
 from docspecsite.coderef import Codebase, CodeError, CodeReference
 from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
@@ -175,11 +175,11 @@ def test_diff_html() -> None:
 
 def test_write_site_writes_only_changed_files(tmp_path: Path) -> None:
     site_dir = tmp_path / "out"
-    SiteBuilder.write_site(site_dir, {"a.html": b"a", "d/b.html": b"b"})
+    SiteWriter(site_dir).write({"a.html": b"a", "d/b.html": b"b"})
     stamp = (site_dir / "a.html").stat().st_mtime_ns
     (site_dir / "a.html").touch()
     touched = (site_dir / "a.html").stat().st_mtime_ns
-    SiteBuilder.write_site(site_dir, {"a.html": b"a", "d/c.html": b"c"})
+    SiteWriter(site_dir).write({"a.html": b"a", "d/c.html": b"c"})
     assert (site_dir / "a.html").stat().st_mtime_ns == touched >= stamp
     assert not (site_dir / "d/b.html").exists()
     assert (site_dir / "d/c.html").read_bytes() == b"c"
@@ -190,8 +190,8 @@ def test_write_site_refuses_paths_outside_out(tmp_path: Path) -> None:
     (tmp_path / "elsewhere").mkdir()
     site_dir.mkdir()
     (site_dir / "link").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
-    refused = SiteBuilder.write_site(
-        site_dir, {"a.html": b"a", "../x.html": b"x", "/abs.html": b"x", "": b"x", "link/y.html": b"y"}
+    refused = SiteWriter(site_dir).write(
+        {"a.html": b"a", "../x.html": b"x", "/abs.html": b"x", "": b"x", "link/y.html": b"y"}
     )
     assert sorted(refused) == ["", "../x.html", "/abs.html", "link/y.html"]
     assert not (tmp_path / "x.html").exists()
@@ -207,7 +207,7 @@ def test_write_site_does_not_delete_through_symlinks(tmp_path: Path) -> None:
     site_dir.mkdir()
     (site_dir / "link").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
     (site_dir / ".docspecsite-manifest").write_text("link/v.html\n", encoding="utf-8")
-    SiteBuilder.write_site(site_dir, {"a.html": b"a"})
+    SiteWriter(site_dir).write({"a.html": b"a"})
     assert victim.is_file()
 
 
@@ -254,7 +254,7 @@ def test_write_site_ignores_manifest_entries_outside_out(tmp_path: Path) -> None
     outside.write_text("x", encoding="utf-8")
     site_dir.mkdir()
     (site_dir / ".docspecsite-manifest").write_text("../outside.txt\n/etc/hostname\n", encoding="utf-8")
-    SiteBuilder.write_site(site_dir, {"a.html": b"a"})
+    SiteWriter(site_dir).write({"a.html": b"a"})
     assert outside.is_file()
 
 
@@ -348,20 +348,20 @@ def test_build_code_index(repo: HistoryRepo, tmp_path: Path) -> None:
     make_commit(root, "spec: unlink", "2026-11-10T12:00:00+00:00")
     site_dir = tmp_path / "site"
     run_build(root, "main", site_dir)
-    index = _read(site_dir, "reference/code/index.html")
-    assert 'href="sample.html"' in index
-    assert "<h2>Packages</h2>" in index
-    assert "<h2>Submodules</h2>" not in index
-    mod = _read(site_dir, "reference/code/sample.mod.html")
-    assert 'href="index.html">Code reference</a>' in mod
+    code_index_html = _read(site_dir, "reference/code/index.html")
+    assert 'href="sample.html"' in code_index_html
+    assert "<h2>Packages</h2>" in code_index_html
+    assert "<h2>Submodules</h2>" not in code_index_html
+    module_html = _read(site_dir, "reference/code/sample.mod.html")
+    assert 'href="index.html">Code reference</a>' in module_html
     # The entry page is versionless: no /v/ or diff pages and no picker, though it has two versions.
     assert not (site_dir / "reference/code/index").exists()
-    assert "<option" not in index
-    assert "diff-link" not in index
+    assert "<option" not in code_index_html
+    assert "diff-link" not in code_index_html
     assert "<option" in _read(site_dir, "meta/a.html")  # a doc with versions does have a picker
-    old = _read(site_dir, f"meta/a/v/{_shorten_sha(old_sha)}.html")
-    assert 'href="../../../reference/code/index.html"' in old
-    assert "current code" in old
+    old_page_html = _read(site_dir, f"meta/a/v/{_shorten_sha(old_sha)}.html")
+    assert 'href="../../../reference/code/index.html"' in old_page_html
+    assert "current code" in old_page_html
 
 
 def test_build_warns_about_unresolvable_links(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -735,7 +735,7 @@ def test_build_strict_stops_at_internal_error(
     site_dir = tmp_path / "site"
     filters = list(warnings.filters)
     with pytest.raises(BuildError) as raised:
-        run_build(root, "main", site_dir, strict=True)
+        run_build(root, "main", site_dir, is_strict=True)
     assert str(raised.value) == f"strict: docs/meta/b.md@{_shorten_sha(shas['c4'])}: internal error: RuntimeError: bug"
     assert isinstance(raised.value.__cause__, InternalErrorWarning)
     assert not site_dir.exists()
@@ -858,7 +858,7 @@ def test_build_strict_stops_at_first_error(repo: HistoryRepo, tmp_path: Path, mo
     _break_doc(monkeypatch, "meta/b.md", DocspecsiteError("boom"))
     site_dir = tmp_path / "site"
     with pytest.raises(BuildError) as raised:
-        run_build(root, "main", site_dir, strict=True)
+        run_build(root, "main", site_dir, is_strict=True)
     assert str(raised.value) == f"docs/meta/b.md@{_shorten_sha(shas['c4'])}: DocspecsiteError: boom"
     assert raised.value.message == "%s: %s"
     assert not site_dir.exists()
@@ -867,12 +867,12 @@ def test_build_strict_stops_at_first_error(repo: HistoryRepo, tmp_path: Path, mo
 def test_build_strict_fails_on_warnings(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
     site_dir = tmp_path / "site"
-    assert isinstance(run_build(root, "main", site_dir, strict=True), BuildResult)
+    assert isinstance(run_build(root, "main", site_dir, is_strict=True), BuildResult)
     write_doc(root, "meta/a.md", "See [gone](gone.md).\n")
     sha = make_commit(root, "spec: break a", "2026-11-07T12:00:00+00:00")
     other = tmp_path / "other"
     with pytest.raises(BuildError) as raised:
-        run_build(root, "main", other, strict=True)
+        run_build(root, "main", other, is_strict=True)
     assert str(raised.value) == f"strict: docs/meta/a.md@{sha[:12]}: unresolvable link: gone.md"
     assert raised.value.message == "strict: %s"
     assert isinstance(raised.value.__cause__, DocspecsiteWarning)
@@ -999,27 +999,22 @@ def test_build_from_ref_finds_code_in_the_repo_root(repo: HistoryRepo, tmp_path:
 
 def test_build_default_parts(repo: HistoryRepo) -> None:
     root, _ = repo
-    assert SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, strict=False, parts=None).parts == {
-        Part.DOCS,
-        Part.CODE,
-    }
+    code_and_docs_builder = SiteBuilder(
+        root, "main", include_worktree=False, vendor_dir=None, is_strict=False, parts=None
+    )
+    assert code_and_docs_builder.parts == {Part.DOCS, Part.CODE}
+    assert code_and_docs_builder.parts_label == "code+docs"
     (root / ProjectConfig.CONFIG_FILE).write_text("", encoding="utf-8")
     make_commit(root, "drop code-dirs", "2026-11-07T12:00:00+00:00")
-    assert SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, strict=False, parts=None).parts == {
-        Part.DOCS
-    }
+    docs_only_builder = SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, is_strict=False, parts=None)
+    assert docs_only_builder.parts == {Part.DOCS}
+    assert docs_only_builder.parts_label == "docs"
 
 
 def test_build_code_part_needs_code_dirs(history_repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = history_repo
     with pytest.raises(BuildError, match="code-dirs"):
         run_build(root, "main", tmp_path / "site", parts=frozenset({Part.CODE}))
-
-
-def test_build_parts_label(repo: HistoryRepo) -> None:
-    root, _ = repo
-    builder = SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, strict=False, parts=None)
-    assert builder.parts_label == "code+docs"
 
 
 def test_build_docs_only(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -1092,7 +1087,7 @@ def test_build_docs_only_ignores_broken_code(
         raise CodeError("cannot locate Docs: lines of %s", "sample.mod")
 
     monkeypatch.setattr(Codebase, "load", raise_in_load)
-    result = run_build(root, "main", tmp_path / "site", strict=True, parts=frozenset({Part.DOCS}))
+    result = run_build(root, "main", tmp_path / "site", is_strict=True, parts=frozenset({Part.DOCS}))
     assert not result.errors
 
 
@@ -1129,11 +1124,11 @@ def _extract_docs_links(html: str) -> str:
 
 def test_build_code_only(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
-    head = _add_code_only_docs(root)
+    head_sha = _add_code_only_docs(root)
     site_dir = tmp_path / "site"
     run_build(root, "main", site_dir, parts=frozenset({Part.CODE}))
     files = {p.relative_to(site_dir).as_posix() for p in site_dir.rglob("*") if p.is_file()}
-    written_files = {f for f in files if not f.startswith("assets/") and f != SiteBuilder.MANIFEST}
+    written_files = {f for f in files if not f.startswith("assets/") and f != SiteWriter.MANIFEST_FILENAME}
     assert written_files == {
         "reference/code/diagram.png",
         "index.html",
@@ -1147,13 +1142,13 @@ def test_build_code_only(repo: HistoryRepo, tmp_path: Path) -> None:
     assert 'href="reference/code/sample.html"' in root_page
     assert 'href="reference/code/sample.mod.html"' in root_page
     assert 'href="reference/index.html"' not in root_page
-    blob = f"https://github.com/o/r/blob/{head}/docs"
-    assert f'href="{blob}/meta/x.md#s"' in root_page
+    docs_blob_url = f"https://github.com/o/r/blob/{head_sha}/docs"
+    assert f'href="{docs_blob_url}/meta/x.md#s"' in root_page
     assert 'src="reference/code/diagram.png"' in root_page
     entry = _read(site_dir, "reference/code/index.html")
     assert 'src="diagram.png"' in entry
     related = extract_aside(entry, "related")
-    assert f'<a href="{blob}/meta/x.md">X doc</a>' in related
+    assert f'<a href="{docs_blob_url}/meta/x.md">X doc</a>' in related
     mod = _read(site_dir, "reference/code/sample.mod.html")
     breadcrumb = mod.split('<nav class="breadcrumb">', 1)[1].split("</nav>", 1)[0]
     assert '\nindex<span class="sep">' in breadcrumb  # the home doc, titled by its file name
@@ -1164,8 +1159,8 @@ def test_build_code_only(repo: HistoryRepo, tmp_path: Path) -> None:
     for page in ("index.html", "reference/code/index.html", "reference/code/sample.mod.html"):
         hrefs = _LINK.findall(_read(site_dir, page))
         assert not [h for h in hrefs if "components/" in h or h.endswith("status.html")], page
-    assert f'href="{blob}/meta/vocabulary.md"' in _extract_docs_links(mod)
-    assert f'<a href="{blob}/meta/x.md">X doc</a>' in extract_aside(mod, "described-in")
+    assert f'href="{docs_blob_url}/meta/vocabulary.md"' in _extract_docs_links(mod)
+    assert f'<a href="{docs_blob_url}/meta/x.md">X doc</a>' in extract_aside(mod, "described-in")
 
 
 def test_build_code_only_without_entry_page(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -1200,7 +1195,7 @@ def test_build_code_only_without_source_url(repo: HistoryRepo, tmp_path: Path) -
 
 def test_build_code_only_worktree_new_doc(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
-    head = _add_code_only_docs(root)
+    head_sha = _add_code_only_docs(root)
     write_doc(root, "meta/new.md", "New.\n", title="New doc")
     edit_text(
         root / "tools/sample/src/sample/mod.py",
@@ -1209,7 +1204,7 @@ def test_build_code_only_worktree_new_doc(repo: HistoryRepo, tmp_path: Path) -> 
     site_dir = tmp_path / "site"
     run_build(root, "main", site_dir, include_worktree=True, parts=frozenset({Part.CODE}))
     docs_links = _extract_docs_links(_read(site_dir, "reference/code/sample.mod.html"))
-    assert f'href="https://github.com/o/r/blob/{head}/docs/meta/vocabulary.md"' in docs_links
+    assert f'href="https://github.com/o/r/blob/{head_sha}/docs/meta/vocabulary.md"' in docs_links
     new_item = docs_links.split("meta/new.md", 1)[0].rsplit("<li>", 1)[1]
     assert "<a" not in new_item
 

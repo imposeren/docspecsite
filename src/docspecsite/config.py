@@ -12,8 +12,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import ClassVar
 
+from .docs import is_str_list, make_string_tuple
 from .errors import DocspecsiteError, DocspecsiteWarning
-from .schema import ADR_DIR, ADR_NAME
+from .schema import ADR_DIR, ADR_NAME_PATTERN
 
 
 class ConfigError(DocspecsiteError):
@@ -77,7 +78,7 @@ class ProjectConfig:
         return (*self.external_adr_prefixes, self.adr_prefix)
 
     @classmethod
-    def from_bytes(cls, data: bytes | None) -> ProjectConfig:
+    def from_bytes(cls, content: bytes | None) -> ProjectConfig:
         """Read the project settings from the content of ``docspecsite.toml``.
 
         A missing setting takes its default. An unknown setting is listed in :attr:`unknown_settings`; a setting with
@@ -86,13 +87,13 @@ class ProjectConfig:
         :attr:`read_error`, and every setting takes its default.
 
         Args:
-            data: Content of the root ``docspecsite.toml``, UTF-8 with an optional byte-order mark and any line
+            content: Content of the root ``docspecsite.toml``, UTF-8 with an optional byte-order mark and any line
                 endings; ``None`` or empty means the file is missing and every setting takes its default.
         """
-        if not data:
+        if not content:
             return ProjectConfigParser({}).parse()
         try:
-            text = data.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+            text = content.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
             settings = tomllib.loads(text)
         except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
             return replace(ProjectConfigParser({}).parse(), read_error=f"not valid TOML: {error}")
@@ -111,10 +112,10 @@ class ProjectConfig:
         if not config_file.is_file():
             return cls.from_bytes(None)
         try:
-            data = config_file.read_bytes()
+            content = config_file.read_bytes()
         except OSError as error:
             return replace(cls.from_bytes(None), read_error=f"cannot be read: {error}")
-        return cls.from_bytes(data)
+        return cls.from_bytes(content)
 
     def require_valid(self) -> ProjectConfig:
         """Return these settings if the file was read and every value is valid.
@@ -142,20 +143,20 @@ class ProjectConfig:
         path = PurePosixPath(directory)
         return any(path.full_match(pattern) for pattern in self.code_dirs)
 
-    def get_components(self, dotted: str) -> tuple[str, ...]:
+    def find_components(self, dotted_path: str) -> tuple[str, ...]:
         """Return the component ids of a code element.
 
-        They are those of the longest :attr:`code_components` prefix that matches ``dotted`` on whole dotted segments;
-        the result is empty when no prefix matches.
+        They are those of the longest :attr:`code_components` prefix that matches ``dotted_path`` on whole dotted
+        segments; the result is empty when no prefix matches.
 
         Args:
-            dotted: Dotted path of the module or member to classify.
+            dotted_path: Dotted path of the module or member to classify.
         """
-        best = ""
+        longest_prefix = ""
         for prefix in self.code_components:
-            if (dotted == prefix or dotted.startswith(prefix + ".")) and len(prefix) > len(best):
-                best = prefix
-        return self.code_components[best] if best else ()
+            if (dotted_path == prefix or dotted_path.startswith(prefix + ".")) and len(prefix) > len(longest_prefix):
+                longest_prefix = prefix
+        return self.code_components[longest_prefix] if longest_prefix else ()
 
     def make_sort_key(self, path: str) -> tuple[str, int, str]:
         """Return the key that sorts doc paths alphabetically, except that ADRs are ordered by prefix first.
@@ -173,7 +174,7 @@ class ProjectConfig:
             return (path, 0, "")
         name = path.removeprefix(ADR_DIR)
         external_count = len(self.external_adr_prefixes)
-        name_match = ADR_NAME.match(name)
+        name_match = ADR_NAME_PATTERN.match(name)
         if name_match is None:
             prefix_rank = external_count + 2
         elif name_match["prefix"] == self.adr_prefix:
@@ -189,7 +190,7 @@ class ProjectConfigParser:
     """The parser of the settings read from ``docspecsite.toml``, holding the unknown settings and invalid values."""
 
     # Setting names
-    SETTINGS = (
+    KNOWN_SETTING_NAMES: ClassVar[tuple[str, ...]] = (
         "adr-prefix",
         "external-adr-prefixes",
         "source-url",
@@ -200,7 +201,7 @@ class ProjectConfigParser:
     """Names of the settings docspecsite knows; any other key is an unknown setting."""
 
     # Value patterns
-    ADR_PREFIX = re.compile(r"[A-Z]+")
+    ADR_PREFIX_PATTERN: ClassVar[re.Pattern[str]] = re.compile(r"[A-Z]+")
     """Pattern of a valid ADR prefix: capital letters only."""
 
     # Found by the last parse
@@ -231,60 +232,61 @@ class ProjectConfigParser:
         ``external-adr-prefixes`` entry is left out). Each parse starts with no recorded messages.
         """
         settings = self.settings
-        self.unknown_settings = [f'unknown setting "{key}"' for key in settings if key not in self.SETTINGS]
+        self.unknown_settings = [f'unknown setting "{key}"' for key in settings if key not in self.KNOWN_SETTING_NAMES]
         self.invalid_values = []
-        url = settings.get("source-url", "")
-        if not isinstance(url, str):
+        source_url = settings.get("source-url", "")
+        if not isinstance(source_url, str):
             self.invalid_values.append('"source-url" must be a string')
-            url = ""
-        prefix = settings.get("adr-prefix", "")
-        if not (isinstance(prefix, str) and self.ADR_PREFIX.fullmatch(prefix)) and "adr-prefix" in settings:
+            source_url = ""
+        adr_prefix = settings.get("adr-prefix", "")
+        if (
+            not (isinstance(adr_prefix, str) and self.ADR_PREFIX_PATTERN.fullmatch(adr_prefix))
+            and "adr-prefix" in settings
+        ):
             self.invalid_values.append('"adr-prefix" must be capital letters only, e.g. "APP"')
-            prefix = ""
+            adr_prefix = ""
         prefix_entries = settings.get("external-adr-prefixes", [])
         if isinstance(prefix_entries, list):
-            external_prefixes = self.parse_external_adr_prefixes(prefix_entries, str(prefix))
+            external_adr_prefixes = self.parse_external_adr_prefixes(prefix_entries, str(adr_prefix))
         else:
             self.invalid_values.append('"external-adr-prefixes" must be a list of capital-letter prefixes')
-            external_prefixes = ()
+            external_adr_prefixes = ()
         toc_min_headings = settings.get("toc-min-headings", ProjectConfig.DEFAULT_TOC_MIN)
         if not (isinstance(toc_min_headings, int) and not isinstance(toc_min_headings, bool) and toc_min_headings >= 0):
             self.invalid_values.append('"toc-min-headings" must be a whole number of 0 or more')
             toc_min_headings = ProjectConfig.DEFAULT_TOC_MIN
-        dir_entries = self.parse_string_list("code-dirs", "a list of strings")
-        code_dirs = self.parse_code_dirs(dir_entries) if dir_entries is not None else ()
+        code_dirs = self.parse_code_dirs(self.parse_string_list("code-dirs"))
         code_components = (
             self.parse_code_components(settings["code-components"]) if "code-components" in settings else {}
         )
         return ProjectConfig(
             code_dirs=code_dirs,
-            source_url=url.rstrip("/"),
+            source_url=source_url.rstrip("/"),
             code_components=code_components,
-            adr_prefix=str(prefix),
-            external_adr_prefixes=external_prefixes,
+            adr_prefix=str(adr_prefix),
+            external_adr_prefixes=external_adr_prefixes,
             toc_min_headings=toc_min_headings,
             unknown_settings=tuple(self.unknown_settings),
             invalid_values=tuple(self.invalid_values),
         )
 
-    def parse_string_list(self, key: str, expected: str) -> list[str] | None:
-        """Check that a setting is a list of strings and return it; None when it is missing or not such a list.
+    def parse_string_list(self, key: str) -> tuple[str, ...]:
+        """Return the strings of a setting that must be a list of strings; empty when it is missing or invalid.
 
         A value that is not a list of strings is recorded as invalid, so the setting takes its default.
 
         Args:
             key: Name of the setting that is looked up, and named in the message when its value is invalid.
-            expected: What the value must be, for the message, e.g. ``a list of strings``.
         """
         if key not in self.settings:
-            return None
+            return ()
         value = self.settings[key]
-        if isinstance(value, list) and all(isinstance(item, str) for item in value):
-            return [str(item) for item in value]
-        self.invalid_values.append(f'"{key}" must be {expected}')
-        return None
+        if not is_str_list(value):
+            self.invalid_values.append(f'"{key}" must be a list of strings')
+            return ()
+        return make_string_tuple(value)
 
-    def parse_code_dirs(self, entries: list[str]) -> tuple[str, ...]:
+    def parse_code_dirs(self, entries: tuple[str, ...]) -> tuple[str, ...]:
         """Return the valid ``code-dirs`` entries, normalized, and record the invalid ones.
 
         An entry is normalized as a POSIX path, so ``./src`` becomes ``src`` and ``./`` becomes ``.`` (the repo root).
@@ -292,7 +294,7 @@ class ProjectConfigParser:
         Args:
             entries: Strings of the ``code-dirs`` setting; each is normalized or recorded as invalid.
         """
-        valid: list[str] = []
+        valid_dirs: list[str] = []
         for entry in entries:
             path = PurePosixPath(entry)
             if not entry or path.is_absolute() or ".." in path.parts:
@@ -300,8 +302,8 @@ class ProjectConfigParser:
                     f'"code-dirs" entries must be paths inside the repo, without ".." or a leading "/": "{entry}"'
                 )
             else:
-                valid.append(path.as_posix())
-        return tuple(valid)
+                valid_dirs.append(path.as_posix())
+        return tuple(valid_dirs)
 
     def parse_external_adr_prefixes(self, entries: list[object], adr_prefix: str) -> tuple[str, ...]:
         """Return the valid ``external-adr-prefixes`` entries and record the invalid ones.
@@ -317,7 +319,7 @@ class ProjectConfigParser:
         """
         prefixes: list[str] = []
         for entry in entries:
-            if not (isinstance(entry, str) and self.ADR_PREFIX.fullmatch(entry)):
+            if not (isinstance(entry, str) and self.ADR_PREFIX_PATTERN.fullmatch(entry)):
                 self.invalid_values.append(
                     f'"external-adr-prefixes" entries must be capital letters only, e.g. "BASE": "{entry}"'
                 )
@@ -333,12 +335,10 @@ class ProjectConfigParser:
         """Return the ``code-components`` table; an empty one, recorded as invalid, when it is not one of string lists.
 
         Args:
-            value: Parsed ``code-components`` value.
+            value: The ``code-components`` value from the parsed TOML, of any type; kept when it is a table of string
+                lists by dotted-name prefix, otherwise recorded as invalid and replaced by an empty table.
         """
-        if isinstance(value, dict) and all(
-            isinstance(components, list) and all(isinstance(c, str) for c in components)
-            for components in value.values()
-        ):
+        if isinstance(value, dict) and all(is_str_list(components) for components in value.values()):
             return {str(prefix): tuple(components) for prefix, components in value.items()}
         self.invalid_values.append('"code-components" must be a table of lists of strings')
         return {}

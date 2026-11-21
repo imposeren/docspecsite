@@ -31,10 +31,10 @@ class Vocabulary:
                 ``meta/vocabulary.md``, ``architecture/components.md`` and ``roadmap.md``. Lets the check read the
                 working tree and the build read git history.
         """
-        shared = cls.extract_codes(read("meta/vocabulary.md"), "Components")
-        project = cls.extract_codes(read("architecture/components.md"))
+        shared_components = cls.extract_codes(read("meta/vocabulary.md"), "Components")
+        project_components = cls.extract_codes(read("architecture/components.md"))
         return cls(
-            components=frozenset(shared + project),
+            components=frozenset(shared_components + project_components),
             milestones=tuple(cls.extract_codes(read("roadmap.md"))),
         )
 

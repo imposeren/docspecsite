@@ -8,7 +8,7 @@ from .docs import Doc
 
 @dataclass(frozen=True, order=True)
 class Problem:
-    """A problem found in a doc or source file, as reported by ``docspecsite check``.
+    """A problem found in a doc or source file by a docs check.
 
     It prints as ``<path>[:<line>]: <message>``; bytes of a file name that are not UTF-8 (kept in :attr:`path` and
     :attr:`message` as surrogate escapes) print as ``\\xNN``, so the line can be written to any UTF-8 stream.

@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% if page.old %}[OLD] {% endif %}{{ page.title }} — {{ site_title }}</title>
+<title>{% if page.old_banner %}[OLD] {% endif %}{{ page.title }} — {{ site_title }}</title>
 <link rel="stylesheet" href="{{ 'assets/docspecsite.css'|rel }}">
 </head>
-<body{% if page.old %} class="old"{% endif %}>
-{% if page.old -%}
-<div class="old-banner">⚠ OLD VERSION — {{ page.old.date }}, {{ page.old.short }} — this is NOT the current spec. <a href="{{ page.old.latest_url|rel }}">→ Latest version</a></div>
+<body{% if page.old_banner %} class="old"{% endif %}>
+{% if page.old_banner -%}
+<div class="old-banner">⚠ OLD VERSION — {{ page.old_banner.version.date }}, {{ page.old_banner.version.short_id }} — this is NOT the current spec. <a href="{{ page.old_banner.latest_url|rel }}">→ Latest version</a></div>
 {% endif -%}
-{% if indexes is none or 'status.html' in indexes -%}
-<nav class="site"><a href="{{ 'status.html'|rel }}">Status</a></nav>
+{% if indexes is none or status_page in indexes -%}
+<nav class="site"><a href="{{ status_page|rel }}">Status</a></nav>
 {% endif -%}
 <div class="layout">
 <main>
@@ -22,7 +22,7 @@
 {% if page.picker -%}
 <script src="{{ 'assets/docspecsite.js'|rel }}"></script>
 {% endif -%}
-{% if page.mermaid -%}
+{% if page.has_mermaid -%}
 <script src="{{ 'assets/mermaid.min.js'|rel }}"></script>
 <script>mermaid.initialize({ startOnLoad: true, securityLevel: "strict" });</script>
 {% endif -%}

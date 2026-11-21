@@ -40,19 +40,19 @@ def get_no_front_matter(_: Version) -> Mapping[str, object] | None:
 class _DocPages:
     """Doc pages of a fake build: every doc is built and has versions, unless listed."""
 
-    unbuilt: frozenset[str] = frozenset()
-    versionless: frozenset[str] = frozenset()
-    host: str | None = None
+    unbuilt_docs: frozenset[str] = frozenset()
+    versionless_docs: frozenset[str] = frozenset()
+    base_url: str | None = None
     """Base URL that unbuilt docs are linked under; None makes them text."""
 
     def is_built_doc(self, path: str) -> bool:
-        return path not in self.unbuilt
+        return path not in self.unbuilt_docs
 
     def is_versionless(self, path: str) -> bool:
-        return path in self.versionless
+        return path in self.versionless_docs
 
     def locate_doc(self, path: str) -> str | None:
-        return f"{self.host}/{path}" if self.host is not None else None
+        return f"{self.base_url}/{path}" if self.base_url is not None else None
 
 
 def load_history_and_versions(repo: HistoryRepo) -> HistoryAndVersions:
@@ -64,7 +64,12 @@ def load_history_and_versions(repo: HistoryRepo) -> HistoryAndVersions:
     root, commits = repo
     history = History.load(Git(root), "main")
     key = {sha: name for name, sha in commits.items()}
-    versions = {f"{p[5]}@{key[v.commit]}": v for p in ("meta/a.md", "meta/b.md") for v in history.docs[p] if v.commit}
+    versions = {
+        f"{p[5]}@{key[v.commit.sha]}": v
+        for p in ("meta/a.md", "meta/b.md")
+        for v in history.versions_by_path[p]
+        if v.commit is not None
+    }
     return HistoryAndVersions(history, versions, commits)
 
 
@@ -104,7 +109,7 @@ def test_link_to_redirect_doc(history_repo: HistoryRepo) -> None:
     history, v, commits = load_history_and_versions(history_repo)
 
     def front_matter_of(version: Version) -> Mapping[str, object] | None:
-        return {"status": "redirect"} if version.commit == commits["c2"] and version.path == "meta/b.md" else {}
+        return {"status": "redirect"} if version.short_id == commits["c2"][:12] and version.path == "meta/b.md" else {}
 
     link_resolver = make_resolver(history, front_matter_of)
     rewritten_link = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("b.md")
@@ -123,6 +128,17 @@ def test_directory_and_index_links(history_repo: HistoryRepo) -> None:
     )
     assert PageLinks(link_resolver, arch, "architecture/index.html").resolve_link("../meta/index.md") == RenderedLink(
         "../meta/index.html"
+    )
+
+
+def test_docs_root_links(history_repo: HistoryRepo) -> None:
+    history, _, _ = load_history_and_versions(history_repo)
+    link_resolver = make_resolver(history)
+    index = history.find_latest("index.md")
+    assert PageLinks(link_resolver, index, "index.html").resolve_link("./") == RenderedLink("index.html")
+    arch = history.find_latest("architecture/index.md")
+    assert PageLinks(link_resolver, arch, "architecture/index.html").resolve_link("../") == RenderedLink(
+        "../index.html"
     )
 
 
@@ -228,8 +244,8 @@ def test_old_link_to_contemporary_that_is_latest(history_repo: HistoryRepo) -> N
     write_doc(root, "meta/a.md", "See [b](b.md). Changed a third time.\n")
     make_commit(root, "change a once more", "2026-11-06T12:00:00+00:00")
     history = History.load(Git(root), "main")
-    old = next(v for v in history.docs["meta/a.md"] if v.commit == commits["c5"])
-    assert history.find_latest("meta/b.md").commit == commits["c4"]
+    old = next(v for v in history.versions_by_path["meta/a.md"] if v.short_id == commits["c5"][:12])
+    assert history.find_latest("meta/b.md").short_id == commits["c4"][:12]
     rewritten_link = PageLinks(make_resolver(history), old, f"meta/a/v/{commits['c5'][:12]}.html").resolve_link("b.md")
     assert rewritten_link == RenderedLink(f"../../b/v/{commits['c4'][:12]}.html")
 
@@ -239,8 +255,8 @@ def test_repo_links_use_the_version_commit(history_repo: HistoryRepo) -> None:
     (root / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
     head = make_commit(root, "add compose", "2026-11-06T12:00:00+00:00")
     write_doc(root, "meta/a.md", "Edited, not committed.\n")
-    history = History.load(Git(root), "main", worktree=root)
-    a_versions_by_commit = {v.commit: v for v in history.docs["meta/a.md"]}
+    history = History.load(Git(root), "main", worktree_root=root)
+    a_versions_by_commit = {v.commit.sha: v for v in history.versions_by_path["meta/a.md"] if v.commit is not None}
     link_resolver = make_resolver(history)
     old = PageLinks(link_resolver, a_versions_by_commit[commits["c3"]], "meta/a.html").resolve_link(
         "../../compose.yaml"
@@ -260,16 +276,16 @@ def test_link_to_unbuilt_doc(history_repo: HistoryRepo, recwarn: pytest.Warnings
         link_resolver = Resolver(history, CODE, CONFIG, get_no_front_matter, doc_pages=doc_pages)
         return PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("b.md#x")
 
-    unbuilt = frozenset({"meta/b.md"})
-    assert make_link(_DocPages(unbuilt, host="https://h")) == RenderedLink("https://h/meta/b.md#x")
-    assert make_link(_DocPages(unbuilt)) == RenderedLink(None)
+    unbuilt_docs = frozenset({"meta/b.md"})
+    assert make_link(_DocPages(unbuilt_docs, base_url="https://h")) == RenderedLink("https://h/meta/b.md#x")
+    assert make_link(_DocPages(unbuilt_docs)) == RenderedLink(None)
     assert not recwarn.list
 
 
 def test_old_link_to_versionless_doc(history_repo: HistoryRepo) -> None:
     history, v, commits = load_history_and_versions(history_repo)
     link_resolver = Resolver(
-        history, CODE, CONFIG, get_no_front_matter, doc_pages=_DocPages(versionless=frozenset({"meta/b.md"}))
+        history, CODE, CONFIG, get_no_front_matter, doc_pages=_DocPages(versionless_docs=frozenset({"meta/b.md"}))
     )
     old_link = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("b.md#s")
     assert old_link == RenderedLink("../../b.html#s", (MARKERS["code-current"],))

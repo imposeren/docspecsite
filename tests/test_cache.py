@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from docspecsite import cache
-from docspecsite.cache import BodyCache, compute_fingerprint, make_targets_key
+from docspecsite.cache import BodyCache
 from docspecsite.markdown import Marker, RenderedLink
 
 FP = "a" * 64
@@ -66,9 +66,9 @@ def test_variants_kept_by_prune(tmp_path: Path) -> None:
     compute, _ = _make_counting_compute("<p>x</p>")
     docs_cache = BodyCache(tmp_path, FP, "docs")
     docs_cache.get_body("blob1", "k", compute)
-    code_cache = BodyCache(tmp_path, FP, "code+docs")
-    code_cache.get_body("blob1", "k", compute)
-    code_cache.prune()
+    code_and_docs_cache = BodyCache(tmp_path, FP, "code+docs")
+    code_and_docs_cache.get_body("blob1", "k", compute)
+    code_and_docs_cache.prune()
     assert _make_cache_root(tmp_path, FP, "docs").is_dir()
     assert _make_cache_root(tmp_path, FP, "code+docs").is_dir()
     other_fingerprint_cache = BodyCache(tmp_path, "b" * 64, "docs")
@@ -78,22 +78,22 @@ def test_variants_kept_by_prune(tmp_path: Path) -> None:
     assert not _make_cache_root(tmp_path, FP, "code+docs").exists()
     lookalike = tmp_path / f"{other_fingerprint_cache.fingerprint_prefix}x"
     lookalike.mkdir()
-    (lookalike / BodyCache.MARKER).touch()
+    (lookalike / BodyCache.MARKER_FILENAME).touch()
     other_fingerprint_cache.prune()
     assert not lookalike.exists()
 
 
 def test_prune_unused(tmp_path: Path) -> None:
     compute, _ = _make_counting_compute("<p>x</p>")
-    old = BodyCache(tmp_path, FP, "docs")
-    old.get_body("blob1", "k", compute)
-    old.get_body("blob2", "k", compute)
-    old.get_hrefs("blob1", lambda: ["a.md"])
-    old.get_hrefs("blob2", lambda: ["b.md"])
-    new = BodyCache(tmp_path, FP, "docs")
-    new.get_body("blob1", "k", compute)
-    new.get_hrefs("blob1", lambda: ["a.md"])
-    new.prune()
+    stale_cache = BodyCache(tmp_path, FP, "docs")
+    stale_cache.get_body("blob1", "k", compute)
+    stale_cache.get_body("blob2", "k", compute)
+    stale_cache.get_hrefs("blob1", lambda: ["a.md"])
+    stale_cache.get_hrefs("blob2", lambda: ["b.md"])
+    fresh_cache = BodyCache(tmp_path, FP, "docs")
+    fresh_cache.get_body("blob1", "k", compute)
+    fresh_cache.get_hrefs("blob1", lambda: ["a.md"])
+    fresh_cache.prune()
     base = _make_cache_root(tmp_path, FP)
     assert len(list((base / "bodies").iterdir())) == 1
     assert [p.name for p in (base / "hrefs").iterdir()] == ["blob1.json"]
@@ -118,25 +118,27 @@ def test_hrefs_cached_and_corrupt_is_miss(tmp_path: Path) -> None:
 def test_targets_key_order_independent() -> None:
     link_with_marker = RenderedLink("a.html", (Marker("marker newer", "newer doc"),))
     link_without_href = RenderedLink(None)
-    assert make_targets_key({"a.md": link_with_marker, "b.md": link_without_href}) == make_targets_key(
-        {"b.md": link_without_href, "a.md": link_with_marker}
+    assert BodyCache.make_targets_key(
+        {"a.md": link_with_marker, "b.md": link_without_href}
+    ) == BodyCache.make_targets_key({"b.md": link_without_href, "a.md": link_with_marker})
+    assert BodyCache.make_targets_key({"a.md": link_with_marker}) != BodyCache.make_targets_key(
+        {"a.md": link_without_href}
     )
-    assert make_targets_key({"a.md": link_with_marker}) != make_targets_key({"a.md": link_without_href})
-    assert make_targets_key({"a.md": link_without_href}) != make_targets_key(
+    assert BodyCache.make_targets_key({"a.md": link_without_href}) != BodyCache.make_targets_key(
         {"a.md": RenderedLink(None, use_code_style=True)}
     )
-    assert make_targets_key({"a.md": RenderedLink("a.html", text="x")}) != make_targets_key(
-        {"a.md": RenderedLink("a.html", text="y")}
+    assert BodyCache.make_targets_key({"a.md": RenderedLink("a.html", code_text="x")}) != BodyCache.make_targets_key(
+        {"a.md": RenderedLink("a.html", code_text="y")}
     )
 
 
 def test_fingerprint_is_stable_hex() -> None:
-    assert compute_fingerprint() == compute_fingerprint()
-    assert len(compute_fingerprint()) > 16
+    assert BodyCache.compute_fingerprint() == BodyCache.compute_fingerprint()
+    assert len(BodyCache.compute_fingerprint()) > 16
 
 
 def test_fingerprint_includes_rendering_dependency_versions(monkeypatch: pytest.MonkeyPatch) -> None:
-    before = compute_fingerprint()
+    before = BodyCache.compute_fingerprint()
     seen: list[str] = []
 
     def fake_installed_version(name: str) -> str:
@@ -146,7 +148,7 @@ def test_fingerprint_includes_rendering_dependency_versions(monkeypatch: pytest.
         return "99.0"
 
     monkeypatch.setattr(cache, "version", fake_installed_version)
-    assert compute_fingerprint() != before
+    assert BodyCache.compute_fingerprint() != before
     assert seen == ["markdown-it-py", "mdit-py-plugins", "jinja2", "griffelib"]
 
 
@@ -156,9 +158,9 @@ def test_prune_keeps_foreign_data(tmp_path: Path) -> None:
     (tmp_path / "foreign.txt").write_text("y")
     compute, _ = _make_counting_compute("<p>x</p>")
     BodyCache(tmp_path, FP, "docs").get_body("blob1", "k", compute)
-    new = BodyCache(tmp_path, "b" * 64, "docs")
-    new.get_body("blob1", "k", compute)
-    new.prune()
+    other_fingerprint_cache = BodyCache(tmp_path, "b" * 64, "docs")
+    other_fingerprint_cache.get_body("blob1", "k", compute)
+    other_fingerprint_cache.prune()
     assert (tmp_path / "keep" / "f.txt").read_text() == "x"
     assert (tmp_path / "foreign.txt").read_text() == "y"
     assert not _make_cache_root(tmp_path, FP).exists()

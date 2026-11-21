@@ -146,12 +146,12 @@ def test_is_code_dir_glob(directory: str, expected: bool) -> None:
     assert ProjectConfig(("tools/*/src",), "", {}).is_code_dir(directory) is expected
 
 
-def test_get_components() -> None:
+def test_find_components() -> None:
     config = ProjectConfig((), "", {"docspecsite": ("docs-system",), "docspecsite.cli": ("x",)})
-    assert config.get_components("docspecsite.cli.main") == ("x",)
-    assert config.get_components("docspecsite.check") == ("docs-system",)
-    assert config.get_components("docspecsite") == ("docs-system",)
-    assert config.get_components("docspecsitex") == ()
+    assert config.find_components("docspecsite.cli.main") == ("x",)
+    assert config.find_components("docspecsite.check") == ("docs-system",)
+    assert config.find_components("docspecsite") == ("docs-system",)
+    assert config.find_components("docspecsitex") == ()
 
 
 def test_toc_min_headings_values() -> None:

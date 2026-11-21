@@ -27,9 +27,8 @@ def parse_parts(text: str) -> frozenset[Part]:
     """
     if not text:
         raise ValueError("no parts given")
-    known = {part.value: part for part in Part}
     names = text.split(",")
     for name in names:
-        if name not in known:
+        if name not in Part:
             raise ValueError(f"unknown part: {name!r}")
-    return frozenset(known[name] for name in names)
+    return frozenset(Part(name) for name in names)

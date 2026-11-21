@@ -40,13 +40,13 @@ class Commit:
 class Change:
     """Change of one file by a commit."""
 
-    commit: str
+    commit_sha: str
     """Full SHA hash of the commit."""
 
     path: str
     """Repository-relative path of the file."""
 
-    blob: str | None
+    blob_sha: str | None
     """SHA hash of the file's blob after the change; None when the file was deleted."""
 
 
@@ -62,6 +62,25 @@ class StagedChange:
 
     new_path: str | None
     """Repository-relative path of the renamed or copied file; None for any other change."""
+
+    @staticmethod
+    def has_new_path(status: str) -> bool:
+        """Return whether a ``--name-status`` letter marks a rename or copy, which has a new path.
+
+        Args:
+            status: The ``--name-status`` letter, with the similarity score for a rename or copy, e.g. ``R100``.
+        """
+        return status[0] in "RC"
+
+    @property
+    def is_deleted(self) -> bool:
+        """Whether the change deletes the file."""
+        return self.status == "D"
+
+    @property
+    def is_renamed(self) -> bool:
+        """Whether the change renames the file (a copy is not a rename)."""
+        return self.status.startswith("R")
 
 
 class Git:
@@ -127,12 +146,12 @@ class Git:
         """Return the commits on the first-parent chain from a commit, newest first.
 
         Args:
-            sha: Commit whose first-parent history is listed (included itself), normally the resolved build ref.
+            sha: Commit whose first-parent history is listed, starting with the commit itself.
         """
         fields = self.run("log", "--first-parent", "-z", "--format=%H%x00%cI%x00%s", sha).decode().split("\0")
         return [
-            Commit(full, date[:10], subject)
-            for full, date, subject in zip(fields[0::3], fields[1::3], fields[2::3], strict=False)
+            Commit(commit_sha, date[:10], subject)
+            for commit_sha, date, subject in zip(fields[0::3], fields[1::3], fields[2::3], strict=False)
         ]
 
     def list_changes(self, sha: str, prefix: str) -> list[Change]:
@@ -149,15 +168,17 @@ class Git:
             "--format=%H", sha, "--", prefix,
         ).decode()  # fmt: skip
         changes: list[Change] = []
-        commit = ""
+        commit_sha = ""
         tokens = iter(log_output.split("\0"))
         for token in tokens:
             field = token.lstrip("\n")
             if field.startswith(":"):
-                new_blob = field.split()[3]
-                changes.append(Change(commit, next(tokens), None if new_blob == self.NULL_SHA else new_blob))
+                new_blob_sha = field[1:].split()[3]
+                # The file's path follows as the next NUL-separated token.
+                path = next(tokens)
+                changes.append(Change(commit_sha, path, None if new_blob_sha == self.NULL_SHA else new_blob_sha))
             elif field:
-                commit = field
+                commit_sha = field
         return changes
 
     def read_tree(self, sha: str) -> dict[str, str]:
@@ -213,7 +234,7 @@ class Git:
             status = token.decode()
             old_path = os.fsdecode(next(tokens))
             # A rename or copy is followed by its new path.
-            new_path = os.fsdecode(next(tokens)) if status[0] in "RC" else None
+            new_path = os.fsdecode(next(tokens)) if StagedChange.has_new_path(status) else None
             changes.append(StagedChange(status, old_path, new_path))
         return changes
 

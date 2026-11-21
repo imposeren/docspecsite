@@ -6,16 +6,14 @@ Docs: meta/structure.md#adr-ids
 """
 
 import datetime
-import posixpath
 import re
-from typing import TypeGuard
 
-from .docs import Doc
+from .docs import Doc, is_dir_index, is_redirect, is_str_list
 from .problems import DocCheck, Problem
 from .vocabulary import Vocabulary
 
 ADR_DIR = "architecture/decisions/"
-ADR_NAME = re.compile(r"^(?P<prefix>[A-Z]+)-\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.md$")
+ADR_NAME_PATTERN = re.compile(r"^(?P<prefix>[A-Z]+)-\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.md$")
 
 LAYERS = (
     "root",
@@ -41,7 +39,7 @@ def is_adr(path: str) -> bool:
     Args:
         path: Doc path relative to ``docs/``.
     """
-    return path.startswith(ADR_DIR) and posixpath.basename(path) != "index.md"
+    return path.startswith(ADR_DIR) and not is_dir_index(path)
 
 
 class FrontMatterValidator(DocCheck):
@@ -74,9 +72,9 @@ class FrontMatterValidator(DocCheck):
             doc: Doc whose front matter is checked; its path decides the expected layer and whether ADR rules apply.
         """
         problems = [Problem(doc.path, None, doc.error)] if doc.error else []
-        adr_name_problem = self.describe_adr_name_problem(doc.path)
-        if adr_name_problem is not None:
-            problems.append(Problem(doc.path, 1, adr_name_problem))
+        adr_name_message = self.describe_adr_name_problem(doc.path)
+        if adr_name_message is not None:
+            problems.append(Problem(doc.path, 1, adr_name_message))
         if doc.front_matter is not None:
             problems.extend(FrontMatterCheck(doc, self.vocab).find_problems())
         return problems
@@ -93,7 +91,7 @@ class FrontMatterValidator(DocCheck):
         adr_prefixes = self.adr_prefixes
         if adr_prefixes is None or not is_adr(path):
             return None
-        name_match = ADR_NAME.match(path.removeprefix(ADR_DIR))
+        name_match = ADR_NAME_PATTERN.match(path.removeprefix(ADR_DIR))
         if name_match is not None and name_match["prefix"] in adr_prefixes:
             return None
         if adr_prefixes:
@@ -111,7 +109,7 @@ class FrontMatterCheck:
     REQUIRED_LISTS = ("components", "tags", "related")
     """Required fields whose value must be a list of strings."""
 
-    REQUIRED = ("title", "summary", "layer", "status", *REQUIRED_LISTS)
+    REQUIRED_FIELDS = ("title", "summary", "layer", "status", *REQUIRED_LISTS)
     """Fields every doc's front matter must have."""
 
     REQUIRED_STRINGS = ("title", "summary")
@@ -168,7 +166,7 @@ class FrontMatterCheck:
         return self.doc.front_matter or {}
 
     @staticmethod
-    def is_str(value: object) -> bool:
+    def is_non_blank_str(value: object) -> bool:
         """Return whether a value is a string with some non-blank text.
 
         Args:
@@ -177,16 +175,7 @@ class FrontMatterCheck:
         return isinstance(value, str) and value.strip() != ""
 
     @staticmethod
-    def is_str_list(value: object) -> TypeGuard[list[str]]:
-        """Return whether a value is a list of strings.
-
-        Args:
-            value: Front-matter value of a list field such as ``components`` or ``redirect_to``; an empty list counts.
-        """
-        return isinstance(value, list) and all(isinstance(v, str) for v in value)
-
-    @staticmethod
-    def get_expected_layer(path: str) -> str:
+    def derive_expected_layer(path: str) -> str:
         """Return the layer a doc must declare in its front matter.
 
         That is the top-level directory of the path, or ``root`` for a file directly in ``docs/``.
@@ -202,14 +191,14 @@ class FrontMatterCheck:
         A check covers one doc once: call this a single time per :class:`FrontMatterCheck`.
         """
         front_matter = self.front_matter
-        for field in self.REQUIRED:
+        for field in self.REQUIRED_FIELDS:
             if field not in front_matter:
                 self.messages.append(f'missing required field "{field}"')
         for field in self.REQUIRED_STRINGS:
-            if field in front_matter and not self.is_str(front_matter[field]):
+            if field in front_matter and not self.is_non_blank_str(front_matter[field]):
                 self.messages.append(f'"{field}" must be a non-empty string')
         for field in (*self.REQUIRED_LISTS, "code"):
-            if field in front_matter and not self.is_str_list(front_matter[field]):
+            if field in front_matter and not is_str_list(front_matter[field]):
                 self.messages.append(f'"{field}" must be a list of strings')
 
         self.check_enum("layer", LAYERS)
@@ -217,17 +206,17 @@ class FrontMatterCheck:
         self.check_enum("priority", PRIORITIES)
 
         layer = front_matter.get("layer")
-        expected_layer = self.get_expected_layer(self.doc.path)
+        expected_layer = self.derive_expected_layer(self.doc.path)
         if layer in LAYERS and layer != expected_layer:
             self.messages.append(f'layer "{layer}" does not match the directory (expected "{expected_layer}")')
 
         components = front_matter.get("components")
-        if self.is_str_list(components):
+        if is_str_list(components):
             for component in components:
                 if component not in self.vocab.components:
                     self.messages.append(f'unknown component "{component}" (add it to architecture/components.md)')
         tags = front_matter.get("tags")
-        if self.is_str_list(tags):
+        if is_str_list(tags):
             for tag in tags:
                 if not self.TAG_PATTERN.match(tag):
                     self.messages.append(f'tag "{tag}" must be lowercase words separated by "-"')
@@ -254,7 +243,7 @@ class FrontMatterCheck:
     def check_redirect_rules(self) -> None:
         """Record any violations of the rules for ``redirect_*`` fields and ``reason``."""
         front_matter = self.front_matter
-        if front_matter.get("status") != "redirect":
+        if not is_redirect(front_matter):
             for field in ("redirect_kind", "redirect_to"):
                 if field in front_matter:
                     self.messages.append(f'"{field}" is only allowed with status: redirect')
@@ -264,7 +253,7 @@ class FrontMatterCheck:
             self.messages.append('status: redirect needs "redirect_kind"')
         elif kind not in self.REDIRECT_KINDS:
             self.messages.append(f'"redirect_kind" must be one of: {", ".join(self.REDIRECT_KINDS)}')
-        if not self.is_str(front_matter.get("reason")):
+        if not self.is_non_blank_str(front_matter.get("reason")):
             self.messages.append('status: redirect needs "reason" (one sentence)')
         target = front_matter.get("redirect_to")
         if kind == "removed":
@@ -272,9 +261,9 @@ class FrontMatterCheck:
                 self.messages.append('redirect_kind: removed has no replacement, so no "redirect_to"')
         elif target is None:
             self.messages.append('status: redirect needs "redirect_to"')
-        elif kind == "split" and not (self.is_str_list(target) and target):
+        elif kind == "split" and not (is_str_list(target) and target):
             self.messages.append('"redirect_to" must be a list of paths for redirect_kind: split')
-        elif not (self.is_str(target) or (self.is_str_list(target) and target)):
+        elif not (self.is_non_blank_str(target) or (is_str_list(target) and target)):
             self.messages.append('"redirect_to" must be a path or a list of paths')
 
     def check_adr_rules(self) -> None:
@@ -297,5 +286,5 @@ class FrontMatterCheck:
             self.messages.append('ADR needs "date" (YYYY-MM-DD)')
         elif not (isinstance(date, datetime.date) or (isinstance(date, str) and self.DATE_PATTERN.match(date))):
             self.messages.append('"date" must be YYYY-MM-DD')
-        if decision == "superseded" and not self.is_str(front_matter.get("superseded_by")):
+        if decision == "superseded" and not self.is_non_blank_str(front_matter.get("superseded_by")):
             self.messages.append('decision: superseded needs "superseded_by"')

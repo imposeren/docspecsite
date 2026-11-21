@@ -24,14 +24,14 @@ from .errors import DocspecsiteError, DocspecsiteWarning
 from .links import parse_code_target
 from .markdown import HtmlRenderer, Link, MarkdownText, RenderedLink
 from .pages import Page, PageLink, create_environment
-from .roles import ROLE_SCHEME, RoleRef
-from .urls import CODE_INDEX, MARKERS, make_code_url, make_doc_url, make_relative_url
+from .roles import RoleRef
+from .urls import CODE_INDEX_DOC, MARKERS, make_code_url, make_doc_url, make_relative_url
 
 type Pieces = tuple[Piece, ...]
 
 DOCS_LINE = re.compile(r"^\s*Docs:\s*(\S+)\s*$")
 INDEX_TITLES: Mapping[str, str] = MappingProxyType(
-    {"index.md": "Home", "reference/index.md": "Reference", CODE_INDEX: "Code reference"}
+    {"index.md": "Home", "reference/index.md": "Reference", CODE_INDEX_DOC: "Code reference"}
 )
 
 
@@ -61,10 +61,10 @@ class Package:
     name: str
     """The package's import name."""
 
-    src: Path
+    package_dir: Path
     """The package directory."""
 
-    repo_src: str
+    repo_code_dir: str
     """The code directory containing it, relative to the repo root (POSIX); ``.`` for the root."""
 
 
@@ -114,30 +114,6 @@ def split_docs_lines(text: str) -> tuple[list[str], str]:
         else:
             kept.append(line)
     return targets, "".join(kept).rstrip("\n") + "\n" if kept and targets else "".join(kept)
-
-
-def is_public(name: str, obj: griffe.Object) -> bool:
-    """Return whether a member is shown: public names, and ``__init__`` when documented.
-
-    Args:
-        name: Name of the member in its parent; decides public versus private.
-        obj: The member itself; only its docstring is read, for ``__init__``.
-    """
-    if name == "__init__":
-        return obj.docstring is not None
-    return not name.startswith("_")
-
-
-def iter_members(obj: griffe.Object) -> Iterator[griffe.Object]:
-    """Return the public members that a class or module defines itself, leaving out aliases and submodules.
-
-    Args:
-        obj: Class or module whose own members are listed, in definition order.
-    """
-    for name, member in obj.members.items():
-        if isinstance(member, (griffe.Alias, griffe.Module)) or not is_public(name, member):
-            continue
-        yield member
 
 
 @dataclass(frozen=True)
@@ -209,6 +185,24 @@ class ParsedDocstring:
         return [item for item in section_value if isinstance(item, griffe.DocstringElement)]
 
     @staticmethod
+    def is_examples(section: griffe.DocstringSection) -> bool:
+        """Return whether a section is an Examples section, whose code parts are shown as ``pycon`` blocks.
+
+        Args:
+            section: Section from griffe's Google-style parse of a docstring.
+        """
+        return section.kind is griffe.DocstringSectionKind.examples
+
+    @classmethod
+    def get_section_title(cls, section: griffe.DocstringSection) -> str:
+        """Return the heading of a text section: its own title, else "Examples" for an Examples section, else empty.
+
+        Args:
+            section: Section from griffe's Google-style parse of a docstring that is not shown as a table.
+        """
+        return section.title or ("Examples" if cls.is_examples(section) else "")
+
+    @staticmethod
     def get_section_text(section: griffe.DocstringSection) -> str:
         """Return the Markdown of a text section; examples become ``pycon`` code blocks between their prose.
 
@@ -218,7 +212,7 @@ class ParsedDocstring:
         section_value: object = section.value
         if isinstance(section_value, griffe.DocstringAdmonition | griffe.DocstringDeprecated):
             return section_value.description
-        if section.kind is griffe.DocstringSectionKind.examples and isinstance(section_value, list):
+        if ParsedDocstring.is_examples(section) and isinstance(section_value, list):
             parts: list[str] = []
             for item in section_value:
                 if isinstance(item, tuple) and len(item) == 2:
@@ -305,7 +299,7 @@ class Codebase:
             try:
                 loaded = griffe.load(
                     package.name,
-                    search_paths=[package.src.parent],
+                    search_paths=[package.package_dir.parent],
                     docstring_parser="google",
                     allow_inspection=False,
                     resolve_aliases=True,
@@ -333,15 +327,15 @@ class Codebase:
         candidates: set[Path] = set()
         for code_dir_glob in config.code_dirs:
             candidates.update([root] if code_dir_glob == "." else root.glob(code_dir_glob))
-        found: list[Package] = []
+        packages: list[Package] = []
         for code_dir in sorted(candidates):
-            repo_src = code_dir.relative_to(root).as_posix()
-            if not (code_dir.is_dir() and config.is_code_dir(repo_src)):
+            repo_code_dir = code_dir.relative_to(root).as_posix()
+            if not (code_dir.is_dir() and config.is_code_dir(repo_code_dir)):
                 continue
-            for pkg in sorted(code_dir.iterdir()):
-                if pkg.is_dir() and (pkg / "__init__.py").is_file():
-                    found.append(Package(pkg.name, pkg, repo_src))
-        return found
+            for package_dir in sorted(code_dir.iterdir()):
+                if package_dir.is_dir() and (package_dir / "__init__.py").is_file():
+                    packages.append(Package(package_dir.name, package_dir, repo_code_dir))
+        return packages
 
     @classmethod
     def iter_modules(cls, module: griffe.Module) -> Iterator[griffe.Module]:
@@ -356,6 +350,30 @@ class Codebase:
             if isinstance(member, griffe.Module) and not name.startswith("_"):
                 yield from cls.iter_modules(member)
 
+    @staticmethod
+    def is_public(name: str, obj: griffe.Object) -> bool:
+        """Return whether a member is shown: public names, and ``__init__`` when documented.
+
+        Args:
+            name: Name of the member in its parent; decides public versus private.
+            obj: The member itself; only its docstring is read, for ``__init__``.
+        """
+        if name == "__init__":
+            return obj.docstring is not None
+        return not name.startswith("_")
+
+    @classmethod
+    def iter_members(cls, obj: griffe.Object) -> Iterator[griffe.Object]:
+        """Return the public members that a class or module defines itself, leaving out aliases and submodules.
+
+        Args:
+            obj: Class or module whose own members are listed, in definition order.
+        """
+        for name, member in obj.members.items():
+            if isinstance(member, (griffe.Alias, griffe.Module)) or not cls.is_public(name, member):
+                continue
+            yield member
+
     @classmethod
     def walk(cls, obj: griffe.Object) -> Iterator[griffe.Object]:
         """Return every public member of an object, including those of nested classes.
@@ -363,7 +381,7 @@ class Codebase:
         Args:
             obj: Module or class whose members are walked; members of nested classes follow their class.
         """
-        for member in iter_members(obj):
+        for member in cls.iter_members(obj):
             yield member
             if isinstance(member, griffe.Class):
                 yield from cls.walk(member)
@@ -373,7 +391,7 @@ class Codebase:
         """Return the file defining an object.
 
         Args:
-            obj: Loaded module or member.
+            obj: Module or member of the loaded code whose defining file is returned.
 
         Raises:
             CodeError: ``obj`` is in a namespace package, which has no single file.
@@ -388,7 +406,7 @@ class Codebase:
 
         Args:
             obj: Loaded object of one of the packages this codebase was loaded from; its top-level package gives the
-                ``src`` directory.
+                code directory the path starts from.
 
         Raises:
             CodeError: ``obj`` is in a namespace package, which has no single file, or its file is outside the code
@@ -397,12 +415,12 @@ class Codebase:
         filepath = self.get_filepath(obj)
         package = self.packages_by_name[obj.path.split(".")[0]]
         try:
-            package_path = filepath.relative_to(package.src.parent)
+            relative_filepath = filepath.relative_to(package.package_dir.parent)
         except ValueError as error:
             raise CodeError(
                 "the file of %s is outside the code directory of its package: %s", obj.path, filepath
             ) from error
-        return posixpath.normpath(posixpath.join(package.repo_src, package_path.as_posix()))
+        return posixpath.normpath(posixpath.join(package.repo_code_dir, relative_filepath.as_posix()))
 
     def find_role_target(self, target: str, owner: griffe.Object) -> str | None:
         """Return the full dotted path of the code element a docstring's role refers to, or None if it is not shown.
@@ -427,9 +445,9 @@ class Codebase:
         for candidate in candidates:
             if candidate in self.index:
                 return candidate
-            constructed = candidate.removesuffix(".__init__")
-            if constructed != candidate and constructed in self.index:
-                return constructed
+            class_path = candidate.removesuffix(".__init__")
+            if class_path != candidate and class_path in self.index:
+                return class_path
         return None
 
     def find_link_target(self, href: str, owner: griffe.Object) -> CodeLinkTarget | None:
@@ -441,8 +459,8 @@ class Codebase:
             href: Percent-decoded target of a link in a docstring; a Python role's link starts with ``role:``.
             owner: Module or member whose docstring holds the link; a role's relative target is looked up from it.
         """
-        if href.startswith(ROLE_SCHEME):
-            role = RoleRef.parse(href[len(ROLE_SCHEME) :])
+        if href.startswith(RoleRef.SCHEME):
+            role = RoleRef.parse(href[len(RoleRef.SCHEME) :])
             return CodeLinkTarget(role, self.find_role_target(role.target, owner))
         dotted_path = parse_code_target(href)
         if dotted_path is None:
@@ -539,17 +557,19 @@ class Codebase:
         source_lines = self.read_docstring_lines(obj, docstring)
         value_start = docstring.lineno + next(i for i, text in enumerate(source_lines) if text.strip())
         value_lines = [line.strip() for line in docstring.value.splitlines()]
-        found: list[BrokenReference] = []
-        index = 0
+        broken_references: list[BrokenReference] = []
+        value_line_index = 0
         for text_line, link in broken_links:
             reference_text = link.role_source or link.target
             # A rendered line is a docstring line without its indentation, or without a table item's name and type.
-            located = next((i for i in range(index, len(value_lines)) if value_lines[i].endswith(text_line)), None)
-            if located is None:
+            located_index = next(
+                (i for i in range(value_line_index, len(value_lines)) if value_lines[i].endswith(text_line)), None
+            )
+            if located_index is None:
                 raise CodeError("cannot locate %s in the docstring of %s", reference_text, obj.path, file=file)
-            index = located
-            found.append(BrokenReference(reference_text, file, value_start + index))
-        return found
+            value_line_index = located_index
+            broken_references.append(BrokenReference(reference_text, file, value_start + value_line_index))
+        return broken_references
 
     def collect_docs_lines_of(self, obj: griffe.Object) -> list[DocsLine]:
         """Return the ``Docs:`` lines of the docstring of an object, with their locations in the source file.
@@ -568,11 +588,11 @@ class Codebase:
         if not targets:
             return []
         source_lines = self.read_docstring_lines(obj, docstring)
-        numbers = [docstring.lineno + i for i, text in enumerate(source_lines) if DOCS_LINE.match(text)]
-        if len(numbers) != len(targets):
+        line_numbers = [docstring.lineno + i for i, text in enumerate(source_lines) if DOCS_LINE.match(text)]
+        if len(line_numbers) != len(targets):
             raise CodeError("cannot locate Docs: lines of %s", obj.path, file=self.get_repo_path(obj))
         file = self.get_repo_path(obj)
-        return [DocsLine(target, file, number) for target, number in zip(targets, numbers, strict=True)]
+        return [DocsLine(target, file, line_number) for target, line_number in zip(targets, line_numbers, strict=True)]
 
 
 # --- Code reference pages ---
@@ -617,7 +637,7 @@ class Section:
     """Rows of the table; empty for a text section."""
 
     @property
-    def named(self) -> bool:
+    def has_name_column(self) -> bool:
         """Whether the table has a name column (Returns and Raises usually do not)."""
         return any(row.name for row in self.rows)
 
@@ -658,13 +678,13 @@ class Member:
     docs: Pieces
     """Links to the docs named by the docstring's ``Docs:`` lines."""
 
-    source: str | None
-    """URL of the element's source lines on the repository host; None without a ``source-url``."""
+    source_url: str | None
+    """URL of the element's source lines on the repository host; None when the reference has no source link base."""
 
     members: tuple[Member, ...] = ()
     """A class's own public members; empty for other elements."""
 
-    inherited: tuple[Inherited, ...] = ()
+    inherited_groups: tuple[Inherited, ...] = ()
     """A class's members inherited from project-code bases, by base."""
 
     overloads: tuple[Pieces, ...] = ()
@@ -680,29 +700,6 @@ class Group:
 
     members: tuple[Member, ...]
     """The members of that kind, in module order."""
-
-
-def get_summary(obj: griffe.Object) -> str:
-    """Return the first line of the docstring of an object without its ``Docs:`` lines.
-
-    The result is empty when the object has no docstring.
-
-    Args:
-        obj: Module whose summary is shown next to its link in a list of submodules or packages.
-    """
-    if obj.docstring is None:
-        return ""
-    _, text = split_docs_lines(obj.docstring.value)
-    return text.strip().split("\n", 1)[0]
-
-
-def make_module_link(module: griffe.Module) -> PageLink:
-    """Return the link to the reference page of a module, with its summary.
-
-    Args:
-        module: Module listed as a child of an index page or a package page.
-    """
-    return PageLink(module.path, make_code_url(CodeTarget(module.path, None)), get_summary(module))
 
 
 class CodeReference:
@@ -736,7 +733,8 @@ class CodeReference:
 
         Args:
             codebase: Loaded code whose modules get pages.
-            config: Settings whose ``code-components`` give each page its components.
+            config: Settings whose :attr:`~docspecsite.config.ProjectConfig.code_components` give each page its
+                components.
             blob_base_url: URL to which a repo-relative file path is appended for the source links; empty leaves the
                 source links out.
             titles: Titles of the latest docs by path relative to ``docs/``, for the breadcrumb and the ``Docs:``
@@ -764,9 +762,9 @@ class CodeReference:
 
         Args:
             codebase: Loaded code whose modules get pages.
-            config: Settings whose ``code-components`` give each page its components, and whose ``source-url`` is
-                the base URL to which ``blob/<commit>/<file>`` is appended for the source links; without it the
-                source links are left out.
+            config: Settings whose :attr:`~docspecsite.config.ProjectConfig.code_components` give each page its
+                components, and whose :attr:`~docspecsite.config.ProjectConfig.source_url` is the base URL to which
+                ``blob/<commit>/<file>`` is appended for the source links; without it the source links are left out.
             commit: Full SHA hash of the build ref's head, so source links show the code the pages were built from.
             titles: Titles of the latest docs by path relative to ``docs/``, for the breadcrumb and the ``Docs:``
                 links; a doc missing from it is shown by its path.
@@ -796,9 +794,39 @@ class CodeReference:
             return PageLink(path, None)
         return PageLink(self.titles.get(path, path), url + suffix)
 
-    def build_module_children(self) -> tuple[PageLink, ...]:
-        """Return the links to the top-level packages, listed as the children of ``reference/code/index.md``."""
-        return tuple(make_module_link(m) for m in self.codebase.modules if "." not in m.path)
+    @staticmethod
+    def extract_summary(obj: griffe.Object) -> str:
+        """Return the first line of the docstring of an object without its ``Docs:`` lines.
+
+        The result is empty when the object has no docstring.
+
+        Args:
+            obj: Module or member whose docstring gives the summary.
+        """
+        if obj.docstring is None:
+            return ""
+        _, text = split_docs_lines(obj.docstring.value)
+        return text.strip().split("\n", 1)[0]
+
+    @classmethod
+    def make_module_link(cls, module: griffe.Module) -> PageLink:
+        """Return the link to the reference page of a module, with its summary.
+
+        Args:
+            module: Module listed as a child of an index page or a package page.
+        """
+        return PageLink(module.path, make_code_url(CodeTarget(module.path, None)), cls.extract_summary(module))
+
+    def build_module_children(self, parent_path: str = "") -> tuple[PageLink, ...]:
+        """Return the links to the modules directly under a package, with their summaries.
+
+        Args:
+            parent_path: Dotted path of the package whose submodules are listed; empty lists the top-level packages, the
+                children of the code index page.
+        """
+        return tuple(
+            self.make_module_link(m) for m in self.codebase.modules if m.path.rpartition(".")[0] == parent_path
+        )
 
     def build_page(self, module: griffe.Module, described_in: Sequence[PageLink]) -> Page:
         """Build the reference page of a module, listing its public classes, functions and constants.
@@ -828,10 +856,6 @@ class CodePage:
     )
     """Kinds of the module members, in the order the page lists them, with the heading of each group."""
 
-    # Page
-    url: str
-    """Site path of the page."""
-
     # Arguments of __init__
     reference: CodeReference
     """See :meth:`__init__`."""
@@ -850,7 +874,11 @@ class CodePage:
         """
         self.reference = reference
         self.module = module
-        self.url = make_code_url(CodeTarget(module.path, None))
+
+    @property
+    def url(self) -> str:
+        """Site path of the page."""
+        return make_code_url(CodeTarget(self.module.path, None))
 
     def build(self, described_in: Sequence[PageLink]) -> Page:
         """Build the page: its body, breadcrumb, children and the docs describing the module.
@@ -862,11 +890,11 @@ class CodePage:
             url=self.url,
             title=self.module.path,
             status="implemented",
-            components=self.reference.config.get_components(self.module.path),
+            components=self.reference.config.find_components(self.module.path),
             tags=(),
             body_html=self.render_body(),
             breadcrumb=self.build_breadcrumb(),
-            children=self.build_children(),
+            children=self.reference.build_module_children(self.module.path),
             described_in=tuple(described_in),
         )
 
@@ -886,25 +914,17 @@ class CodePage:
                 links.append(PageLink(parent, make_code_url(CodeTarget(parent, None))))
         return tuple(links)
 
-    def build_children(self) -> tuple[PageLink, ...]:
-        """Return the links to the module's direct submodules, with their summaries."""
-        return tuple(
-            make_module_link(m)
-            for m in self.reference.codebase.modules
-            if m.path.rpartition(".")[0] == self.module.path
-        )
-
     def render_body(self) -> str:
         """Return the HTML body of the module page: the module docstring, then its classes, functions and constants."""
         module = self.module
         sections, docs = self.build_docstring(module)
         groups: list[Group] = []
         for kind, title in self.GROUPS:
-            members = tuple(self.build_member(m) for m in iter_members(module) if m.kind is kind)
+            members = tuple(self.build_member(m) for m in Codebase.iter_members(module) if m.kind is kind)
             if members:
                 groups.append(Group(title, members))
         return self.reference.template.render(
-            sections=sections, docs=docs, groups=groups, source=self.make_source_url(module, whole_file=True)
+            sections=sections, docs=docs, groups=groups, source_url=self.make_source_url(module, link_whole_file=True)
         )
 
     def make_href(self, url: str) -> str:
@@ -915,15 +935,15 @@ class CodePage:
         """
         return make_relative_url(url, self.url)
 
-    def make_code_href(self, dotted: str) -> str | None:
+    def make_code_href(self, dotted_path: str) -> str | None:
         """Return the page-relative href of a code element, or None if it is not in the reference.
 
         An element shown on this page gets a bare ``#anchor``.
 
         Args:
-            dotted: Full dotted path of the element, e.g. a name's canonical path or a ``code:`` target.
+            dotted_path: Full dotted path of the element, e.g. a name's canonical path or a ``code:`` target.
         """
-        target = self.reference.codebase.index.get(dotted)
+        target = self.reference.codebase.index.get(dotted_path)
         if target is None:
             return None
         if target.module == self.module.path and target.anchor:
@@ -967,13 +987,13 @@ class CodePage:
             if target.role is not None:
                 warnings.warn(
                     DocspecsiteWarning(
-                        "unknown code element in the docstring of %s: %s", owner.path, href[len(ROLE_SCHEME) :]
+                        "unknown code element in the docstring of %s: %s", owner.path, href[len(RoleRef.SCHEME) :]
                     ),
                     stacklevel=1,
                 )
             return RenderedLink(None, (MARKERS["code-gone"],))
-        text = target.role.display_text(target.dotted_path) if target.role is not None else None
-        return RenderedLink(self.make_code_href(target.dotted_path), text=text)
+        code_text = target.role.make_link_text(target.dotted_path) if target.role is not None else None
+        return RenderedLink(self.make_code_href(target.dotted_path), code_text=code_text)
 
     def render_markdown(self, text: str, owner: griffe.Object) -> str:
         """Return docstring Markdown as HTML with its links and Python roles resolved; blank text gives an empty string.
@@ -987,21 +1007,23 @@ class CodePage:
             return ""
         return HtmlRenderer(partial(self.resolve_link, owner=owner), use_roles=True).render(text)
 
-    def make_source_url(self, obj: griffe.Object, *, whole_file: bool = False) -> str | None:
-        """Return the URL of the source of an object on the repository host, or None without a ``source-url``.
+    def make_source_url(self, obj: griffe.Object, *, link_whole_file: bool = False) -> str | None:
+        """Return the URL of the source of an object on the repository host, or None when there is no such link.
+
+        There is none when the reference has no source link base, or when the object has no single file or line.
 
         Args:
             obj: Module or member whose defining file (and lines) the link points at.
-            whole_file: Link to the whole file instead of the lines of ``obj``, as for a module page.
+            link_whole_file: Link to the whole file instead of the lines of ``obj``, as for a module page.
         """
-        if not self.reference.blob_base_url or isinstance(obj.filepath, list):
+        if (
+            not self.reference.blob_base_url
+            or isinstance(obj.filepath, list)
+            or (not link_whole_file and obj.lineno is None)
+        ):
             return None
         url = f"{self.reference.blob_base_url}/{self.reference.codebase.get_repo_path(obj)}"
-        if whole_file:
-            return url
-        if obj.lineno is None:
-            return None
-        return f"{url}#L{obj.lineno}-L{obj.endlineno or obj.lineno}"
+        return url if link_whole_file else f"{url}#L{obj.lineno}-L{obj.endlineno or obj.lineno}"
 
     def build_docstring(self, obj: griffe.Object) -> tuple[tuple[Section, ...], Pieces]:
         """Split the docstring of an object into its rendered sections and the links of its ``Docs:`` lines.
@@ -1040,8 +1062,7 @@ class CodePage:
                 for item in items
             ]
             return Section(ParsedDocstring.TABLE_TITLES[section.kind], "", tuple(rows))
-        default_title = "Examples" if section.kind is griffe.DocstringSectionKind.examples else ""
-        return Section(section.title or default_title, render(ParsedDocstring.get_section_text(section)))
+        return Section(ParsedDocstring.get_section_title(section), render(ParsedDocstring.get_section_text(section)))
 
     def build_member(self, obj: griffe.Object) -> Member:
         """Describe a code element for rendering: signature, docstring and, for a class, its members.
@@ -1061,7 +1082,7 @@ class CodePage:
             sections, docs = self.build_docstring(obj)
         decorators: tuple[Pieces, ...] = ()
         members: tuple[Member, ...] = ()
-        inherited: tuple[Inherited, ...] = ()
+        inherited_groups: tuple[Inherited, ...] = ()
         if isinstance(obj, griffe.Function):
             decorators = tuple(((Piece("@"), *self.build_expr_pieces(d.value))) for d in obj.decorators)
             signature = self.build_function_pieces(obj)
@@ -1069,10 +1090,10 @@ class CodePage:
         elif isinstance(obj, griffe.Class):
             decorators = tuple(((Piece("@"), *self.build_expr_pieces(d.value))) for d in obj.decorators)
             signature = self.build_class_pieces(obj)
-            members = tuple(self.build_member(m) for m in iter_members(obj))
-            inherited = self.find_inherited(obj)
+            members = tuple(self.build_member(m) for m in Codebase.iter_members(obj))
+            inherited_groups = self.find_inherited(obj)
         elif isinstance(obj, griffe.Attribute):
-            if "property" in obj.labels:
+            if self.is_property(obj):
                 decorators = ((Piece("@property"),),)
             signature = self.build_attribute_pieces(obj)
         elif isinstance(obj, griffe.TypeAlias):
@@ -1088,11 +1109,20 @@ class CodePage:
             signature=signature,
             sections=sections,
             docs=docs,
-            source=self.make_source_url(obj),
+            source_url=self.make_source_url(obj),
             members=members,
-            inherited=inherited,
+            inherited_groups=inherited_groups,
             overloads=overloads,
         )
+
+    @staticmethod
+    def is_property(attribute: griffe.Attribute) -> bool:
+        """Return whether an attribute is a property, shown with ``@property`` and without its value.
+
+        Args:
+            attribute: Module constant, class attribute or property.
+        """
+        return "property" in attribute.labels
 
     @staticmethod
     def get_star_prefix(kind: griffe.ParameterKind | None) -> str:
@@ -1125,8 +1155,8 @@ class CodePage:
         for parameter_index, param in enumerate(params):
             if parameter_index:
                 pieces.append(Piece(", "))
-            star = {griffe.TypeParameterKind.type_var_tuple: "*", griffe.TypeParameterKind.param_spec: "**"}
-            pieces.append(Piece(star.get(param.kind, "") + param.name))
+            star_prefixes = {griffe.TypeParameterKind.type_var_tuple: "*", griffe.TypeParameterKind.param_spec: "**"}
+            pieces.append(Piece(star_prefixes.get(param.kind, "") + param.name))
             if param.annotation is not None:
                 pieces += [Piece(": "), *self.build_expr_pieces(param.annotation)]
             if param.default is not None:
@@ -1148,11 +1178,11 @@ class CodePage:
         ]
         params = list(function.parameters)
         parts: list[Pieces] = []
-        star_done = any(p.kind is griffe.ParameterKind.var_positional for p in params)
+        has_star = any(p.kind is griffe.ParameterKind.var_positional for p in params)
         for parameter_index, param in enumerate(params):
-            if param.kind is griffe.ParameterKind.keyword_only and not star_done:
+            if param.kind is griffe.ParameterKind.keyword_only and not has_star:
                 parts.append((Piece("*"),))
-                star_done = True
+                has_star = True
             star = self.get_star_prefix(param.kind)
             part: list[Piece] = [Piece(star + param.name)]
             if param.annotation is not None:
@@ -1163,16 +1193,16 @@ class CodePage:
                     *self.build_expr_pieces(param.default),
                 ]
             parts.append(tuple(part))
-            last_positional = (
+            is_last_positional = (
                 parameter_index + 1 == len(params)
                 or params[parameter_index + 1].kind is not griffe.ParameterKind.positional_only
             )
-            if param.kind is griffe.ParameterKind.positional_only and last_positional:
+            if param.kind is griffe.ParameterKind.positional_only and is_last_positional:
                 parts.append((Piece("/"),))
-        for parameter_index, group in enumerate(parts):
-            if parameter_index:
+        for part_index, part_pieces in enumerate(parts):
+            if part_index:
                 pieces.append(Piece(", "))
-            pieces += group
+            pieces += part_pieces
         pieces.append(Piece(")"))
         if function.returns is not None:
             pieces += [Piece(" -> "), *self.build_expr_pieces(function.returns)]
@@ -1203,7 +1233,7 @@ class CodePage:
         pieces: list[Piece] = [Piece(attribute.name)]
         if attribute.annotation is not None:
             pieces += [Piece(": "), *self.build_expr_pieces(attribute.annotation)]
-        if attribute.value is not None and "property" not in attribute.labels:
+        if attribute.value is not None and not self.is_property(attribute):
             pieces += [Piece(" = "), *self.build_expr_pieces(attribute.value)]
         return tuple(pieces)
 
@@ -1226,22 +1256,22 @@ class CodePage:
                 and len(section.rows) == 1
                 and function.returns is not None
             ):
-                parameter_row = section.rows[0]
+                returns_row = section.rows[0]
                 section = Section(
                     section.title,
                     "",
                     (
                         Row(
-                            parameter_row.name,
+                            returns_row.name,
                             self.build_expr_pieces(function.returns),
-                            parameter_row.description_html,
+                            returns_row.description_html,
                         ),
                     ),
                 )
             merged.append(section)
         return tuple(merged)
 
-    def build_parameter_rows(self, function: griffe.Function, documented: tuple[Row, ...]) -> tuple[Row, ...]:
+    def build_parameter_rows(self, function: griffe.Function, documented_rows: tuple[Row, ...]) -> tuple[Row, ...]:
         """Return the rows of the Parameters table of a function: one per parameter, with the documented descriptions.
 
         Documented names that are not parameters are kept at the end.
@@ -1249,10 +1279,10 @@ class CodePage:
         Args:
             function: Function whose parameters give the rows and their order; ``self`` and ``cls`` are left out unless
                 documented.
-            documented: Rows of the docstring's Parameters table, matched to parameters by name (``*`` prefixes
+            documented_rows: Rows of the docstring's Parameters table, matched to parameters by name (``*`` prefixes
                 ignored).
         """
-        by_name = {row.name.lstrip("*"): row for row in documented}
+        by_name = {row.name.lstrip("*"): row for row in documented_rows}
         rows: list[Row] = []
         for param in function.parameters:
             parameter_row = by_name.pop(param.name, None)
@@ -1280,17 +1310,17 @@ class CodePage:
             mro = class_.mro()
         except ValueError:
             mro: list[griffe.Class] = []
-        seen = set(class_.members)
-        found: list[Inherited] = []
+        seen_names = set(class_.members)
+        inherited_groups: list[Inherited] = []
         for base in mro:
             base_href = self.make_code_href(base.path)
             if base_href is None:
                 continue
             links: list[Piece] = []
-            for member in iter_members(base):
-                if member.name not in seen:
+            for member in Codebase.iter_members(base):
+                if member.name not in seen_names:
                     links.append(Piece(member.name, self.make_code_href(member.path)))
-            seen.update(base.members)
+            seen_names.update(base.members)
             if links:
-                found.append(Inherited(Piece(base.name, base_href), tuple(links)))
-        return tuple(found)
+                inherited_groups.append(Inherited(Piece(base.name, base_href), tuple(links)))
+        return tuple(inherited_groups)

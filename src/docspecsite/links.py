@@ -5,25 +5,25 @@ Docs: meta/linking.md
 
 import posixpath
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from .docs import Doc
+from .docs import Doc, make_string_tuple
 from .markdown import MarkdownText
 from .problems import Problem
 
 type RefKind = Literal["body", "related", "redirect_to", "superseded_by"]
 
-SCHEME = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*):")
+SCHEME_PATTERN = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*):")
 WEB_SCHEMES = {"http", "https", "mailto"}
-FRONT_MATTER_LINE = 1
 
 
 @dataclass(frozen=True)
 class CodeRef:
     """Link from a doc to a code element, by dotted path."""
 
-    dotted: str
+    dotted_path: str
     """Dotted path of the code element, as written in the doc."""
 
     kind: Literal["body", "code"]
@@ -54,18 +54,18 @@ class Ref:
 
 
 def parse_code_target(href: str) -> str | None:
-    """Return the dotted path a ``code:`` link names, or None for any other link.
+    """Return the dotted path a ``code:`` link names (empty when the link has no path), or None for any other link.
 
     Args:
-        href: Link target; the scheme is case-insensitive. The result is empty for a ``code:`` link without a path.
+        href: Link target to inspect; its scheme is matched case-insensitively.
     """
-    scheme = SCHEME.match(href)
-    if scheme is None or scheme.group(1).lower() != "code":
+    scheme_match = SCHEME_PATTERN.match(href)
+    if scheme_match is None or scheme_match.group(1).lower() != "code":
         return None
-    return href[scheme.end() :].strip()
+    return href[scheme_match.end() :].strip()
 
 
-def parse_body_ref(doc_path: str, href: str, line: int) -> Ref | CodeRef | Problem | None:
+def parse_body_ref(doc_path: str, href: str, line_number: int) -> Ref | CodeRef | Problem | None:
     """Classify a link found in the body of a doc.
 
     Returns a :class:`Ref` for a local link, a :class:`CodeRef` for a ``code:`` link, a
@@ -76,91 +76,113 @@ def parse_body_ref(doc_path: str, href: str, line: int) -> Ref | CodeRef | Probl
             directory, and problems are reported on it.
         href: Link target as written in the doc (as :meth:`~docspecsite.markdown.MarkdownText.extract_links` returns
             it), with any ``?query`` and ``#anchor``.
-        line: 1-based file line of the link, stored in the returned ref or problem; callers that only classify the
-            link pass 0.
+        line_number: 1-based file line of the link, stored in the returned ref or problem; callers that only classify
+            the link pass 0.
     """
     if href.strip() in ("", "#"):
-        return Problem(doc_path, line, "empty link target")
-    scheme = SCHEME.match(href)
-    if scheme:
-        name = scheme.group(1).lower()
-        if name in WEB_SCHEMES:
+        return Problem(doc_path, line_number, "empty link target")
+    scheme_match = SCHEME_PATTERN.match(href)
+    if scheme_match:
+        scheme_name = scheme_match.group(1).lower()
+        if scheme_name in WEB_SCHEMES:
             return None
-        dotted = parse_code_target(href)
-        if dotted is not None:
-            if not dotted:
-                return Problem(doc_path, line, "empty code: target")
-            return CodeRef(dotted, "body", line)
-        if name == "web-api":
-            return Problem(doc_path, line, f"web-api: links cannot be resolved yet (no API schema): {href}")
-        return Problem(doc_path, line, f"unsupported link scheme: {href}")
+        dotted_path = parse_code_target(href)
+        if dotted_path is not None:
+            if not dotted_path:
+                return Problem(doc_path, line_number, "empty code: target")
+            return CodeRef(dotted_path, "body", line_number)
+        if scheme_name == "web-api":
+            return Problem(doc_path, line_number, f"web-api: links cannot be resolved yet (no API schema): {href}")
+        return Problem(doc_path, line_number, f"unsupported link scheme: {href}")
     path, _, anchor = href.partition("#")
     path = path.partition("?")[0]
     if path.startswith("/"):
-        return Problem(doc_path, line, f"use a relative link instead of {href}")
+        return Problem(doc_path, line_number, f"use a relative link instead of {href}")
     if not path:
         if not anchor:
             return None
-        return Ref(f"docs/{doc_path}", "body", line, anchor)
+        return Ref(f"docs/{doc_path}", "body", line_number, anchor)
     target = posixpath.normpath(posixpath.join("docs", posixpath.dirname(doc_path), path))
     if target == ".." or target.startswith("../"):
-        return Problem(doc_path, line, f"link points outside the repository: {href}")
-    return Ref(target, "body", line, anchor or None)
+        return Problem(doc_path, line_number, f"link points outside the repository: {href}")
+    return Ref(target, "body", line_number, anchor or None)
 
 
-def collect_front_matter_targets(doc: Doc) -> list[tuple[RefKind, str]]:
-    """Return the link targets in the ``related``, ``redirect_to`` and ``superseded_by`` fields of a doc, by field.
-
-    Args:
-        doc: Doc whose front matter is read; only string values (single or in a list) count, and a doc without front
-            matter gives none.
-    """
-    front_matter = doc.front_matter or {}
-    found: list[tuple[RefKind, str]] = []
-    for kind in ("related", "redirect_to", "superseded_by"):
-        front_matter_value = front_matter.get(kind)
-        target_paths = front_matter_value if isinstance(front_matter_value, list) else [front_matter_value]
-        found.extend((kind, v) for v in target_paths if isinstance(v, str))
-    return found
-
-
-def collect_outgoing_refs(doc: Doc) -> tuple[list[Ref], list[Problem]]:
-    """Return the local links of a doc and the problems found in its links.
-
-    Body links come first, then front-matter links. Web links and ``code:`` links are not local links.
+def list_front_matter_paths(front_matter: Mapping[str, object], key: str) -> list[str]:
+    """Return the paths in a front-matter field that holds a path or a list of paths.
 
     Args:
-        doc: Doc whose body links and ``related``, ``redirect_to`` and ``superseded_by`` front matter are collected.
+        front_matter: Front matter of a doc whose ``key`` field is read; other fields are ignored.
+        key: Field to read, e.g. ``related`` or ``redirect_to``; only string values (single or in a list) count, and a
+            missing field gives none.
     """
-    refs: list[Ref] = []
-    problems: list[Problem] = []
-    for link in MarkdownText(doc.body).extract_links():
-        code_ref = parse_body_ref(doc.path, link.target, doc.body_line + link.line_number - 1)
-        if isinstance(code_ref, Ref):
-            refs.append(code_ref)
-        elif isinstance(code_ref, Problem):
-            problems.append(code_ref)
-    for kind, value in collect_front_matter_targets(doc):
-        path, _, anchor = value.partition("#")
-        target = posixpath.normpath(posixpath.join("docs", path))
-        refs.append(Ref(target, kind, FRONT_MATTER_LINE, anchor or None))
-    return refs, problems
+    value = front_matter.get(key)
+    values = value if isinstance(value, list) else [value]
+    return [item for item in values if isinstance(item, str)]
 
 
-def collect_code_refs(doc: Doc) -> list[CodeRef]:
-    """Return the code elements that a doc points at.
+class DocLinks:
+    """The links of one doc: its local links, its links to code elements and the problems found in them."""
 
-    Body ``code:`` links come first, in order, then the entries of the front-matter ``code`` field.
+    # Constants
+    FRONT_MATTER_LINE_NUMBER = 1
+    """Line number given to front-matter links: the first line of the doc file, where the front matter starts."""
 
-    Args:
-        doc: Doc whose body ``code:`` links and front-matter ``code`` list are collected.
-    """
-    found: list[CodeRef] = []
-    for link in MarkdownText(doc.body).extract_links():
-        ref = parse_body_ref(doc.path, link.target, doc.body_line + link.line_number - 1)
-        if isinstance(ref, CodeRef):
-            found.append(ref)
-    front_matter_value = (doc.front_matter or {}).get("code")
-    target_paths = front_matter_value if isinstance(front_matter_value, list) else []
-    found.extend(CodeRef(v, "code", FRONT_MATTER_LINE) for v in target_paths if isinstance(v, str))
-    return found
+    FRONT_MATTER_LINK_FIELDS: tuple[RefKind, ...] = ("related", "redirect_to", "superseded_by")
+    """Front-matter fields holding local links, in the order their links are collected."""
+
+    # Arguments of __init__
+    doc: Doc
+    """See :meth:`__init__`."""
+
+    def __init__(self, doc: Doc) -> None:
+        """Hold a doc whose links are collected.
+
+        Args:
+            doc: Doc whose body links and front-matter link fields are read.
+        """
+        self.doc = doc
+
+    def parse_body_links(self) -> list[Ref | CodeRef | Problem | None]:
+        """Classify each link in the body of the doc, in order.
+
+        Each link is classified as :func:`parse_body_ref` does.
+        """
+        return [
+            parse_body_ref(self.doc.path, link.target, self.doc.body_line + link.line_number - 1)
+            for link in MarkdownText(self.doc.body).extract_links()
+        ]
+
+    def build_front_matter_refs(self) -> list[Ref]:
+        """Return the local links in the ``related``, ``redirect_to`` and ``superseded_by`` fields, by field.
+
+        Only string values (single or in a list) count, and a doc without front matter gives none.
+        """
+        front_matter = self.doc.front_matter or {}
+        front_matter_refs: list[Ref] = []
+        for kind in self.FRONT_MATTER_LINK_FIELDS:
+            for value in list_front_matter_paths(front_matter, kind):
+                path, _, anchor = value.partition("#")
+                target = posixpath.normpath(posixpath.join("docs", path))
+                front_matter_refs.append(Ref(target, kind, self.FRONT_MATTER_LINE_NUMBER, anchor or None))
+        return front_matter_refs
+
+    def collect_outgoing_refs(self) -> tuple[list[Ref], list[Problem]]:
+        """Return the local links of the doc and the problems found in its links.
+
+        Body links come first, then front-matter links. Web links and ``code:`` links are not local links.
+        """
+        parsed_links = self.parse_body_links()
+        refs = [parsed_link for parsed_link in parsed_links if isinstance(parsed_link, Ref)]
+        problems = [parsed_link for parsed_link in parsed_links if isinstance(parsed_link, Problem)]
+        return [*refs, *self.build_front_matter_refs()], problems
+
+    def collect_code_refs(self) -> list[CodeRef]:
+        """Return the code elements that the doc points at.
+
+        Body ``code:`` links come first, in order, then the string entries of the front-matter ``code`` list.
+        """
+        code_refs = [parsed_link for parsed_link in self.parse_body_links() if isinstance(parsed_link, CodeRef)]
+        dotted_paths = make_string_tuple((self.doc.front_matter or {}).get("code"), strings_only=True)
+        code_refs.extend(CodeRef(dotted_path, "code", self.FRONT_MATTER_LINE_NUMBER) for dotted_path in dotted_paths)
+        return code_refs

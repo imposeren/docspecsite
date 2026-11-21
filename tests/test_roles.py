@@ -10,7 +10,7 @@ def test_role_parse() -> None:
     assert RoleRef.parse("~.attempt").written_text == ".attempt"
 
 
-def test_role_display_text() -> None:
-    assert RoleRef.parse(".attempt").display_text("p.m.C.attempt") == "p.m.C.attempt"
-    assert RoleRef.parse("~p.m.C").display_text("p.m.C") == "C"
-    assert RoleRef.parse("the class <~p.m.C>").display_text("p.m.C") == "the class"
+def test_role_make_link_text() -> None:
+    assert RoleRef.parse(".attempt").make_link_text("p.m.C.attempt") == "p.m.C.attempt"
+    assert RoleRef.parse("~p.m.C").make_link_text("p.m.C") == "C"
+    assert RoleRef.parse("the class <~p.m.C>").make_link_text("p.m.C") == "the class"

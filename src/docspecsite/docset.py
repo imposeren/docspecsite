@@ -10,10 +10,10 @@ from types import MappingProxyType
 from typing import Self
 
 from .config import ProjectConfig
-from .docs import DOCS, Doc, is_template
-from .links import collect_outgoing_refs
+from .docs import Doc, derive_doc_path, is_template
+from .links import DocLinks
 from .query import Backlink, Filters
-from .text import collapse_to_one_line, read_text
+from .text import read_text
 
 
 class DocSet:
@@ -31,7 +31,7 @@ class DocSet:
         """Hold docs and index them by path.
 
         Args:
-            docs: Docs with distinct paths, in the order ``docs`` keeps them.
+            docs: Docs with distinct paths, in the order :attr:`docs` keeps them.
         """
         self.docs = tuple(docs)
         self.by_path = MappingProxyType({doc.path: doc for doc in self.docs})
@@ -80,25 +80,20 @@ class DocSet:
         or superseded_by. A link to a directory counts for its ``index.md``. A doc nobody links to has no entry.
         """
         # Linked doc path -> linking doc path -> kinds of its links to it (paths relative to docs/).
-        kinds: dict[str, dict[str, set[str]]] = {}
+        link_kinds_by_target: dict[str, dict[str, set[str]]] = {}
         for doc in self:
-            refs, _ = collect_outgoing_refs(doc)
+            refs, _ = DocLinks(doc).collect_outgoing_refs()
             for ref in refs:
                 # A link to a directory is a link to its index.md.
-                for target in (ref.target, f"{ref.target}/index.md"):
-                    path = target.removeprefix(DOCS)
-                    if target.startswith(DOCS) and path != doc.path:
-                        kinds.setdefault(path, {}).setdefault(doc.path, set()).add(ref.kind)
+                for repo_path in (ref.target, f"{ref.target}/index.md"):
+                    target = derive_doc_path(repo_path)
+                    if target is not None and target != doc.path:
+                        link_kinds_by_target.setdefault(target, {}).setdefault(doc.path, set()).add(ref.kind)
         return MappingProxyType(
             {
                 target: tuple(
-                    Backlink(
-                        source,
-                        collapse_to_one_line((self.by_path[source].front_matter or {}).get("title")),
-                        tuple(sorted(found)),
-                    )
-                    for source, found in sorted(sources.items())
+                    Backlink(self.by_path[source], tuple(sorted(found))) for source, found in sorted(sources.items())
                 )
-                for target, sources in kinds.items()
+                for target, sources in link_kinds_by_target.items()
             }
         )

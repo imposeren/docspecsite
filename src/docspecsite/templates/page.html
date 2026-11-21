@@ -56,7 +56,7 @@
 <div class="versions">
 <select class="version-picker" aria-label="Version">
 {% for entry in page.picker -%}
-<option value="{{ entry.url|rel }}"{% if entry.current %} selected{% endif %}>{{ entry.label }}</option>
+<option value="{{ entry.url|rel }}"{% if entry.is_current %} selected{% endif %}>{{ entry.label }}</option>
 {% endfor -%}
 </select>
 {% if page.diff_url -%}
@@ -79,10 +79,10 @@
 </article>
 {% endblock %}
 {% block panels %}
-{% if page.children or page.related or page.backlinks or page.described_in -%}
+{% if page.children or page.related_links or page.backlinks or page.described_in -%}
 <div class="panels">
 {{ panel("children", page.children_heading, page.children) }}
-{{- panel("related", "Related", page.related) }}
+{{- panel("related", "Related", page.related_links) }}
 {{- panel("backlinks", "Linked from", page.backlinks) }}
 {{- panel("described-in", "Described in", page.described_in) }}
 </div>
