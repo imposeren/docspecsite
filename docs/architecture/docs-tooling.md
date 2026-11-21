@@ -2,7 +2,7 @@
 title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history from git, renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: implemented
+status: specified
 code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors]
 milestone: first-release
 priority: must
@@ -99,6 +99,15 @@ site/
 
 `site/.docspecsite-manifest` lists the files of the last build, so the next build removes only files it wrote itself.
 
+### Parts
+
+The site is built in parts ([DS-35](../behavior/requirements.md#rendering)): `docs` is everything above except `reference/code/`, and `code` is `reference/code/` (module pages and the entry page `reference/code/index.html`).
+The build carries the set of parts it builds, and every link that crosses parts asks whether its target's part is in that set: the docs' resolver for `code:` links and the index and `llms.txt` entries of code modules, the code pages for `Docs:` lines, "described in" lists, links to docs and the page chrome (breadcrumb, components, status badge).
+A link into a part that is not built becomes text, or, from the code reference to a doc, a link to the doc's Markdown file under `<source-url>/blob/<commit>/docs/`.
+A code-only build also writes the entry page as `index.html`, with its links relative to the root.
+Since the entry page has no old versions, a link to it from an old version of a doc leads to its latest page with the "current code" marker, like an old version's `code:` link.
+A build never reuses pages of an earlier build with other parts: a page's links depend on the parts, and the manifest leaves `--out` holding only what this build wrote.
+
 ## Page anatomy
 
 Every page: breadcrumb, title, status badge, components and tags (linked to indexes), version picker, body, related + backlinks panel; code pages also list their submodules (doc index pages list their children in their own `## Children` section) ([DS-8](../behavior/requirements.md#rendering), [DS-14](../behavior/requirements.md#navigation-and-indexes)).
@@ -113,6 +122,7 @@ It links to the same heading anchors that `docspecsite check` validates, and eve
 
 Python code is loaded once, from the built ref, with griffe: every package directly inside a `code-dirs` directory.
 Only the **latest** code gets pages ([DS-18](../behavior/requirements.md#generated-reference-layer)): no version picker, no `/v/` pages; older code is read with git or an IDE.
+The hand-written entry page `docs/reference/code/index.md` follows the code: it is built from its latest version only, also in a full build ([DS-7](../behavior/requirements.md#rendering)).
 Each module gets one page, built from the code's structure as well as its docstrings, in the spirit of Sphinx's autodoc:
 
 - the module docstring, then its classes, functions, constants and type aliases;
@@ -125,6 +135,13 @@ Each module gets one page, built from the code's structure as well as its docstr
 Each page gets synthesized front matter (`layer: reference`, `components` from `code-components`) and goes through the same pipeline as other docs.
 `code:<dotted.path>` links resolve to the module page plus an anchor.
 Inside **old versions** of hand-written docs, `code:` links also lead to the latest code reference, marked "current code — may differ from this version"; a code element that no longer exists is shown as plain text with a "no longer exists" marker.
+Sphinx-style roles in docstrings (`` :meth:`.attempt` ``) become links too ([DS-34](../behavior/requirements.md#rendering)).
+As in Sphinx, where docutils recognizes a role while parsing and the reference is resolved later, a role is recognized by the Markdown parser, not found afterwards in its output: an inline rule of markdown-it, in the code reference's renderer only, placed before the code-span rule (as `mdit_py_plugins.myst_role` does for MyST's `` {role}`…` ``), turns `` :role:`content` `` and `` :py:role:`content` `` into a link around a code span.
+The link's target keeps the role's target with its `~` and `Text <target>` form, and the code page resolves it with the docstring's object as context, passed with each render: a full dotted path is looked up in the codebase's index as is, a leading `.` first under the docstring's class and then among the definitions of its module, not its imports, and a target without a leading `.` that is not found as is is looked up the leading-`.` way too.
+`<class>.__init__` falls back to the class when the class's `__init__` is not on the page.
+The link text is set once the target is resolved: the found element's full dotted path, its last part with `~`, or the given text.
+From there a role goes through the same link rewriting and markers as a `code:` link; code blocks are never touched, and a role name outside the Python ones is left as text.
+`check --code` ([DS-36](../behavior/requirements.md#checks)) loads the code from the working tree and looks up each docstring's `Docs:` lines, roles and `code:` links with the same lookup as the pages, without rendering anything; plain `check` does not look at docstrings.
 `Docs:` docstring lines become links, and "described in" lists come from `code:` fields ([DS-13](../behavior/requirements.md#rendering), [DS-19](../behavior/requirements.md#generated-reference-layer)).
 The HTTP API reference is not built yet ([behavior/web-api-reference.md](../behavior/web-api-reference.md)).
 
@@ -141,6 +158,7 @@ With `--strict`, the build sets `error` filters for both warning categories.
 
 A cache in `.docspecsite-cache/` (gitignored; inside the checked repo, so it persists between container runs) keys rendered HTML by (blob sha, hash of the resolved link targets, docspecsite version).
 Only changed versions and pages whose link targets moved are re-rendered ([DS-24](../behavior/requirements.md#running)).
+The cache has one root per docspecsite version and set of built parts, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
 
 ## Docker image
 

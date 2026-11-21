@@ -2,7 +2,7 @@
 title: Docs system requirements
 summary: The numbered requirements (DS-n) docspecsite satisfies — source format, per-doc versioning, rendering, navigation and indexes, the generated code reference, checks, settings and how it runs.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 components: [docs-system]
@@ -37,6 +37,7 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
 ## Rendering
 
 - **DS-7** Every version of every doc is viewable as a page.
+  The code reference's entry page (`docs/reference/code/index.md`) is the exception: like the rest of the code reference ([DS-18](#generated-reference-layer)), only its latest version is shown.
 - **DS-8** Each page shows a **version picker** listing all versions (date, short commit id, commit subject). A leading `spec:` or `docs:` prefix is removed from the subject, since it carries no information there.
 - **DS-9** Each non-latest version shows a **loud, persistent "OLD VERSION — not the current spec" warning** with a link to the latest version, and a marker in the page title.
 - **DS-10** Each version can show a **diff** against its previous version.
@@ -44,6 +45,20 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
 - **DS-12** Redirect docs **never redirect automatically**. They render as normal pages with a prominent notice: what happened (`redirect_kind`), a link to the replacement doc(s) (`redirect_to`, when there is one), and the `reason`. Their version history stays available like any other doc's.
 - **DS-13** `code:` links and `Docs:` docstring lines resolve as described in [meta/linking.md](../meta/linking.md#code-links).
   `web-api:` links are part of the HTTP API reference ([web-api-reference.md](web-api-reference.md)).
+- **DS-34** Docstrings refer to code with Sphinx's Python roles: `` :mod:`…` ``, `` :class:`…` ``, `` :func:`…` ``, `` :meth:`…` ``, `` :attr:`…` ``, `` :data:`…` ``, `` :exc:`…` `` and `` :obj:`…` ``, also with the `py:` domain (`` :py:meth:`…` ``).
+  A target is a full dotted path (`` :class:`docspecsite.build.SiteBuilder` ``), or starts with `.` and is looked up from the docstring's place: first among the members of its class (the class itself for the class docstring, the enclosing class for a member's docstring), then among the definitions of its module (`` :meth:`.attempt` `` in any docstring of `SiteBuilder`).
+  A target without a leading `.` that is no full dotted path of an element is looked up the same way, as Sphinx does: `` :meth:`attempt` `` works like `` :meth:`.attempt` ``.
+  A name the module only imports is not found that way: a reference to code defined elsewhere uses that code's own dotted path.
+  A target is found only when the code reference shows it, as for `code:` links: a private member is not.
+  A target `<class>.__init__` stands for how the class is constructed: it leads to the `__init__` entry when the code reference shows one, else to the class.
+  A role reads as the full dotted path of the element it leads to (`` :meth:`.attempt` `` in `SiteBuilder` reads `docspecsite.build.SiteBuilder.attempt`).
+  `~` before the target shows only the last part of that path (`` :class:`~docspecsite.build.SiteBuilder` `` and `` :meth:`~.attempt` `` read `SiteBuilder` and `attempt`), and `Text <target>` sets the text.
+  Each role renders as a link to the element on the code reference; the role names the kind of element for readers, and docspecsite does not check that it matches.
+  Other roles are shown as written.
+  A target that is not found is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check does ([DS-36](#checks)).
+- **DS-35** The site is built in **parts**, and a build renders the parts it is asked for: `docs` (the hand-written docs, their versions and diffs, the index pages and `llms.txt`) and `code` (the code reference with its entry page); by default every part the repo has ([commands.md](commands.md#build)).
+  Links into a part that is not built never dangle: a `code:` link in a docs-only site is its text in code style, and a link from the code reference to a doc in a code-only site leads to the doc's Markdown file on the repo host (plain text without `source-url`).
+  When the parts are built together, they link to each other as one site.
 
 ## Navigation and indexes
 
@@ -62,7 +77,7 @@ Listings that include ADRs (index pages, the machine listing, `list`) sort docs 
 
 ## Generated reference layer
 
-- **DS-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**. Older code is read with git or an IDE.
+- **DS-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with git or an IDE.
 - **DS-19** Code reference pages show "described in" backlinks from docs' `code:` fields.
 
 The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web-api-reference.md).
@@ -71,6 +86,8 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 - **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no deletes/renames under `docs/`, no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)).
   Doc templates are not docs and are not checked ([meta/structure.md](../meta/structure.md#outside-docs)).
+  The code is not checked: specs may change before it does ([meta/linking.md](../meta/linking.md#code-links)).
+- **DS-36** A **code check**, run on demand once an implementation is done, validates the code's references: `Docs:` docstring lines point at existing docs (and headings, with an anchor), and Sphinx roles ([DS-34](#rendering)) and `code:` links in docstrings point at code the code reference shows.
 - **DS-21** The check runs automatically before code leaves a developer's machine and again in CI: docspecsite provides it as a prek hook, `docs-check`, that a project pins to a release tag ([guides/using-docspecsite.md](../guides/using-docspecsite.md)).
 - **DS-33** Every doc under `docs/architecture/decisions/` other than an `index.md` is an ADR, and its file name is `<PREFIX>-NNNN-<slug>.md` ([meta/structure.md](../meta/structure.md#adr-ids)).
   `PREFIX` is the repo's own prefix (`adr-prefix`) or the prefix of an external ADR (`external-adr-prefixes`).

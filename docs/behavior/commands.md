@@ -2,7 +2,7 @@
 title: Commands
 summary: The docspecsite command line — `check`, `list`, `backlinks` and `build`, with their options, output and exit codes.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 code: [docspecsite.cli]
@@ -20,15 +20,18 @@ related:
 
 | Command | Does |
 | -- | -- |
-| `check [--staged]` | Runs every check ([DS-20](requirements.md#checks), [DS-33](requirements.md#checks)) on the working tree. `--staged` also rejects docs staged as deleted or renamed in git ([DS-6](requirements.md#versioning)). |
+| `check [--staged] [--code]` | Runs every check ([DS-20](requirements.md#checks), [DS-33](requirements.md#checks)) on the working tree. `--staged` also rejects docs staged as deleted or renamed in git ([DS-6](requirements.md#versioning)); `--code` adds the code check ([DS-36](requirements.md#checks)). |
 | `list [--layer L] [--status S] [--component C] [--tag T] [--milestone M] [--priority P] [--format text\|json]` | Prints the docs whose front matter matches every given filter, from the working tree ([DS-17](requirements.md#navigation-and-indexes)). |
 | `backlinks <path> [--format text\|json]` | Prints the docs that link to `<path>` through body links, `related`, `redirect_to` or `superseded_by`, from the working tree ([DS-28](requirements.md#navigation-and-indexes)). |
-| `build [--ref main] [--out site] [--include-worktree] [--strict]` | Renders the static site for a git ref ([DS-7](requirements.md#rendering) … [DS-19](requirements.md#generated-reference-layer)). |
+| `build [--ref main] [--out site] [--parts P,…] [--include-worktree] [--strict]` | Renders the static site for a git ref ([DS-7](requirements.md#rendering) … [DS-19](requirements.md#generated-reference-layer)). |
 
 ## check
 
-Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>: <message>` for a problem outside `docs/` (such as an invalid `docspecsite.toml` or a `Docs:` line in code); the line number is left out when the problem concerns the whole file.
+Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>: <message>` for a problem outside `docs/` (such as an invalid `docspecsite.toml`, or a `Docs:` line in code found by `--code`); the line number is left out when the problem concerns the whole file.
 A count of the problems follows on stderr.
+
+`--code` also checks the code in the settings' `code-dirs`, from the working tree: each `Docs:` line, Sphinx role and `code:` link in a docstring is a problem on its code file when its target is not found.
+Without `code-dirs` it adds nothing.
 
 The exit code is 0 when no problem is found, and 1 when there are problems or when `--staged` is used outside a git repo.
 
@@ -55,7 +58,25 @@ Rendered page bodies are kept in `.docspecsite-cache/` in the checked repo, so a
 
 - `--ref` names the branch, tag or commit whose first-parent history gives the versions; its `docspecsite.toml` gives the settings and its code the code reference.
 - `--include-worktree` adds uncommitted doc changes as a "working copy (uncommitted)" version, and reads the settings, the code and the files under `docs/` from the working tree. It is meant for previews while writing, never for CI.
+- `--parts` names the parts to build, separated by commas without spaces: `docs`, `code` ([DS-35](requirements.md#rendering)).
+  Without it, every part the repo has is built: `docs`, and `code` when `code-dirs` is set.
+  An unknown part, an empty list, or `code` without `code-dirs` stops the build before it starts.
 - `--strict` stops at the first page error without writing anything, and turns every warning into an error. It is meant for CI.
+  Warnings come only from the parts being built, so `--parts docs --strict` does not fail on docstrings.
+
+A docs-only build (`--parts docs`):
+
+- shows `code:` links, in every version of a doc, as their text in code style, with no link and no marker;
+- lists no code modules on component pages or in `llms.txt`;
+- leaves out the code reference's entry page; links to it are text.
+
+A code-only build (`--parts code`):
+
+- writes the code reference and its entry page, which is also the site's root page;
+- has no index pages and no `llms.txt`; the breadcrumb above the code reference, component labels and status badges are text;
+- links `Docs:` lines and "described in" lists to the doc's Markdown file on the repo host at the built commit, or shows the doc's path as text without `source-url` or for a doc not in the built commit (with `--include-worktree`).
+
+The warning about `code-dirs` without `source-url` at the start of a build is given only when the `code` part is built.
 
 Without `--strict`, an error stays local to its page: a doc version, diff, code page or index page that cannot be built is left out, and the rest of the site is still built.
 Each such error is printed on stderr as `error: <page>: <message>`; warnings (such as an unresolvable link) are printed as `warning: <message>`.
