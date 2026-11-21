@@ -7,7 +7,7 @@ import warnings
 from pathlib import Path
 
 import pytest
-from conftest import make_commit, run_git, write_doc
+from conftest import make_commit, run_git, write_doc, write_roles_module
 
 from docspecsite.build import BuildResult
 from docspecsite.cli import main
@@ -244,3 +244,28 @@ def test_cli_build_pythonwarnings_error_shows_internal_error_traceback(git_repo:
     assert "RuntimeError: injected bug\n" in completed.stderr
     assert "docspecsite.errors.InternalErrorWarning: docs/" in completed.stderr
     assert not (tmp_path / "site").exists()
+
+
+def test_cli_build_bad_parts(git_repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    site_dir = tmp_path / "site"
+    assert main(["--repo", str(git_repo), "build", "--parts", "web", "--out", str(site_dir)]) == 1
+    assert capsys.readouterr().err.startswith("docspecsite build: unknown part")
+    assert not site_dir.exists()
+
+
+def test_cli_build_value_error_inside_build_is_not_a_build_error(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def raise_value_error(*args: object, **kwargs: object) -> BuildResult:
+        raise ValueError("a bug")
+
+    monkeypatch.setattr("docspecsite.cli.run_build", raise_value_error)
+    with pytest.raises(ValueError, match="a bug"):
+        main(["--repo", str(git_repo), "build", "--out", str(tmp_path / "site")])
+
+
+def test_cli_check_code_flag(code_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_roles_module(code_tree, 'def f() -> None:\n    """Go.\n\n    See :func:`.nope`.\n    """\n')
+    assert main(["--repo", str(code_tree), "check"]) == 0
+    assert main(["--repo", str(code_tree), "check", "--code"]) == 1
+    assert "unknown code element: :func:`.nope`" in capsys.readouterr().out

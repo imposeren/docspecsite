@@ -1,6 +1,8 @@
 import re
 from dataclasses import replace
 
+from conftest import extract_aside
+
 from docspecsite.history import Version
 from docspecsite.markdown import Marker
 from docspecsite.pages import (
@@ -34,6 +36,16 @@ def test_page_chrome() -> None:
     assert 'class="old"' not in html
     assert '="/' not in html
     assert "<p>Body</p>" in html
+
+
+def test_render_page_link_without_url() -> None:
+    html = _render(replace(_PAGE, breadcrumb=(PageLink("Home", None),), described_in=(PageLink("meta/d.md", None),)))
+    breadcrumb = html.split('<nav class="breadcrumb">', 1)[1].split("</nav>", 1)[0]
+    assert "Home" in breadcrumb
+    assert "href" not in breadcrumb
+    described = extract_aside(html, "described-in")
+    assert "meta/d.md" in described
+    assert "href" not in described
 
 
 def test_old_version_banner() -> None:
@@ -80,12 +92,6 @@ def test_redirect_notice() -> None:
     assert "http-equiv" not in html
 
 
-def _extract_aside(html: str, cls: str) -> str:
-    found = re.search(rf'<aside class="{cls}">(.*?)</aside>', html, re.S)
-    assert found, cls
-    return found.group(1)
-
-
 def test_panels() -> None:
     page = replace(
         _PAGE,
@@ -94,19 +100,19 @@ def test_panels() -> None:
         backlinks=(PageLink("Back", "x/y.html"),),
     )
     html = _render(page)
-    assert 'href="a/c.html"' in _extract_aside(html, "children")
-    assert "Child summary." in _extract_aside(html, "children")
+    assert 'href="a/c.html"' in extract_aside(html, "children")
+    assert "Child summary." in extract_aside(html, "children")
     assert "<h2>Submodules</h2>" in html
     assert "Contents" not in html
     assert "<h2>Packages</h2>" in _render(replace(page, children_heading="Packages"))
-    related = _extract_aside(html, "related")
+    related = extract_aside(html, "related")
     assert 'href="r.html"' in related
     assert '<span class="marker moved">→ moved</span>' in related
-    assert 'href="../x/y.html"' in _extract_aside(html, "backlinks")
+    assert 'href="../x/y.html"' in extract_aside(html, "backlinks")
     assert "described-in" not in html
 
     code = _render(replace(_PAGE, url="reference/code/m.html", described_in=(PageLink("Doc", "meta/a.html"),)))
-    assert 'href="../../meta/a.html"' in _extract_aside(code, "described-in")
+    assert 'href="../../meta/a.html"' in extract_aside(code, "described-in")
     for cls in ("children", "related", "backlinks"):
         assert f'<aside class="{cls}"' not in code
 
@@ -172,6 +178,8 @@ def test_index_links_only_to_produced_indexes() -> None:
     assert '<a class="tag" href="../tags/x.html">#x</a>' in html
     assert '<span class="component">core</span>' in html
     assert "components/core.html" not in html
+    assert "status.html" not in html
+    assert "status.html" in Templates().render(_PAGE, "Docs", indexes={"status.html"})
     linked = _render(_PAGE)
     assert 'href="../components/core.html"' in linked
 

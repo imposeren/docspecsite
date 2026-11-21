@@ -10,7 +10,9 @@
 {% if page.old -%}
 <div class="old-banner">⚠ OLD VERSION — {{ page.old.date }}, {{ page.old.short }} — this is NOT the current spec. <a href="{{ page.old.latest_url|rel }}">→ Latest version</a></div>
 {% endif -%}
+{% if indexes is none or 'status.html' in indexes -%}
 <nav class="site"><a href="{{ 'status.html'|rel }}">Status</a></nav>
+{% endif -%}
 <div class="layout">
 <main>
 {% block main %}{% endblock %}

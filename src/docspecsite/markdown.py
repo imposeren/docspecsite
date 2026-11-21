@@ -14,7 +14,25 @@ from markdown_it.utils import EnvType, OptionsDict
 from mdit_py_plugins.anchors import anchors_plugin
 from mdit_py_plugins.front_matter import front_matter_plugin
 
-_md = MarkdownIt("commonmark").enable("table").use(front_matter_plugin).use(anchors_plugin, max_level=6)
+from .roles import RoleRule
+
+
+def _create_parser() -> MarkdownIt:
+    """Return a new Markdown parser: CommonMark with tables, front matter and heading anchors."""
+    return MarkdownIt("commonmark").enable("table").use(front_matter_plugin).use(anchors_plugin, max_level=6)
+
+
+_md = _create_parser()
+_md_with_roles = _create_parser().use(RoleRule.install)
+
+
+def _select_parser(*, use_roles: bool) -> MarkdownIt:
+    """Return the parser for a text, which reads Sphinx's Python roles only in docstrings.
+
+    Args:
+        use_roles: Read Python roles such as `` :meth:`x` `` as links; for docstrings, not for docs.
+    """
+    return _md_with_roles if use_roles else _md
 
 
 @dataclass(frozen=True)
@@ -26,6 +44,9 @@ class Link:
 
     line_number: int
     """Line of the link in the text, from 1."""
+
+    role_source: str | None = None
+    """The role's source text when the link is a role, such as ``:meth:`go```; None for other links."""
 
 
 @dataclass(frozen=True)
@@ -53,19 +74,24 @@ class MarkdownText:
     text: str
     """See :meth:`.__init__`."""
 
-    def __init__(self, text: str) -> None:
+    use_roles: bool
+    """See :meth:`__init__`."""
+
+    def __init__(self, text: str, *, use_roles: bool = False) -> None:
         """Prepare a Markdown text for reading; it is parsed on first use.
 
         Args:
             text: Markdown of a doc body or whole file (front matter becomes a ``front_matter`` token and is skipped),
                 or of a docstring; the lines of the results are 1-based within this text.
+            use_roles: Read Sphinx's Python roles as links whose target starts with ``role:``, as in a docstring.
         """
         self.text = text
+        self.use_roles = use_roles
 
     @cached_property
     def tokens(self) -> list[Token]:
         """The markdown-it tokens of the text, parsed on first use."""
-        return _md.parse(self.text)
+        return _select_parser(use_roles=self.use_roles).parse(self.text)
 
     def split_front_matter(self) -> tuple[str | None, int]:
         """Split the text, a whole doc file, into its YAML front matter and the line where the body starts.
@@ -84,14 +110,16 @@ class MarkdownText:
 
         Args:
             inline: Inline token of one block; its ``map`` gives the first line, and line breaks inside count on from
-                it.
+                it, including those inside a role's written text.
         """
         line = (inline.map[0] if inline.map else 0) + 1
         for child in inline.children or []:
             if child.type in MarkdownText.BREAKS:
                 line += 1
             elif child.type == "link_open":
-                yield Link(unquote(str(child.attrGet("href") or "")), line)
+                role_source: str | None = child.meta.get("role_source")
+                yield Link(unquote(str(child.attrGet("href") or "")), line, role_source)
+                line += role_source.count("\n") if role_source is not None else 0
             elif child.type == "image":
                 yield Link(unquote(str(child.attrGet("src") or "")), line)
 
@@ -241,6 +269,13 @@ class RenderedLink:
     markers: tuple[Marker, ...] = ()
     """Labels shown after the link."""
 
+    use_code_style: bool = False
+    """Whether link text left without an ``href`` is shown as code, as a link to code would be, unless it already is
+    one code span."""
+
+    text: str | None = None
+    """Text that replaces the link's content, shown as one code span; None keeps the content."""
+
 
 class BodyRenderer(RendererHTML):
     """HTML renderer for doc bodies that draws ``mermaid`` code fences as diagrams."""
@@ -275,7 +310,12 @@ class HtmlRenderer:
     toc_min_headings: int
     """See :meth:`.__init__`."""
 
-    def __init__(self, link: Callable[[str], RenderedLink], toc_min_headings: int = 0) -> None:
+    use_roles: bool
+    """See :meth:`__init__`."""
+
+    def __init__(
+        self, link: Callable[[str], RenderedLink], toc_min_headings: int = 0, *, use_roles: bool = False
+    ) -> None:
         """Prepare the rendering of texts whose links are resolved the same way.
 
         Args:
@@ -284,9 +324,12 @@ class HtmlRenderer:
                 follow the link.
             toc_min_headings: Fewest ``##`` headings from which a "Contents" list of them (``###`` nested) is
                 inserted before the first ``##``; 0 turns it off.
+            use_roles: Read Sphinx's Python roles as links whose target starts with ``role:``, as in a docstring; their
+                link text is set by the ``text`` of what ``link`` returns.
         """
         self.link = link
         self.toc_min_headings = toc_min_headings
+        self.use_roles = use_roles
 
     @staticmethod
     def quote_href(href: str) -> str:
@@ -346,7 +389,8 @@ class HtmlRenderer:
         Args:
             text: Markdown of a doc (front matter is dropped) or of a docstring.
         """
-        tokens = _md.parse(text)
+        parser = _select_parser(use_roles=self.use_roles)
+        tokens = parser.parse(text)
         for token in tokens:
             if token.type == "inline":
                 self.rewrite_inline(token)
@@ -355,33 +399,43 @@ class HtmlRenderer:
             block = Token("html_block", "", 0)
             block.content = contents[1]
             tokens.insert(contents[0], block)
-        renderer = BodyRenderer(_md)
-        return renderer.render(tokens, _md.options, {})
+        renderer = BodyRenderer(parser)
+        return renderer.render(tokens, parser.options, {})
 
     def rewrite_inline(self, inline: Token) -> None:
         """Rewrite in place the link and image targets of an inline token.
 
         Each target goes through :attr:`.link`: its href replaces the target, and its markers are added after the link.
-        A link whose :attr:`href <.RenderedLink.href>` is None is reduced to its text.
+        A link with a :attr:`~RenderedLink.text` gets that text as its only content, in one code span. A link whose
+        :attr:`href <RenderedLink.href>` is None is reduced to its text, in ``<code>`` when its
+        :attr:`~RenderedLink.use_code_style` is set and the text is not one code span already.
 
         Args:
             inline: Inline token whose children are rewritten; links with no href lose their open and close tokens.
         """
         rewritten_tokens: list[Token] = []
-        pending: list[RenderedLink] = []  # one per open link, innermost last
+        # One (link, index in rewritten_tokens of its first content token) per open link, innermost last.
+        pending: list[tuple[RenderedLink, int]] = []
         for child in inline.children or []:
             if child.type == "link_open":
                 raw = str(child.attrGet("href") or "")
                 decoded = unquote(raw)
                 rendered_link = self.link(decoded)
-                pending.append(rendered_link)
-                if rendered_link.href is None:
-                    continue
-                child.attrSet("href", self.make_out_href(raw, decoded, rendered_link.href))
+                if rendered_link.href is not None:
+                    child.attrSet("href", self.make_out_href(raw, decoded, rendered_link.href))
+                    rewritten_tokens.append(child)
+                pending.append((rendered_link, len(rewritten_tokens)))
+                continue
             elif child.type == "link_close":
-                rendered_link = pending.pop()
+                rendered_link, content_start = pending.pop()
+                if rendered_link.text is not None:
+                    code = Token("code_inline", "code", 0)
+                    code.content = rendered_link.text
+                    rewritten_tokens[content_start:] = [code]
                 if rendered_link.href is not None:
                     rewritten_tokens.append(child)
+                elif rendered_link.use_code_style:
+                    self.wrap_in_code(rewritten_tokens, content_start)
                 if rendered_link.markers:
                     marker = Token("html_inline", "", 0)
                     marker.content = self.render_markers_html(rendered_link.markers)
@@ -395,6 +449,23 @@ class HtmlRenderer:
                     child.attrSet("src", self.make_out_href(raw, decoded, rendered_link.href))
             rewritten_tokens.append(child)
         inline.children = rewritten_tokens
+
+    @staticmethod
+    def wrap_in_code(tokens: list[Token], start: int) -> None:
+        """Wrap the tokens from a position to the end in ``<code>``, unless they are one code span already.
+
+        Args:
+            tokens: Inline tokens being rewritten; changed in place.
+            start: Index of the first token to wrap.
+        """
+        if len(tokens) - start == 1 and tokens[start].type == "code_inline":
+            return
+        opening = Token("html_inline", "", 0)
+        opening.content = "<code>"
+        closing = Token("html_inline", "", 0)
+        closing.content = "</code>"
+        tokens.insert(start, opening)
+        tokens.append(closing)
 
     def build_toc(self, tokens: list[Token]) -> tuple[int, str] | None:
         """Return the Contents list of a document and where to insert it, or None.

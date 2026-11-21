@@ -20,6 +20,7 @@ from .config import ConfigError, ProjectConfig
 from .docset import DocSet
 from .errors import DocspecsiteWarning, InternalErrorWarning
 from .git import GitError, UnknownRefError
+from .parts import parse_parts
 from .query import (
     Filters,
     format_backlinks,
@@ -55,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also reject staged deletes and renames under docs/",
     )
+    check_parser.add_argument(
+        "--code",
+        action="store_true",
+        help="also check the references in the code: Docs: lines, roles and code: links in docstrings",
+    )
     check_parser.set_defaults(handler=run_check_command)
 
     list_parser = commands.add_parser("list", help="list docs, filtered by front matter", formatter_class=FORMATTER)
@@ -87,6 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="stop at the first page error without writing anything, and fail on warnings too (for CI)",
     )
+    build_parser.add_argument(
+        "--parts",
+        help="parts to build, comma-separated: docs, code (default: all the repo has)",
+    )
     build_parser.set_defaults(handler=run_build_command)
     return parser
 
@@ -106,10 +116,10 @@ def run_check_command(args: argparse.Namespace) -> int:
     Returns exit status 1 when problems are found or ``--staged`` is used outside git, else 0.
 
     Args:
-        args: Parsed ``check`` options; ``repo`` and ``staged`` are used.
+        args: Parsed ``check`` options; ``repo``, ``staged`` and ``code`` are used.
     """
     try:
-        problems = Checker(args.repo).run(staged=args.staged)
+        problems = Checker(args.repo).run(staged=args.staged, code=args.code)
     except GitError as exc:
         print(f"docspecsite check --staged: {exc}", file=sys.stderr)
         return 1
@@ -206,12 +216,23 @@ def run_build_command(args: argparse.Namespace) -> int:
     pages, else 0.
 
     Args:
-        args: Parsed ``build`` options; ``repo``, ``ref``, ``out``, ``include_worktree`` and ``strict`` are used.
+        args: Parsed ``build`` options; ``repo``, ``ref``, ``out``, ``include_worktree``, ``strict`` and ``parts`` are
+            used.
     """
     with print_warnings():
         try:
+            parts = None if args.parts is None else parse_parts(args.parts)
+        except ValueError as exc:
+            print(f"docspecsite build: {exc}", file=sys.stderr)
+            return 1
+        try:
             result = run_build(
-                args.repo, args.ref, Path(args.out), include_worktree=args.include_worktree, strict=args.strict
+                args.repo,
+                args.ref,
+                Path(args.out),
+                include_worktree=args.include_worktree,
+                strict=args.strict,
+                parts=parts,
             )
         except UnknownRefError:
             print(f"docspecsite build: unknown ref: {args.ref}", file=sys.stderr)

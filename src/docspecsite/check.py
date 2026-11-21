@@ -236,18 +236,20 @@ class Checker:
         file = error.file if isinstance(error, CodeError) else None
         return Problem(file or "(code)", None, f"cannot load code: {error}", under_docs=False)
 
-    def run(self, staged: bool) -> list[Problem]:
+    def run(self, staged: bool, code: bool = False) -> list[Problem]:
         """Run all checks of the docs and return the problems found, sorted and without duplicates.
 
         The checks cover front matter, links and their heading anchors, directory indexes, file names, links from
-        the code and its ``Docs:`` lines, and the settings; the full list is the project's requirement DS-20. The
-        checks of single docs (front matter, links, code links) run in one pass over the docs, the others per
-        directory, path or code element.
+        the code, and the settings; the full list is the project's requirement DS-20. The checks of single docs
+        (front matter, links, code links) run in one pass over the docs, the others per directory, path or code
+        element. The references in the docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only with
+        ``code``, by :meth:`check_code_references`.
 
         Docs: behavior/requirements.md#checks
 
         Args:
             staged: Also report docs staged as deleted or renamed; needs git.
+            code: Also check the references in the code's docstrings.
 
         Raises:
             GitError: ``staged`` is set and the repository root is not a git working tree.
@@ -262,7 +264,8 @@ class Checker:
         problems.extend(self.check_indexes())
         problems.extend(self.check_names())
         try:
-            problems.extend(self.check_docs_lines())
+            if code:
+                problems.extend(self.check_code_references())
         except (CodeError, griffe.GriffeError) as error:
             problems.append(self.make_code_problem(error))
         if staged:
@@ -270,6 +273,23 @@ class Checker:
         # Read last: the checks above load the settings and the code, which records their problems.
         problems.extend(self.loading_problems)
         return sorted(set(problems), key=lambda p: (p.path, p.line_number or 0, p.message))
+
+    def check_code_references(self) -> list[Problem]:
+        """Check the references in the docstrings of the code; return the problems.
+
+        These are the ``Docs:`` lines of :meth:`check_docs_lines`, and the roles and ``code:`` links that name no
+        code element, found as the code reference pages find them. Without loaded code nothing is checked.
+
+        Raises:
+            CodeError: A docstring's ``Docs:`` lines cannot be located in its file.
+        """
+        if self.codebase is None:
+            return []
+        problems = self.check_docs_lines()
+        for broken in self.codebase.collect_broken_references():
+            message = f"unknown code element: {broken.text}"
+            problems.append(Problem(broken.file, broken.line_number, message, under_docs=False))
+        return problems
 
     def check_docs_lines(self) -> list[Problem]:
         """Check that the ``Docs:`` lines in the docstrings of the code point at existing docs; return the problems.

@@ -7,26 +7,29 @@ Docs: architecture/docs-tooling.md
 
 import posixpath
 import re
-from collections.abc import Iterator, Mapping, Sequence
+import warnings
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, partial
 from pathlib import Path
 from types import MappingProxyType
+from typing import ClassVar, Self
 
 import griffe
 from jinja2 import Template
 
 from .codeindex import CodeIndex, CodeTarget
 from .config import ProjectConfig
-from .errors import DocspecsiteError
-from .markdown import HtmlRenderer, RenderedLink
+from .errors import DocspecsiteError, DocspecsiteWarning
+from .links import parse_code_target
+from .markdown import HtmlRenderer, Link, MarkdownText, RenderedLink
 from .pages import Page, PageLink, create_environment
-from .urls import MARKERS, make_code_url, make_doc_url, make_relative_url
+from .roles import ROLE_SCHEME, RoleRef
+from .urls import CODE_INDEX, MARKERS, make_code_url, make_doc_url, make_relative_url
 
 type Pieces = tuple[Piece, ...]
 
 DOCS_LINE = re.compile(r"^\s*Docs:\s*(\S+)\s*$")
-CODE_INDEX = "reference/code/index.md"
 INDEX_TITLES: Mapping[str, str] = MappingProxyType(
     {"index.md": "Home", "reference/index.md": "Reference", CODE_INDEX: "Code reference"}
 )
@@ -63,6 +66,20 @@ class Package:
 
     repo_src: str
     """The code directory containing it, relative to the repo root (POSIX); ``.`` for the root."""
+
+
+@dataclass(frozen=True)
+class BrokenReference:
+    """Role or ``code:`` link of a docstring that names no code element, with its place in the source."""
+
+    text: str
+    """The reference as written, such as ``:meth:`nope``` or ``code:a.b``."""
+
+    file: str
+    """Repo-relative path of the source file."""
+
+    line_number: int
+    """Line of the reference in the source file, from 1."""
 
 
 @dataclass(frozen=True)
@@ -123,6 +140,104 @@ def iter_members(obj: griffe.Object) -> Iterator[griffe.Object]:
         yield member
 
 
+@dataclass(frozen=True)
+class CodeLinkTarget:
+    """Code element that a docstring's Python role or ``code:`` link refers to, as the codebase finds it."""
+
+    role: RoleRef | None
+    """What the role says; None for a ``code:`` link."""
+
+    dotted_path: str | None
+    """Full dotted path of the code element found; None when the codebase does not show it."""
+
+
+@dataclass(frozen=True)
+class ParsedDocstring:
+    """Docstring as the code reference pages show it: its ``Docs:`` targets and its Google-style sections."""
+
+    # Constants
+    TABLE_TITLES: ClassVar[Mapping[griffe.DocstringSectionKind, str]] = MappingProxyType[
+        griffe.DocstringSectionKind, str
+    ](
+        {
+            griffe.DocstringSectionKind.parameters: "Parameters",
+            griffe.DocstringSectionKind.other_parameters: "Other parameters",
+            griffe.DocstringSectionKind.type_parameters: "Type parameters",
+            griffe.DocstringSectionKind.returns: "Returns",
+            griffe.DocstringSectionKind.yields: "Yields",
+            griffe.DocstringSectionKind.receives: "Receives",
+            griffe.DocstringSectionKind.raises: "Raises",
+            griffe.DocstringSectionKind.warns: "Warns",
+            griffe.DocstringSectionKind.attributes: "Attributes",
+            griffe.DocstringSectionKind.functions: "Functions",
+            griffe.DocstringSectionKind.classes: "Classes",
+            griffe.DocstringSectionKind.type_aliases: "Type aliases",
+            griffe.DocstringSectionKind.modules: "Modules",
+        }
+    )
+    """Headings of the docstring sections shown as tables, by section kind."""
+
+    # Fields
+    docs_targets: tuple[str, ...]
+    """Targets of the ``Docs:`` lines, doc paths relative to ``docs/`` with an optional ``#anchor``."""
+
+    sections: tuple[griffe.DocstringSection, ...]
+    """The sections of the rest of the docstring, in source order."""
+
+    @classmethod
+    def parse(cls, obj: griffe.Object) -> Self:
+        """Split the docstring of an object into its ``Docs:`` targets and its sections; no docstring gives neither.
+
+        Args:
+            obj: Module or member whose docstring is parsed; its parent context lets griffe parse the sections.
+        """
+        if obj.docstring is None:
+            return cls((), ())
+        targets, text = split_docs_lines(obj.docstring.value)
+        return cls(tuple(targets), tuple(griffe.parse_google(griffe.Docstring(text, parent=obj), warnings=False)))
+
+    @classmethod
+    def get_table_items(cls, section: griffe.DocstringSection) -> list[griffe.DocstringElement] | None:
+        """Return the items of a section shown as a table (parameters, returns and similar), or None for a text section.
+
+        Args:
+            section: Section from griffe's Google-style parse of a docstring.
+        """
+        section_value: object = section.value
+        if section.kind not in cls.TABLE_TITLES or not isinstance(section_value, list):
+            return None
+        return [item for item in section_value if isinstance(item, griffe.DocstringElement)]
+
+    @staticmethod
+    def get_section_text(section: griffe.DocstringSection) -> str:
+        """Return the Markdown of a text section; examples become ``pycon`` code blocks between their prose.
+
+        Args:
+            section: Section from griffe's Google-style parse of a docstring that is not shown as a table.
+        """
+        section_value: object = section.value
+        if isinstance(section_value, griffe.DocstringAdmonition | griffe.DocstringDeprecated):
+            return section_value.description
+        if section.kind is griffe.DocstringSectionKind.examples and isinstance(section_value, list):
+            parts: list[str] = []
+            for item in section_value:
+                if isinstance(item, tuple) and len(item) == 2:
+                    part_kind, part = item
+                    is_code = part_kind is griffe.DocstringSectionKind.examples
+                    parts.append(f"```pycon\n{part}\n```" if is_code else str(part))
+            return "\n\n".join(parts)
+        return str(section_value)
+
+    def iter_texts(self) -> Iterator[str]:
+        """Return the Markdown texts the code reference renders, in source order: text sections and table cells."""
+        for section in self.sections:
+            items = self.get_table_items(section)
+            if items is None:
+                yield self.get_section_text(section)
+            else:
+                yield from (item.description for item in items)
+
+
 class Codebase:
     """The project's code as docspecsite sees it.
 
@@ -147,6 +262,10 @@ class Codebase:
     packages_by_name: dict[str, Package]
     """The packages the modules were loaded from, by package name."""
 
+    # Read sources
+    source_lines_by_file: dict[Path, list[str]]
+    """Lines of the source files read so far, by file, so that each file is read once."""
+
     def __init__(self, modules: list[griffe.Module], packages: list[Package]) -> None:
         """Index the loaded modules.
 
@@ -156,6 +275,7 @@ class Codebase:
         """
         self.modules = sorted(modules, key=lambda m: m.path)
         self.packages_by_name = {p.name: p for p in packages}
+        self.source_lines_by_file = {}
         targets: dict[str, CodeTarget] = {}
         for module in self.modules:
             targets[module.path] = CodeTarget(module.path, None)
@@ -248,6 +368,21 @@ class Codebase:
             if isinstance(member, griffe.Class):
                 yield from cls.walk(member)
 
+    @staticmethod
+    def get_filepath(obj: griffe.Object) -> Path:
+        """Return the file defining an object.
+
+        Args:
+            obj: Loaded module or member.
+
+        Raises:
+            CodeError: ``obj`` is in a namespace package, which has no single file.
+        """
+        filepath = obj.filepath
+        if isinstance(filepath, list):
+            raise CodeError("namespace package has no single file: %s", obj.path)
+        return filepath
+
     def get_repo_path(self, obj: griffe.Object) -> str:
         """Return the POSIX path of the file defining an object, relative to the repository root.
 
@@ -259,9 +394,7 @@ class Codebase:
             CodeError: ``obj`` is in a namespace package, which has no single file, or its file is outside the code
                 directory of its package.
         """
-        filepath = obj.filepath
-        if isinstance(filepath, list):
-            raise CodeError("namespace package has no single file: %s", obj.path)
+        filepath = self.get_filepath(obj)
         package = self.packages_by_name[obj.path.split(".")[0]]
         try:
             package_path = filepath.relative_to(package.src.parent)
@@ -271,12 +404,151 @@ class Codebase:
             ) from error
         return posixpath.normpath(posixpath.join(package.repo_src, package_path.as_posix()))
 
+    def find_role_target(self, target: str, owner: griffe.Object) -> str | None:
+        """Return the full dotted path of the code element a docstring's role refers to, or None if it is not shown.
+
+        A target with a leading ``.`` is looked up first among the members of the docstring's class (``owner`` itself
+        when it is a class, else the class ``owner`` belongs to), then among the definitions of ``owner``'s module,
+        never its imports. A target without a leading ``.`` is first tried as a full dotted path, and when that is no
+        element, it is looked up the same way as with a leading ``.``. A target ending in ``.__init__`` leads to its
+        class when the class's ``__init__`` is not in :attr:`index`. Only targets in :attr:`index` are found.
+
+        Args:
+            target: Target of the role without ``~``, such as ``.attempt`` or ``docspecsite.build.SiteBuilder``.
+            owner: Module or member whose docstring holds the role; the place a leading ``.`` starts from.
+        """
+        candidates = [] if target.startswith(".") else [target]
+        rest = target.removeprefix(".")
+        parent = owner.parent
+        class_ = owner if owner.is_class else parent if parent is not None and parent.is_class else None
+        if class_ is not None:
+            candidates.append(f"{class_.path}.{rest}")
+        candidates.append(f"{owner.module.path}.{rest}")
+        for candidate in candidates:
+            if candidate in self.index:
+                return candidate
+            constructed = candidate.removesuffix(".__init__")
+            if constructed != candidate and constructed in self.index:
+                return constructed
+        return None
+
+    def find_link_target(self, href: str, owner: griffe.Object) -> CodeLinkTarget | None:
+        """Find the code element a link of a docstring refers to; None when the link is no role or ``code:`` link.
+
+        A Python role is looked up as :meth:`find_role_target` does, a ``code:`` target in :attr:`index`.
+
+        Args:
+            href: Percent-decoded target of a link in a docstring; a Python role's link starts with ``role:``.
+            owner: Module or member whose docstring holds the link; a role's relative target is looked up from it.
+        """
+        if href.startswith(ROLE_SCHEME):
+            role = RoleRef.parse(href[len(ROLE_SCHEME) :])
+            return CodeLinkTarget(role, self.find_role_target(role.target, owner))
+        dotted_path = parse_code_target(href)
+        if dotted_path is None:
+            return None
+        return CodeLinkTarget(None, dotted_path if dotted_path in self.index else None)
+
+    def collect_in_objects[T](self, collect: Callable[[griffe.Object], list[T]]) -> list[T]:
+        """Return what a collector finds in each loaded module and each of its public members, in order.
+
+        Args:
+            collect: Function returning what it finds in one module or member.
+        """
+        return [found for module in self.modules for obj in [module, *self.walk(module)] for found in collect(obj)]
+
     def collect_docs_lines(self) -> list[DocsLine]:
-        """Return every ``Docs:`` line of the docstrings in the loaded code, with its file and line."""
-        found: list[DocsLine] = []
-        for module in self.modules:
-            for obj in [module, *self.walk(module)]:
-                found.extend(self.collect_docs_lines_of(obj))
+        """Return every ``Docs:`` line of the docstrings in the loaded code, with its file and line.
+
+        Raises:
+            CodeError: A source file is not valid UTF-8, or a docstring's ``Docs:`` lines cannot be located in it.
+        """
+        return self.collect_in_objects(self.collect_docs_lines_of)
+
+    def collect_broken_references(self) -> list[BrokenReference]:
+        """Return the roles and ``code:`` links in the loaded code's docstrings that name no shown code element.
+
+        Raises:
+            CodeError: A source file is not valid UTF-8, or a broken reference cannot be located in it.
+        """
+        return self.collect_in_objects(self.collect_broken_references_of)
+
+    def read_source_lines(self, obj: griffe.Object) -> list[str]:
+        """Return the lines of the file defining an object; each file is read once.
+
+        Args:
+            obj: Module or member of the loaded code, not in a namespace package.
+
+        Raises:
+            CodeError: ``obj`` is in a namespace package, or its file is not valid UTF-8.
+        """
+        filepath = self.get_filepath(obj)
+        lines = self.source_lines_by_file.get(filepath)
+        if lines is None:
+            try:
+                lines = filepath.read_text(encoding="utf-8").splitlines()
+            except UnicodeDecodeError as error:
+                raise CodeError("%s is not valid UTF-8: %s", obj.path, error, file=self.get_repo_path(obj)) from error
+            self.source_lines_by_file[filepath] = lines
+        return lines
+
+    def read_docstring_lines(self, obj: griffe.Object, docstring: griffe.Docstring) -> list[str]:
+        """Return the source lines of a docstring, from its opening to its closing quotes, without the quotes.
+
+        Args:
+            obj: Module or member of the loaded code whose source file is read, not in a namespace package.
+            docstring: The docstring of ``obj``; its line numbers give the lines, and no ``lineno`` gives none.
+
+        Raises:
+            CodeError: ``obj`` is in a namespace package, or its file is not valid UTF-8.
+        """
+        if docstring.lineno is None:
+            return []
+        lines = self.read_source_lines(obj)[docstring.lineno - 1 : docstring.endlineno or docstring.lineno]
+        lines[0] = self.OPENING_QUOTES.sub("", lines[0])
+        lines[-1] = self.CLOSING_QUOTES.sub("", lines[-1])
+        return lines
+
+    def collect_broken_references_of(self, obj: griffe.Object) -> list[BrokenReference]:
+        """Return the broken roles and ``code:`` links of the docstring of an object, with their lines.
+
+        The texts scanned are those its code reference page renders (see :class:`ParsedDocstring`), and a link is
+        broken when :meth:`find_link_target` finds no code element for it. Objects of a namespace package have no
+        single file and are skipped.
+
+        Args:
+            obj: Module or public member whose docstring is scanned.
+
+        Raises:
+            CodeError: The source file is not valid UTF-8, or a broken reference cannot be located in it.
+        """
+        docstring = obj.docstring
+        if docstring is None or docstring.lineno is None or isinstance(obj.filepath, list):
+            return []
+        # One (line of the rendered text holding the link, the link) per broken link, in source order.
+        broken_links: list[tuple[str, Link]] = []
+        for text in ParsedDocstring.parse(obj).iter_texts():
+            text_lines = text.splitlines()
+            for link in MarkdownText(text, use_roles=True).extract_links():
+                target = self.find_link_target(link.target, obj)
+                if target is not None and target.dotted_path is None:
+                    broken_links.append((text_lines[link.line_number - 1].strip(), link))
+        if not broken_links:
+            return []
+        file = self.get_repo_path(obj)
+        source_lines = self.read_docstring_lines(obj, docstring)
+        value_start = docstring.lineno + next(i for i, text in enumerate(source_lines) if text.strip())
+        value_lines = [line.strip() for line in docstring.value.splitlines()]
+        found: list[BrokenReference] = []
+        index = 0
+        for text_line, link in broken_links:
+            reference_text = link.role_source or link.target
+            # A rendered line is a docstring line without its indentation, or without a table item's name and type.
+            located = next((i for i in range(index, len(value_lines)) if value_lines[i].endswith(text_line)), None)
+            if located is None:
+                raise CodeError("cannot locate %s in the docstring of %s", reference_text, obj.path, file=file)
+            index = located
+            found.append(BrokenReference(reference_text, file, value_start + index))
         return found
 
     def collect_docs_lines_of(self, obj: griffe.Object) -> list[DocsLine]:
@@ -284,31 +556,19 @@ class Codebase:
 
         Args:
             obj: Module or public member whose docstring is scanned; its source file is read to find the line numbers.
+                Objects of a namespace package have no single file and are skipped.
 
         Raises:
             CodeError: The source file is not valid UTF-8, or a line cannot be located in it.
         """
         docstring = obj.docstring
-        if docstring is None or docstring.lineno is None:
+        if docstring is None or docstring.lineno is None or isinstance(obj.filepath, list):
             return []
         targets, _ = split_docs_lines(docstring.value)
-        if not targets or isinstance(obj.filepath, list):
+        if not targets:
             return []
-        try:
-            lines = obj.filepath.read_text(encoding="utf-8").splitlines()
-        except UnicodeDecodeError as error:
-            raise CodeError("%s is not valid UTF-8: %s", obj.path, error, file=self.get_repo_path(obj)) from error
-        first = docstring.lineno
-        last = docstring.endlineno or first
-        numbers: list[int] = []
-        for number in range(first, last + 1):
-            text = lines[number - 1]
-            if number == first:
-                text = self.OPENING_QUOTES.sub("", text)
-            if number == last:
-                text = self.CLOSING_QUOTES.sub("", text)
-            if DOCS_LINE.match(text):
-                numbers.append(number)
+        source_lines = self.read_docstring_lines(obj, docstring)
+        numbers = [docstring.lineno + i for i, text in enumerate(source_lines) if DOCS_LINE.match(text)]
         if len(numbers) != len(targets):
             raise CodeError("cannot locate Docs: lines of %s", obj.path, file=self.get_repo_path(obj))
         file = self.get_repo_path(obj)
@@ -460,8 +720,17 @@ class CodeReference:
     titles: Mapping[str, str]
     """See :meth:`.__init__`."""
 
+    locate_doc: Callable[[str], str | None]
+    """See :meth:`__init__`."""
+
     def __init__(
-        self, codebase: Codebase, config: ProjectConfig, blob_base_url: str, titles: Mapping[str, str] = INDEX_TITLES
+        self,
+        codebase: Codebase,
+        config: ProjectConfig,
+        blob_base_url: str,
+        titles: Mapping[str, str] = INDEX_TITLES,
+        *,
+        locate_doc: Callable[[str], str | None],
     ) -> None:
         """Prepare the pages of a codebase.
 
@@ -472,11 +741,14 @@ class CodeReference:
                 source links out.
             titles: Titles of the latest docs by path relative to ``docs/``, for the breadcrumb and the ``Docs:``
                 links; a doc missing from it is shown by its path.
+            locate_doc: Gives the URL that a ``Docs:`` line links its doc to, from the doc's path relative to
+                ``docs/``: site-root-relative for a doc page, or external; None shows the doc's path as text.
         """
         self.codebase = codebase
         self.config = config
         self.blob_base_url = blob_base_url
         self.titles = titles
+        self.locate_doc = locate_doc
 
     @classmethod
     def for_commit(
@@ -485,6 +757,8 @@ class CodeReference:
         config: ProjectConfig,
         commit: str,
         titles: Mapping[str, str] = INDEX_TITLES,
+        *,
+        locate_doc: Callable[[str], str | None],
     ) -> CodeReference:
         """Prepare the pages of a codebase whose source links show the files at a commit.
 
@@ -496,15 +770,31 @@ class CodeReference:
             commit: Full SHA hash of the build ref's head, so source links show the code the pages were built from.
             titles: Titles of the latest docs by path relative to ``docs/``, for the breadcrumb and the ``Docs:``
                 links; a doc missing from it is shown by its path.
+            locate_doc: Gives the URL that a ``Docs:`` line links its doc to, from the doc's path relative to
+                ``docs/``: site-root-relative for a doc page, or external; None shows the doc's path as text.
         """
         source_url = config.source_url
-        blob_base_url = f"{source_url.rstrip('/')}/blob/{commit}" if source_url else ""
-        return cls(codebase, config, blob_base_url, titles)
+        blob_base_url = f"{source_url}/blob/{commit}" if source_url else ""
+        return cls(codebase, config, blob_base_url, titles, locate_doc=locate_doc)
 
     @cached_property
     def template(self) -> Template:
         """The body template of the module pages (``code_module.html``), loaded when the first page is rendered."""
         return create_environment().get_template("code_module.html")
+
+    def build_doc_link(self, path: str, suffix: str = "") -> PageLink:
+        """Return the link to a doc as the code reference shows it.
+
+        It goes where :attr:`locate_doc` says and shows the doc's title; without a URL it is the doc's path as text.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+            suffix: ``#anchor`` appended to the URL; empty for none.
+        """
+        url = self.locate_doc(path)
+        if url is None:
+            return PageLink(path, None)
+        return PageLink(self.titles.get(path, path), url + suffix)
 
     def build_module_children(self) -> tuple[PageLink, ...]:
         """Return the links to the top-level packages, listed as the children of ``reference/code/index.md``."""
@@ -538,29 +828,7 @@ class CodePage:
     )
     """Kinds of the module members, in the order the page lists them, with the heading of each group."""
 
-    TABLE_TITLES = MappingProxyType(
-        {
-            griffe.DocstringSectionKind.parameters: "Parameters",
-            griffe.DocstringSectionKind.other_parameters: "Other parameters",
-            griffe.DocstringSectionKind.type_parameters: "Type parameters",
-            griffe.DocstringSectionKind.returns: "Returns",
-            griffe.DocstringSectionKind.yields: "Yields",
-            griffe.DocstringSectionKind.receives: "Receives",
-            griffe.DocstringSectionKind.raises: "Raises",
-            griffe.DocstringSectionKind.warns: "Warns",
-            griffe.DocstringSectionKind.attributes: "Attributes",
-            griffe.DocstringSectionKind.functions: "Functions",
-            griffe.DocstringSectionKind.classes: "Classes",
-            griffe.DocstringSectionKind.type_aliases: "Type aliases",
-            griffe.DocstringSectionKind.modules: "Modules",
-        }
-    )
-    """Headings of the docstring sections shown as tables, by section kind."""
-
     # Page
-    renderer: HtmlRenderer
-    """Renderer of the docstring Markdown, with its links resolved by :meth:`.resolve_link`."""
-
     url: str
     """Site path of the page."""
 
@@ -583,7 +851,6 @@ class CodePage:
         self.reference = reference
         self.module = module
         self.url = make_code_url(CodeTarget(module.path, None))
-        self.renderer = HtmlRenderer(self.resolve_link)
 
     def build(self, described_in: Sequence[PageLink]) -> Page:
         """Build the page: its body, breadcrumb, children and the docs describing the module.
@@ -641,21 +908,27 @@ class CodePage:
         )
 
     def make_href(self, url: str) -> str:
-        """Return a site URL as an href relative to this page.
+        """Return a site URL as an href relative to this page; an external URL is returned unchanged.
 
         Args:
-            url: Site URL of the link target, relative to the site root.
+            url: URL of the link target: relative to the site root, or external.
         """
         return make_relative_url(url, self.url)
 
     def make_code_href(self, dotted: str) -> str | None:
         """Return the page-relative href of a code element, or None if it is not in the reference.
 
+        An element shown on this page gets a bare ``#anchor``.
+
         Args:
             dotted: Full dotted path of the element, e.g. a name's canonical path or a ``code:`` target.
         """
         target = self.reference.codebase.index.get(dotted)
-        return self.make_href(make_code_url(target)) if target else None
+        if target is None:
+            return None
+        if target.module == self.module.path and target.anchor:
+            return f"#{target.anchor}"
+        return self.make_href(make_code_url(target))
 
     def build_expr_pieces(self, expr: str | griffe.Expr | None) -> Pieces:
         """Return the pieces of a type or value expression, with the names of project code elements linked.
@@ -676,24 +949,43 @@ class CodePage:
                 pieces.append(Piece(str(part)))
         return tuple(pieces)
 
-    def resolve_link(self, href: str) -> RenderedLink:
-        """Resolve a link of a docstring: ``code:`` targets go to the code reference, others stay as written.
+    def resolve_link(self, href: str, owner: griffe.Object) -> RenderedLink:
+        """Resolve a link of a docstring: ``code:`` targets and Python roles go to the code reference, others stay.
+
+        A role's link text becomes the found element's dotted path, as its :class:`~docspecsite.roles.RoleRef` says.
+        A ``code:`` target or a role that the code reference does not show keeps its text and gets the "no longer
+        exists" marker; for a role, this also issues a :class:`~docspecsite.errors.DocspecsiteWarning`.
 
         Args:
-            href: Percent-decoded target of a link in a docstring.
+            href: Percent-decoded target of a link in a docstring; a Python role's link starts with ``role:``.
+            owner: Module or member whose docstring holds the link; a role's relative target is looked up from it.
         """
-        if href.lower().startswith("code:"):
-            found = self.make_code_href(href[len("code:") :])
-            return RenderedLink(found) if found else RenderedLink(None, (MARKERS["code-gone"],))
-        return RenderedLink(href)
+        target = self.reference.codebase.find_link_target(href, owner)
+        if target is None:
+            return RenderedLink(href)
+        if target.dotted_path is None:
+            if target.role is not None:
+                warnings.warn(
+                    DocspecsiteWarning(
+                        "unknown code element in the docstring of %s: %s", owner.path, href[len(ROLE_SCHEME) :]
+                    ),
+                    stacklevel=1,
+                )
+            return RenderedLink(None, (MARKERS["code-gone"],))
+        text = target.role.display_text(target.dotted_path) if target.role is not None else None
+        return RenderedLink(self.make_code_href(target.dotted_path), text=text)
 
-    def render_markdown(self, text: str) -> str:
-        """Return docstring Markdown as HTML with its links resolved; blank text gives an empty string.
+    def render_markdown(self, text: str, owner: griffe.Object) -> str:
+        """Return docstring Markdown as HTML with its links and Python roles resolved; blank text gives an empty string.
 
         Args:
             text: Markdown of a docstring section or table cell.
+            owner: Module or member whose docstring the text is from; roles with a relative target are looked up from
+                it.
         """
-        return self.renderer.render(text) if text.strip() else ""
+        if not text.strip():
+            return ""
+        return HtmlRenderer(partial(self.resolve_link, owner=owner), use_roles=True).render(text)
 
     def make_source_url(self, obj: griffe.Object, *, whole_file: bool = False) -> str | None:
         """Return the URL of the source of an object on the repository host, or None without a ``source-url``.
@@ -714,52 +1006,42 @@ class CodePage:
     def build_docstring(self, obj: griffe.Object) -> tuple[tuple[Section, ...], Pieces]:
         """Split the docstring of an object into its rendered sections and the links of its ``Docs:`` lines.
 
-        The ``Docs:`` lines themselves are not part of the sections.
+        The ``Docs:`` lines themselves are not part of the sections. A ``Docs:`` link shows the doc's title, or the
+        doc's path as plain text when :attr:`CodeReference.locate_doc` gives it no URL.
 
         Args:
             obj: Module or member whose docstring is rendered; its parent context lets griffe parse the sections.
         """
-        if obj.docstring is None:
-            return (), ()
-        targets, text = split_docs_lines(obj.docstring.value)
+        parsed = ParsedDocstring.parse(obj)
         docs: list[Piece] = []
-        for target in targets:
+        for target in parsed.docs_targets:
             path, sep, anchor = target.partition("#")
-            docs.append(Piece(self.reference.titles.get(path, path), self.make_href(make_doc_url(path) + sep + anchor)))
-        parsed = griffe.parse_google(griffe.Docstring(text, parent=obj), warnings=False)
-        return tuple(self.build_section(s) for s in parsed), tuple(docs)
+            link = self.reference.build_doc_link(path, sep + anchor)
+            docs.append(Piece(link.title, self.make_href(link.url) if link.url is not None else None))
+        render = partial(self.render_markdown, owner=obj)
+        return tuple(self.build_section(s, render) for s in parsed.sections), tuple(docs)
 
-    def build_section(self, section: griffe.DocstringSection) -> Section:
+    def build_section(self, section: griffe.DocstringSection, render: Callable[[str], str]) -> Section:
         """Render a parsed docstring section: a table for parameters, returns and similar sections, text otherwise.
 
         Args:
             section: Section from griffe's Google-style parse of the docstring; its kind picks the table or text
                 rendering.
+            render: Function rendering the docstring's Markdown, of a section or a table cell, to HTML.
         """
-        section_value: object = section.value
-        kind = section.kind
-        if kind in self.TABLE_TITLES and isinstance(section_value, list):
+        items = ParsedDocstring.get_table_items(section)
+        if items is not None:
             rows = [
                 Row(
                     item.name if isinstance(item, griffe.DocstringNamedElement) else "",
                     self.build_expr_pieces(item.annotation),
-                    self.render_markdown(item.description),
+                    render(item.description),
                 )
-                for item in section_value
-                if isinstance(item, griffe.DocstringElement)
+                for item in items
             ]
-            return Section(self.TABLE_TITLES[kind], "", tuple(rows))
-        if isinstance(section_value, griffe.DocstringAdmonition | griffe.DocstringDeprecated):
-            return Section(section.title or "", self.render_markdown(section_value.description))
-        if kind is griffe.DocstringSectionKind.examples and isinstance(section_value, list):
-            parts: list[str] = []
-            for item in section_value:
-                if isinstance(item, tuple) and len(item) == 2:
-                    part_kind, part = item
-                    is_code = part_kind is griffe.DocstringSectionKind.examples
-                    parts.append(f"```pycon\n{part}\n```" if is_code else str(part))
-            return Section(section.title or "Examples", self.render_markdown("\n\n".join(parts)))
-        return Section(section.title or "", self.render_markdown(str(section_value)))
+            return Section(ParsedDocstring.TABLE_TITLES[section.kind], "", tuple(rows))
+        default_title = "Examples" if section.kind is griffe.DocstringSectionKind.examples else ""
+        return Section(section.title or default_title, render(ParsedDocstring.get_section_text(section)))
 
     def build_member(self, obj: griffe.Object) -> Member:
         """Describe a code element for rendering: signature, docstring and, for a class, its members.

@@ -10,7 +10,7 @@ import warnings
 from collections.abc import Callable, Container, Generator, Iterable, Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
-from functools import partial
+from functools import cached_property, partial
 from html import escape
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
@@ -20,7 +20,7 @@ import griffe
 
 from .cache import BodyCache, compute_fingerprint, make_targets_key
 from .codeindex import CodeTarget
-from .coderef import CODE_INDEX, Codebase, CodeError, CodeReference
+from .coderef import Codebase, CodeError, CodeReference
 from .config import ConfigError, ProjectConfig
 from .docs import DOCS, Doc, is_template, make_string_tuple
 from .docset import DocSet
@@ -40,9 +40,12 @@ from .pages import (
     load_static_files,
     make_picker_label,
 )
+from .parts import Part
 from .urls import (
+    CODE_INDEX,
     PageLinks,
     Resolver,
+    encode_href_path,
     is_usable_tag,
     list_ancestor_directories,
     make_code_url,
@@ -135,15 +138,18 @@ class SiteBuilder:
     worktree_files: frozenset[str]
     """Working-tree non-Markdown files under ``docs/`` with :attr:`.include_worktree`, else none."""
 
+    # Parts built
+    parts: frozenset[Part]
+    """The parts of the site this build produces."""
+
     # Filled by run()
     codebase: Codebase | None
     """The project code; None until :meth:`.run` loads it, and when the project has no code to load."""
 
-    entries: list[IndexEntry]
-    """Index entries of the latest docs with front matter; empty until :meth:`.run` collects them."""
-
     index_renderer: IndexRenderer | None
-    """Renderer of the index pages and ``llms.txt``; None until :meth:`.run` makes it."""
+    """Renderer of the index pages and ``llms.txt``; None until :meth:`run` makes it, and in a build without the docs
+    part.
+    """
 
     resolver: Resolver | None
     """Resolver of the docs' links; None until :meth:`.run` makes it."""
@@ -185,7 +191,16 @@ class SiteBuilder:
     strict: bool
     """See :meth:`.__init__`."""
 
-    def __init__(self, root: Path, ref: str, *, include_worktree: bool, vendor_dir: Path | None, strict: bool) -> None:
+    def __init__(
+        self,
+        root: Path,
+        ref: str,
+        *,
+        include_worktree: bool,
+        vendor_dir: Path | None,
+        strict: bool,
+        parts: frozenset[Part] | None,
+    ) -> None:
         """Read the ref's history, project settings and docs, ready to build pages.
 
         Args:
@@ -197,6 +212,11 @@ class SiteBuilder:
             vendor_dir: Directory of the vendored third-party files the site uses, already taken from
                 ``$DOCSPECSITE_VENDOR_DIR`` by :func:`.run_build`; None means there are none.
             strict: Raise on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page instead of recording it.
+            parts: The parts of the site to build; None means the docs, and the code too when the settings have
+                ``code-dirs``.
+
+        Raises:
+            BuildError: The settings cannot be read, or the code part is asked for without ``code-dirs``.
         """
         self.root = root
         self.strict = strict
@@ -217,13 +237,26 @@ class SiteBuilder:
         self.site_files = {}
         self.page_urls = []
         self.templates = Templates()
-        self.cache = BodyCache(root / self.CACHE_DIR, compute_fingerprint())
         # Parsed docs by (doc path relative to docs/, blob SHA hash): each blob of a doc is parsed once.
         self.docs_by_path_and_blob = {}
         latest_versions = (self.history.find_latest(path) for path in sorted(self.history.docs))
         self.latest_docs = DocSet(self.parse_doc_version(v) for v in latest_versions if self.history.is_decodable(v))
         self.config = self.load_config()
-        self.source_url_missing_reported = bool(self.config.code_dirs) and not self.config.source_url
+        available_parts = self.get_available_parts()
+        if parts is None:
+            parts = available_parts
+        elif not parts <= available_parts:
+            raise BuildError("the code part needs code-dirs in %s", ProjectConfig.CONFIG_FILE)
+        self.parts = parts
+        self.cache = BodyCache(root / self.CACHE_DIR, compute_fingerprint(), self.parts_label)
+        if not self.builds_docs and CODE_INDEX not in self.latest_docs.by_path:
+            warnings.warn(
+                DocspecsiteWarning(
+                    "no code reference entry page %s%s: the code-only site has no root page", DOCS, CODE_INDEX
+                ),
+                stacklevel=1,
+            )
+        self.source_url_missing_reported = self.builds_code and not self.config.source_url
         if self.source_url_missing_reported:
             warnings.warn(
                 DocspecsiteWarning(
@@ -234,8 +267,11 @@ class SiteBuilder:
         self.codebase = None
         self.resolver = None
         self.vocabulary = None
-        self.entries = []
         self.index_renderer = None
+
+    def get_available_parts(self) -> frozenset[Part]:
+        """Return every part the repo has the prerequisites for: the docs always, the code with ``code-dirs``."""
+        return frozenset({Part.DOCS, Part.CODE} if self.config.code_dirs else {Part.DOCS})
 
     def parse_doc_version(self, version: Version) -> Doc:
         """Return the parsed doc of a version; the parse is reused for the same blob.
@@ -262,6 +298,119 @@ class SiteBuilder:
     def home_doc(self) -> Doc | None:
         """The latest version of the home doc, ``index.md``; None when there is none."""
         return self.latest_docs.by_path.get("index.md")
+
+    @staticmethod
+    def find_part(path: str) -> Part:
+        """Return the part of the site a doc belongs to.
+
+        The code reference index is the entry page of the code reference, so it belongs to the code part; every other
+        doc belongs to the docs part.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        return Part.CODE if path == CODE_INDEX else Part.DOCS
+
+    @classmethod
+    def is_versionless(cls, path: str) -> bool:
+        """Return whether a doc has only its latest version shown.
+
+        A doc of the code part follows the code, so it has no ``/v/`` pages, diff page or version picker.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        return cls.find_part(path) is Part.CODE
+
+    def is_built_doc(self, path: str) -> bool:
+        """Return whether the pages of a doc are built, given the parts built.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        return self.find_part(path) in self.parts
+
+    @property
+    def builds_docs(self) -> bool:
+        """Whether the docs part is built, and with it the index pages and ``llms.txt``."""
+        return Part.DOCS in self.parts
+
+    @property
+    def builds_code(self) -> bool:
+        """Whether the code part is built: the code reference pages and their entry page."""
+        return Part.CODE in self.parts
+
+    def is_root_doc(self, path: str) -> bool:
+        """Return whether the latest page of a doc is also written as the site's root page, ``index.html``.
+
+        Without the docs part the home doc is not built, and the code reference index takes its place; the home doc's
+        own page is the root page already.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        return self.find_part(path) is Part.CODE and not self.builds_docs
+
+    def locate_doc(self, path: str) -> str | None:
+        """Return the URL a link to a doc goes to, or None to show the link as text.
+
+        It is the doc's page, site-root-relative, when its pages are built. A doc of the docs part that is not built
+        is linked from the code reference, so the link goes to the doc's Markdown file at the built commit on the
+        repository host, given by ``source-url``; None when the settings have no ``source-url`` or the doc is not in
+        the built commit (a working-tree doc with :attr:`include_worktree`). A doc of the code part that is not built
+        is linked from the docs, which never link outside the site for it: None. A doc missing from the history has no
+        page anywhere: None.
+
+        Args:
+            path: Doc path relative to ``docs/``, e.g. from a ``Docs:`` line, a doc whose ``code`` names a module or a
+                link in a doc's body or front matter.
+        """
+        if path not in self.history.docs:
+            return None
+        if self.is_built_doc(path):
+            return make_doc_url(path)
+        if self.find_part(path) is not Part.DOCS:
+            return None  # the code part's entry page, linked from the docs
+        if not self.config.source_url:
+            return None
+        if f"{DOCS}{path}" not in self.ref_tree:
+            return None  # a working-tree doc, not in the built commit
+        return f"{self.config.source_url}/blob/{self.history.head}/{DOCS}{encode_href_path(path)}"
+
+    @cached_property
+    def doc_paths_by_url(self) -> Mapping[str, str]:
+        """Doc paths relative to ``docs/`` by the URL of their latest page, for every doc of the history.
+
+        Kept once for the build: every page's breadcrumb looks its links up in it.
+        """
+        return MappingProxyType({make_doc_url(path): path for path in self.history.docs})
+
+    def limit_breadcrumb(
+        self, breadcrumb: Iterable[PageLink], module_urls: Container[str] = frozenset()
+    ) -> tuple[PageLink, ...]:
+        """Return breadcrumb links without those to pages that do not exist, and with those to unbuilt docs as text.
+
+        A link to a doc whose pages this build does not write keeps its title, without a URL.
+
+        Args:
+            breadcrumb: Links of a page's breadcrumb, to docs and to module pages.
+            module_urls: URLs of the module pages of the code reference; links to them and links without a URL are
+                kept, links to other URLs that are no doc's are left out.
+        """
+        links: list[PageLink] = []
+        for link in breadcrumb:
+            if link.url is None or link.url in module_urls:
+                links.append(link)
+                continue
+            path = self.doc_paths_by_url.get(link.url)
+            if path is not None:
+                links.append(link if self.is_built_doc(path) else PageLink(link.title, None))
+        return tuple(links)
+
+    @property
+    def parts_label(self) -> str:
+        """The names of the parts built, sorted and joined by ``+``, e.g. ``code+docs``."""
+        return "+".join(sorted(self.parts))
 
     @property
     def site_title(self) -> str:
@@ -364,8 +513,8 @@ class SiteBuilder:
         Args:
             name: Name of the page in error lines.
             page: Page to render; it is stored at its :attr:`~docspecsite.pages.Page.url`.
-            indexes: URLs of the tag and component index pages that were built; links to other tags and components
-                are shown as plain text.
+            indexes: URLs of the index pages that were built (status, tag and component pages); links to other tags
+                and components are shown as plain text, and the Status link is left out without the status page.
         """
         html = self.attempt(name, lambda: self.templates.render(page, self.site_title, indexes=indexes).encode())
         if html is not None:
@@ -436,25 +585,26 @@ class SiteBuilder:
         """List the pages still to build for every doc.
 
         These are its latest page, a ``/v/`` page per version and the diff pages. Each is named ``docs/<path>@<id>``
-        in error lines.
+        in error lines. The code reference index has only its latest page: no ``/v/`` page, diff page or picker.
 
         Args:
             extra_children: Child links shown on a doc's pages, by doc path relative to ``docs/``; the build gives the
                 code reference index its top-level packages. Docs missing from it get none.
         """
         pages: list[Pending] = []
-        for path in sorted(self.history.docs):
+        for path in sorted(filter(self.is_built_doc, self.history.docs)):
             versions = self.history.docs[path]
             backlink_list = tuple(
                 PageLink(b.title or b.source, make_doc_url(b.source))
                 for b in self.latest_docs.backlinks_by_target.get(path, ())
+                if self.is_built_doc(b.source)
             )
             child_list = extra_children.get(path, ())
+            if self.is_versionless(path):
+                versions = [self.history.find_latest(path)]
             for version in versions:
                 name = f"{DOCS}{path}@{version.short_id}"
-                urls = [make_version_url(path, version.short_id)]
-                if self.history.is_latest(version):
-                    urls.insert(0, make_doc_url(path))
+                urls = self.list_page_urls(version)
                 pages.extend(
                     (name, partial(self.build_doc_page, version, url, backlink_list, child_list)) for url in urls
                 )
@@ -463,15 +613,36 @@ class SiteBuilder:
                     pages.append((name, partial(self.build_diff_page, version, previous)))
         return pages
 
+    def list_page_urls(self, version: Version) -> list[str]:
+        """Return the site paths the page of a version is written to.
+
+        The latest version is at the doc's URL, and also at the root page for the root doc (see :meth:`is_root_doc`);
+        every version but those of a versionless doc has a ``/v/`` page.
+
+        Args:
+            version: Version of a doc whose pages are built.
+        """
+        path = version.path
+        urls: list[str] = []
+        if self.history.is_latest(version):
+            urls.append(make_doc_url(path))
+            if self.is_root_doc(path):
+                urls.append(self.ROOT_PAGE)
+        if not self.is_versionless(path):
+            urls.append(make_version_url(path, version.short_id))
+        return urls
+
     def find_diff_base(self, version: Version) -> Version | None:
         """Return the earlier version that the diff page of a version compares it with, or None.
 
-        None means the version has no diff page. A version that is not valid UTF-8 has no diff and is no version's
-        previous one; its own pages report it.
+        None means the version has no diff page; a versionless doc has none. A version that is not valid UTF-8 has no
+        diff and is no version's previous one; its own pages report it.
 
         Args:
             version: Version whose diff page is considered; the first version of a doc has none.
         """
+        if self.is_versionless(version.path):
+            return None
         previous = self.history.find_previous(version)
         decodable = previous is not None and self.history.is_decodable(previous) and self.history.is_decodable(version)
         return previous if decodable else None
@@ -498,7 +669,7 @@ class SiteBuilder:
             components=make_string_tuple(front_matter.get("components")),
             tags=make_string_tuple(front_matter.get("tags")),
             body_html="",
-            breadcrumb=build_breadcrumb(version.path, self.latest_docs.titles),
+            breadcrumb=self.limit_breadcrumb(build_breadcrumb(version.path, self.latest_docs.titles)),
             old=old,
         )
 
@@ -523,13 +694,17 @@ class SiteBuilder:
         front_matter = self.get_front_matter(version) or {}
         root_links = PageLinks(self.resolver, version, self.ROOT_PAGE)
         latest = self.history.find_latest(version.path)
-        picker = tuple(
-            PickerEntry(
-                make_picker_label(other),
-                make_doc_url(version.path) if other == latest else make_version_url(version.path, other.short_id),
-                other == version,
+        picker = (
+            ()
+            if self.is_versionless(version.path)
+            else tuple(
+                PickerEntry(
+                    make_picker_label(other),
+                    make_doc_url(version.path) if other == latest else make_version_url(version.path, other.short_id),
+                    other == version,
+                )
+                for other in self.history.docs[version.path]
             )
-            for other in self.history.docs[version.path]
         )
         redirect = None
         if front_matter.get("status") == "redirect":
@@ -621,18 +796,16 @@ class SiteBuilder:
             for entry in make_string_tuple((doc.front_matter or {}).get("code")):
                 target = codebase.index.get(entry)
                 modules[target.module if target is not None else entry] = None
-            link = PageLink(doc.title, make_doc_url(doc.path))
+            link = code_reference.build_doc_link(doc.path)
             for module in modules:
                 described.setdefault(module, []).append(link)
-        known = {make_doc_url(path) for path in self.history.docs} | {
-            make_code_url(CodeTarget(m.path, None)) for m in codebase.modules
-        }
+        module_urls = {make_code_url(CodeTarget(m.path, None)) for m in codebase.modules}
 
         def make(module: griffe.Module) -> Page:
             page = code_reference.build_page(module, described.get(module.path, ()))
             return replace(
                 page,
-                breadcrumb=tuple(link for link in page.breadcrumb if link.url in known),
+                breadcrumb=self.limit_breadcrumb(page.breadcrumb, module_urls),
                 mermaid=self.MERMAID_MARK in page.body_html,
             )
 
@@ -700,12 +873,15 @@ class SiteBuilder:
         return sorted(directory for directory in directories if self.config.is_code_dir(directory))
 
     @contextmanager
-    def prepare_code_root(self) -> Generator[Path]:
-        """Provide the directory the code is read from.
+    def prepare_code_root(self) -> Generator[Path | None]:
+        """Provide the directory the code is read from, or None when the code part is not built.
 
         That is the working tree with :attr:`.include_worktree`, or else the ref's code directories extracted to a
         temporary directory that is removed on exit.
         """
+        if not self.builds_code:
+            yield None
+            return
         if self.include_worktree:
             yield self.root
             return
@@ -725,11 +901,11 @@ class SiteBuilder:
         return self.history.read_text(latest) if latest is not None and self.history.is_decodable(latest) else None
 
     def collect_index_entries(self) -> list[IndexEntry]:
-        """Return the index entries of the latest docs that have front matter, ordered by doc path."""
+        """Return the index entries of the built latest docs that have front matter, ordered by doc path."""
         return [
             IndexEntry(doc.path, make_doc_url(doc.path), doc.front_matter)
             for doc in sorted(self.latest_docs, key=lambda doc: doc.path)
-            if doc.front_matter is not None
+            if doc.front_matter is not None and self.is_built_doc(doc.path)
         ]
 
     def collect_code_entries(self) -> list[IndexEntry]:
@@ -857,6 +1033,26 @@ class SiteBuilder:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
 
+    def make_index_renderer(self) -> IndexRenderer:
+        """Return the renderer of the index pages and ``llms.txt``, with the index entries of the built docs and code.
+
+        A warning is issued for each tag that cannot be a file name, and so gets no index page.
+        """
+        if self.vocabulary is None:
+            raise RuntimeError("the vocabulary is read by run(), before the index renderer is made")
+        entries = self.collect_index_entries()
+        tags = sorted({tag for entry in entries for tag in make_string_tuple(entry.front_matter.get("tags"))})
+        for tag in tags:
+            if not is_usable_tag(tag):
+                warnings.warn(DocspecsiteWarning('tag "%s" cannot be a file name, no index page', tag), stacklevel=1)
+        return IndexRenderer(
+            entries,
+            self.collect_code_entries(),
+            self.config,
+            self.site_title,
+            self.vocabulary,
+        )
+
     def run(self, out: Path) -> BuildResult:
         """Build the pages and write the site; a builder builds its site once.
 
@@ -872,41 +1068,32 @@ class SiteBuilder:
             BuildError: In a strict build, on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page.
         """
         with self.prepare_code_root() as code_root:
-            self.hidden_dirs.append(code_root.resolve())
-            self.codebase = self.load_codebase(code_root)
+            if code_root is not None:
+                self.hidden_dirs.append(code_root.resolve())
+                self.codebase = self.load_codebase(code_root)
             self.resolver = Resolver(
                 self.history,
-                self.codebase.index if self.codebase else MappingProxyType({}),
+                (self.codebase.index if self.codebase else MappingProxyType({})) if code_root is not None else None,
                 self.config,
                 self.get_front_matter,
+                doc_pages=self,
                 extra_files=self.worktree_files,
                 warn_on_dropped_repo_link=not self.source_url_missing_reported,
             )
             self.vocabulary = Vocabulary.parse(self.read_latest_text)
             code_reference = (
-                CodeReference.for_commit(self.codebase, self.config, self.history.head, self.latest_docs.titles)
+                CodeReference.for_commit(
+                    self.codebase, self.config, self.history.head, self.latest_docs.titles, locate_doc=self.locate_doc
+                )
                 if self.codebase
                 else None
             )
             extra_children = {CODE_INDEX: code_reference.build_module_children()} if code_reference else {}
-            self.entries = self.collect_index_entries()
-            tags = sorted({tag for entry in self.entries for tag in make_string_tuple(entry.front_matter.get("tags"))})
-            for tag in tags:
-                if not is_usable_tag(tag):
-                    warnings.warn(
-                        DocspecsiteWarning('tag "%s" cannot be a file name, no index page', tag), stacklevel=1
-                    )
-            self.index_renderer = IndexRenderer(
-                self.entries,
-                self.collect_code_entries(),
-                self.config,
-                self.site_title,
-                self.vocabulary,
-            )
+            self.index_renderer = self.make_index_renderer() if self.builds_docs else None
             pending = [
                 *self.build_doc_pages(extra_children),
                 *(self.build_code_pages(code_reference) if code_reference else []),
-                *self.index_renderer.make_page_makers().items(),
+                *(self.index_renderer.make_page_makers().items() if self.index_renderer else []),
             ]
             pages: list[tuple[str, Page]] = []
             for name, make in pending:
@@ -924,16 +1111,16 @@ class SiteBuilder:
         indexes = frozenset(
             page.url
             for _, page in pages
-            if page.url.startswith(("tags/", "components/")) and self.is_relative_down(page.url)
+            if page.url == IndexRenderer.STATUS_PAGE
+            or (page.url.startswith(("tags/", "components/")) and self.is_relative_down(page.url))
         )
         for name, page in pages:
             self.emit(name, page, indexes)
-        llms = self.attempt(
-            "llms.txt",
-            lambda: self.index_renderer.render_llms_txt(self.site_summary).encode(),
-        )
-        if llms is not None:
-            self.site_files["llms.txt"] = llms
+        index_renderer = self.index_renderer
+        if index_renderer is not None:
+            llms = self.attempt("llms.txt", lambda: index_renderer.render_llms_txt(self.site_summary).encode())
+            if llms is not None:
+                self.site_files["llms.txt"] = llms
         self.site_files.update(load_static_files())
         self.copy_docs_files()
         refused = self.find_outside(out, self.site_files)
@@ -975,6 +1162,7 @@ def run_build(
     include_worktree: bool = False,
     vendor_dir: Path | None = None,
     strict: bool = False,
+    parts: frozenset[Part] | None = None,
 ) -> BuildResult:
     """Build the static site for a git ref.
 
@@ -996,6 +1184,8 @@ def run_build(
             before anything is written: ``error`` warning filters are set for
             :exc:`~docspecsite.errors.DocspecsiteWarning` and :exc:`~docspecsite.errors.InternalErrorWarning` during the
             build.
+        parts: The parts of the site to build; None means the docs, and the code too when ``docspecsite.toml`` has
+            ``code-dirs``.
 
     Returns:
         What was built, with the errors of the pages that failed.
@@ -1003,10 +1193,12 @@ def run_build(
     Raises:
         BuildError: The root ``docspecsite.toml`` cannot be read, is not valid TOML or has an invalid value; with
             ``strict``, also on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or
-            warning.
+            warning; also when ``parts`` has the code part and the settings have no ``code-dirs``.
     """
     if vendor_dir is None and os.environ.get(VENDOR_ENV):
         vendor_dir = Path(os.environ[VENDOR_ENV])
     with make_warnings_fatal() if strict else nullcontext():
-        builder = SiteBuilder(root, ref, include_worktree=include_worktree, vendor_dir=vendor_dir, strict=strict)
+        builder = SiteBuilder(
+            root, ref, include_worktree=include_worktree, vendor_dir=vendor_dir, strict=strict, parts=parts
+        )
         return builder.run(out)

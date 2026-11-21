@@ -53,6 +53,18 @@ class Ref:
     """Heading anchor of the link, without ``#``; None when it has none."""
 
 
+def parse_code_target(href: str) -> str | None:
+    """Return the dotted path a ``code:`` link names, or None for any other link.
+
+    Args:
+        href: Link target; the scheme is case-insensitive. The result is empty for a ``code:`` link without a path.
+    """
+    scheme = SCHEME.match(href)
+    if scheme is None or scheme.group(1).lower() != "code":
+        return None
+    return href[scheme.end() :].strip()
+
+
 def parse_body_ref(doc_path: str, href: str, line: int) -> Ref | CodeRef | Problem | None:
     """Classify a link found in the body of a doc.
 
@@ -74,8 +86,8 @@ def parse_body_ref(doc_path: str, href: str, line: int) -> Ref | CodeRef | Probl
         name = scheme.group(1).lower()
         if name in WEB_SCHEMES:
             return None
-        if name == "code":
-            dotted = href[scheme.end() :].strip()
+        dotted = parse_code_target(href)
+        if dotted is not None:
             if not dotted:
                 return Problem(doc_path, line, "empty code: target")
             return CodeRef(dotted, "body", line)

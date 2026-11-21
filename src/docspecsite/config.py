@@ -37,7 +37,7 @@ class ProjectConfig:
     """Globs of the directories holding the Python packages (``code-dirs``), relative to the repository root."""
 
     source_url: str
-    """Base URL of the repository host (``source-url``); empty when unset."""
+    """Base URL of the repository host (``source-url``), without a trailing ``/``; empty when unset."""
 
     code_components: Mapping[str, tuple[str, ...]]
     """Component ids by dotted-name prefix (``[code-components]``)."""
@@ -258,7 +258,7 @@ class ProjectConfigParser:
         )
         return ProjectConfig(
             code_dirs=code_dirs,
-            source_url=url,
+            source_url=url.rstrip("/"),
             code_components=code_components,
             adr_prefix=str(prefix),
             external_adr_prefixes=external_prefixes,

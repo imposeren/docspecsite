@@ -7,7 +7,7 @@ from urllib.parse import unquote
 
 import griffe
 import pytest
-from conftest import HistoryRepo, edit_text, make_commit, move_sample_package_to_root, run_git, write_doc
+from conftest import HistoryRepo, edit_text, extract_aside, make_commit, move_sample_package_to_root, run_git, write_doc
 
 from docspecsite.build import BuildError, BuildResult, SiteBuilder, run_build
 from docspecsite.coderef import Codebase, CodeError, CodeReference
@@ -17,6 +17,7 @@ from docspecsite.git import UnknownRefError
 from docspecsite.history import Version
 from docspecsite.indexes import IndexRenderer
 from docspecsite.pages import Page, PageLink, Templates
+from docspecsite.parts import Part
 
 _LINK = re.compile(r'(?:href|src)="([^"]*)"')
 _EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -334,11 +335,17 @@ def test_build_code_links_in_docs(repo: HistoryRepo, tmp_path: Path) -> None:
     assert "Y doc" not in package
 
 
-def test_build_code_index_lists_packages(repo: HistoryRepo, tmp_path: Path) -> None:
+def test_build_code_index(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
     write_doc(root, "reference/index.md", "Reference.\n", title="Reference")
     write_doc(root, "reference/code/index.md", "Generated.\n", title="Code reference")
     make_commit(root, "spec: add reference", "2026-11-07T12:00:00+00:00")
+    write_doc(root, "reference/code/index.md", "Generated again.\n", title="Code reference")
+    make_commit(root, "spec: edit code index", "2026-11-08T12:00:00+00:00")
+    write_doc(root, "meta/a.md", "See [code](../reference/code/index.md).\n", title="A")
+    old_sha = make_commit(root, "spec: link a to the code index", "2026-11-09T12:00:00+00:00")
+    write_doc(root, "meta/a.md", "No link now.\n", title="A")
+    make_commit(root, "spec: unlink", "2026-11-10T12:00:00+00:00")
     site_dir = tmp_path / "site"
     run_build(root, "main", site_dir)
     index = _read(site_dir, "reference/code/index.html")
@@ -347,6 +354,14 @@ def test_build_code_index_lists_packages(repo: HistoryRepo, tmp_path: Path) -> N
     assert "<h2>Submodules</h2>" not in index
     mod = _read(site_dir, "reference/code/sample.mod.html")
     assert 'href="index.html">Code reference</a>' in mod
+    # The entry page is versionless: no /v/ or diff pages and no picker, though it has two versions.
+    assert not (site_dir / "reference/code/index").exists()
+    assert "<option" not in index
+    assert "diff-link" not in index
+    assert "<option" in _read(site_dir, "meta/a.html")  # a doc with versions does have a picker
+    old = _read(site_dir, f"meta/a/v/{_shorten_sha(old_sha)}.html")
+    assert 'href="../../../reference/code/index.html"' in old
+    assert "current code" in old
 
 
 def test_build_warns_about_unresolvable_links(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -383,9 +398,9 @@ def test_build_redirect_notice_and_moved_marker(repo: HistoryRepo, tmp_path: Pat
     assert "http-equiv" not in c_page
     b_page = _read(site_dir, "meta/b.html")
     assert '<span class="marker moved">→ moved</span>' in b_page
-    related = b_page.split('<aside class="related">', 1)[1].split("</aside>", 1)[0]
+    related = extract_aside(b_page, "related")
     assert '<a href="c.html">c</a>' in related
-    backlinks = _read(site_dir, "meta/c.html").split('<aside class="backlinks">', 1)[1].split("</aside>", 1)[0]
+    backlinks = extract_aside(_read(site_dir, "meta/c.html"), "backlinks")
     assert '<a href="b.html">b</a>' in backlinks
 
 
@@ -980,3 +995,234 @@ def test_build_from_ref_finds_code_in_the_repo_root(repo: HistoryRepo, tmp_path:
     run_build(root, "main", site_dir)
     page = _read(site_dir, "reference/code/sample.mod.html")
     assert f'href="https://github.com/o/r/blob/{sha}/sample/mod.py#L' in page
+
+
+def test_build_default_parts(repo: HistoryRepo) -> None:
+    root, _ = repo
+    assert SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, strict=False, parts=None).parts == {
+        Part.DOCS,
+        Part.CODE,
+    }
+    (root / ProjectConfig.CONFIG_FILE).write_text("", encoding="utf-8")
+    make_commit(root, "drop code-dirs", "2026-11-07T12:00:00+00:00")
+    assert SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, strict=False, parts=None).parts == {
+        Part.DOCS
+    }
+
+
+def test_build_code_part_needs_code_dirs(history_repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = history_repo
+    with pytest.raises(BuildError, match="code-dirs"):
+        run_build(root, "main", tmp_path / "site", parts=frozenset({Part.CODE}))
+
+
+def test_build_parts_label(repo: HistoryRepo) -> None:
+    root, _ = repo
+    builder = SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, strict=False, parts=None)
+    assert builder.parts_label == "code+docs"
+
+
+def test_build_docs_only(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, shas = repo
+    write_doc(
+        root, "meta/x.md", "[x](code:sample.mod.Thing)\n", title="X doc", code=["sample.mod"], components=["core"]
+    )
+    make_commit(root, "spec: add x", "2026-11-07T12:00:00+00:00")
+    write_doc(root, "meta/x.md", "[x](code:sample.mod.Thing) again\n", title="X doc", code=["sample.mod"])
+    old_sha = make_commit(root, "spec: edit x", "2026-11-08T12:00:00+00:00")
+    write_doc(
+        root,
+        "meta/x.md",
+        "[x](code:sample.mod.Thing) latest\n",
+        title="X doc",
+        code=["sample.mod"],
+        components=["core"],
+    )
+    write_doc(root, "reference/index.md", "# Reference\n\n## Children\n\n- [code/index.md](code/index.md) — Code.\n")
+    write_doc(
+        root,
+        "reference/code/index.md",
+        "See [X](../../meta/x.md).\n",
+        title="Code reference",
+        tags=["x"],
+        components=["core"],
+    )
+    write_doc(
+        root,
+        "meta/y.md",
+        "See [the code](../reference/code/index.md).\n",
+        related=["reference/code/index.md"],
+    )
+    make_commit(root, "spec: edit x again", "2026-11-09T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir, parts=frozenset({Part.DOCS}))
+    assert not (site_dir / "reference/code").exists()
+    assert "<code>x</code> latest" in _read(site_dir, "meta/x.html")
+    assert "<code>x</code> again" in _read(site_dir, f"meta/x/v/{_shorten_sha(old_sha)}.html")
+    assert "sample." not in _read(site_dir, "components/core.html")
+    assert "reference/code/" not in _read(site_dir, "llms.txt")
+    pages = list(site_dir.rglob("*.html"))
+    y_page = _read(site_dir, "meta/y.html")
+    assert "the code" in y_page
+    assert "Code reference" not in y_page  # neither the related list nor a link names the entry page
+    assert "Code reference" not in _read(site_dir, "meta/x.html")  # no backlink from the entry page
+    for page in pages:
+        for url in _LINK.findall(page.read_text(encoding="utf-8")):
+            assert "reference/code/" not in url, (page, url)
+
+
+def test_build_alternating_parts_reuses_cache(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    write_doc(root, "meta/x.md", "[t](code:sample.mod.Thing)\n", title="X doc", code=["sample.mod"])
+    make_commit(root, "spec: add x", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir)
+    run_build(root, "main", site_dir, parts=frozenset({Part.DOCS}))
+    assert not [path for path in (site_dir / "reference/code").rglob("*") if path.is_file()]
+    third_build = run_build(root, "main", site_dir)
+    assert third_build.rendered_count == 0
+
+
+def test_build_docs_only_ignores_broken_code(
+    repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = repo
+
+    def raise_in_load(root: object, config: object) -> None:
+        raise CodeError("cannot locate Docs: lines of %s", "sample.mod")
+
+    monkeypatch.setattr(Codebase, "load", raise_in_load)
+    result = run_build(root, "main", tmp_path / "site", strict=True, parts=frozenset({Part.DOCS}))
+    assert not result.errors
+
+
+def test_build_docs_only_no_source_url_start_warning(git_repo: Path, tmp_path: Path) -> None:
+    (git_repo / ProjectConfig.CONFIG_FILE).write_text('code-dirs = ["src"]\n', encoding="utf-8")
+    (git_repo / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+    write_doc(git_repo, "a.md", "See [compose](../compose.yaml).\n")
+    make_commit(git_repo, "set the config")
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        run_build(git_repo, "main", tmp_path / "site", parts=frozenset({Part.DOCS}))
+    messages = [m.rpartition("source-url: ")[2] for m in _get_messages(recorded) if "source-url" in m]
+    assert messages == ["links to repository files, such as ../compose.yaml, are plain text"]
+
+
+def _add_code_only_docs(root: Path) -> str:
+    """Commit the code reference entry page and a doc describing ``sample.mod``; return the commit's SHA hash."""
+    write_doc(root, "reference/index.md", "Reference.\n", title="Reference")
+    write_doc(
+        root,
+        "reference/code/index.md",
+        "See [the module](code:sample.mod) and [X](../../meta/x.md#s).\n\n![Diagram](diagram.png)\n",
+        title="Code reference",
+        related=["meta/x.md"],
+    )
+    (root / "docs/reference/code/diagram.png").write_bytes(b"\x89PNG")
+    write_doc(root, "meta/x.md", "X.\n", title="X doc", code=["sample.mod"])
+    return make_commit(root, "spec: add the code reference", "2026-11-07T12:00:00+00:00")
+
+
+def _extract_docs_links(html: str) -> str:
+    return html.split('<div class="docs-links">', 1)[1].split("</div>", 1)[0]
+
+
+def test_build_code_only(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    head = _add_code_only_docs(root)
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir, parts=frozenset({Part.CODE}))
+    files = {p.relative_to(site_dir).as_posix() for p in site_dir.rglob("*") if p.is_file()}
+    written_files = {f for f in files if not f.startswith("assets/") and f != SiteBuilder.MANIFEST}
+    assert written_files == {
+        "reference/code/diagram.png",
+        "index.html",
+        "reference/code/index.html",
+        "reference/code/sample.html",
+        "reference/code/sample.base.html",
+        "reference/code/sample.mod.html",
+    }
+    root_page = _read(site_dir, "index.html")
+    assert "<h1>Code reference</h1>" in root_page
+    assert 'href="reference/code/sample.html"' in root_page
+    assert 'href="reference/code/sample.mod.html"' in root_page
+    assert 'href="reference/index.html"' not in root_page
+    blob = f"https://github.com/o/r/blob/{head}/docs"
+    assert f'href="{blob}/meta/x.md#s"' in root_page
+    assert 'src="reference/code/diagram.png"' in root_page
+    entry = _read(site_dir, "reference/code/index.html")
+    assert 'src="diagram.png"' in entry
+    related = extract_aside(entry, "related")
+    assert f'<a href="{blob}/meta/x.md">X doc</a>' in related
+    mod = _read(site_dir, "reference/code/sample.mod.html")
+    breadcrumb = mod.split('<nav class="breadcrumb">', 1)[1].split("</nav>", 1)[0]
+    assert '\nindex<span class="sep">' in breadcrumb  # the home doc, titled by its file name
+    assert '\nReference<span class="sep">' in breadcrumb
+    assert 'href="index.html">Code reference</a>' in breadcrumb
+    assert '<span class="component">core</span>' in mod
+    assert '<span class="status status-implemented">implemented</span>' in mod
+    for page in ("index.html", "reference/code/index.html", "reference/code/sample.mod.html"):
+        hrefs = _LINK.findall(_read(site_dir, page))
+        assert not [h for h in hrefs if "components/" in h or h.endswith("status.html")], page
+    assert f'href="{blob}/meta/vocabulary.md"' in _extract_docs_links(mod)
+    assert f'<a href="{blob}/meta/x.md">X doc</a>' in extract_aside(mod, "described-in")
+
+
+def test_build_code_only_without_entry_page(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    site_dir = tmp_path / "site"
+    with pytest.warns(DocspecsiteWarning, match="no code reference entry page docs/reference/code/index.md"):
+        run_build(root, "main", site_dir, parts=frozenset({Part.CODE}))
+    assert (site_dir / "reference/code/sample.mod.html").is_file()
+    assert not (site_dir / "index.html").exists()
+
+
+def test_build_code_only_without_source_url(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    edit_text(
+        root / ProjectConfig.CONFIG_FILE, lambda text: text.replace('source-url = "https://github.com/o/r"\n', "")
+    )
+    _add_code_only_docs(root)
+    site_dir = tmp_path / "site"
+    with pytest.warns(DocspecsiteWarning, match="no source-url"):
+        run_build(root, "main", site_dir, parts=frozenset({Part.CODE}))
+    mod = _read(site_dir, "reference/code/sample.mod.html")
+    docs_links = _extract_docs_links(mod)
+    assert "meta/vocabulary.md" in docs_links
+    assert "<a" not in docs_links
+    described = extract_aside(mod, "described-in")
+    assert "meta/x.md" in described
+    assert "<a" not in described
+    entry = _read(site_dir, "reference/code/index.html")
+    assert "and X.</p>" in entry
+    assert "meta/x.md" not in entry
+
+
+def test_build_code_only_worktree_new_doc(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    head = _add_code_only_docs(root)
+    write_doc(root, "meta/new.md", "New.\n", title="New doc")
+    edit_text(
+        root / "tools/sample/src/sample/mod.py",
+        lambda text: text.replace("Docs: meta/vocabulary.md\n", "Docs: meta/vocabulary.md\nDocs: meta/new.md\n", 1),
+    )
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir, include_worktree=True, parts=frozenset({Part.CODE}))
+    docs_links = _extract_docs_links(_read(site_dir, "reference/code/sample.mod.html"))
+    assert f'href="https://github.com/o/r/blob/{head}/docs/meta/vocabulary.md"' in docs_links
+    new_item = docs_links.split("meta/new.md", 1)[0].rsplit("<li>", 1)[1]
+    assert "<a" not in new_item
+
+
+def test_build_docs_line_to_missing_doc_is_text(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    edit_text(
+        root / "tools/sample/src/sample/mod.py",
+        lambda text: text.replace("Docs: meta/vocabulary.md\n", "Docs: meta/vocabulary.md\nDocs: meta/missing.md\n", 1),
+    )
+    make_commit(root, "name a missing doc", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir)
+    docs_links = _extract_docs_links(_read(site_dir, "reference/code/sample.mod.html"))
+    missing_item = docs_links.split("meta/missing.md", 1)[0].rsplit("<li>", 1)[1]
+    assert "<a" not in missing_item

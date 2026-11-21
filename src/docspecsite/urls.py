@@ -11,6 +11,7 @@ import re
 import warnings
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
+from typing import Protocol
 from urllib.parse import quote
 
 from .codeindex import CodeIndex, CodeTarget
@@ -23,6 +24,7 @@ from .markdown import Marker, RenderedLink
 from .problems import Problem
 
 EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+CODE_INDEX = "reference/code/index.md"
 
 MARKERS: Mapping[str, Marker] = MappingProxyType(
     {
@@ -146,6 +148,34 @@ def make_relative_url(url: str, page: str) -> str:
     return posixpath.relpath(path, posixpath.dirname(page) or ".") + suffix
 
 
+class DocPages(Protocol):
+    """Which doc pages a build writes, and where links to the docs whose pages it does not write go."""
+
+    def is_built_doc(self, path: str) -> bool:
+        """Return whether the build writes the pages of a doc.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        ...
+
+    def is_versionless(self, path: str) -> bool:
+        """Return whether a doc has only its latest page: a link to it from an old version goes there.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        ...
+
+    def locate_doc(self, path: str) -> str | None:
+        """Return the URL a link to a doc goes to, external for a doc whose pages are not built; None for text.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        ...
+
+
 class Resolver:
     """Resolver of the links of doc versions to hrefs and markers; it issues warnings about unresolvable links."""
 
@@ -167,7 +197,7 @@ class Resolver:
     history: History
     """See :meth:`.__init__`."""
 
-    code: CodeIndex
+    code: CodeIndex | None
     """See :meth:`.__init__`."""
 
     config: ProjectConfig
@@ -176,16 +206,20 @@ class Resolver:
     front_matter_of: Callable[[Version], Mapping[str, object] | None]
     """See :meth:`.__init__`."""
 
+    doc_pages: DocPages
+    """See :meth:`__init__`."""
+
     warn_on_dropped_repo_link: bool
     """See :meth:`.__init__`."""
 
     def __init__(
         self,
         history: History,
-        code: CodeIndex,
+        code: CodeIndex | None,
         config: ProjectConfig,
         front_matter_of: Callable[[Version], Mapping[str, object] | None],
         *,
+        doc_pages: DocPages,
         extra_files: frozenset[str] = frozenset(),
         warn_on_dropped_repo_link: bool = True,
     ) -> None:
@@ -194,12 +228,15 @@ class Resolver:
         Args:
             history: Doc versions at the build ref; decide which docs exist, which version a link from an old version
                 goes to, and which commit repository links point at. Its tree gives the existing repo files.
-            code: Public code elements that ``code:`` links may name; empty when the code is not loaded.
+            code: Public code elements that ``code:`` links may name, empty when the code is not loaded; None when the
+                code part is not built: ``code:`` links are then code-styled plain text, without a warning.
             config: Settings whose ``source-url`` is the base URL of the repository on its host, to which
                 ``tree/<commit>/...`` or ``blob/<commit>/...`` is appended for links to repo files outside the site;
                 without it such links are plain text.
             front_matter_of: Gives the front matter of a link's target version, to mark links to redirect docs; None
                 when it did not load.
+            doc_pages: Tells which docs have their pages built and which have only a latest page, and where a link
+                to a doc whose pages are not built goes (plain text without a warning when nowhere).
             extra_files: Repo paths that exist besides the ref's tree: the working-tree non-Markdown files under
                 ``docs/`` when building with the working tree, else none.
             warn_on_dropped_repo_link: Warn about the first repository link of a latest version turned into plain
@@ -211,14 +248,10 @@ class Resolver:
         self.config = config
         self.front_matter_of = front_matter_of
         self.issued_warnings = set()
+        self.doc_pages = doc_pages
         self.warn_on_dropped_repo_link = warn_on_dropped_repo_link
         self.dropped_repo_link_reported = False
         self.dirs = self.collect_directories([*self.files, *(f"{DOCS}{path}" for path in history.docs)])
-
-    @property
-    def source_url(self) -> str:
-        """Base URL of the repository on its host (``source-url``), without a trailing ``/``; empty when unset."""
-        return self.config.source_url.rstrip("/")
 
     @staticmethod
     def collect_directories(paths: list[str]) -> frozenset[str]:
@@ -262,8 +295,9 @@ class Resolver:
             href: Link as written in the version; named in the warning.
             rest: Path after the source URL, e.g. ``blob/<commit>/<repo path>#anchor``.
         """
-        if self.source_url:
-            return RenderedLink(f"{self.source_url}/{rest}")
+        source_url = self.config.source_url
+        if source_url:
+            return RenderedLink(f"{source_url}/{rest}")
         if self.warn_on_dropped_repo_link and not self.dropped_repo_link_reported and self.history.is_latest(version):
             self.dropped_repo_link_reported = True
             self.warn(
@@ -333,11 +367,14 @@ class PageLinks:
     def resolve_code_link(self, ref: CodeRef) -> RenderedLink:
         """Resolve a ``code:`` link to its reference page, or to plain text with a marker if unknown.
 
-        An older version's link gets the "current code" marker.
+        An older version's link gets the "current code" marker. Without the code part (:attr:`Resolver.code` is None)
+        it is plain text in code style, with no marker and no warning.
 
         Args:
             ref: Parsed ``code:`` link whose dotted path is looked up.
         """
+        if self.resolver.code is None:
+            return RenderedLink(None, use_code_style=True)
         target = self.resolver.code.get(ref.dotted)
         if target is None:
             self.resolver.warn(self.version, "unknown code element: code:%s", ref.dotted)
@@ -385,14 +422,25 @@ class PageLinks:
         """Resolve a link from the version to a doc.
 
         It goes to the version current when the linking version was written; from the latest version it goes to the
-        latest page. Markers flag newer docs and redirect docs.
+        latest page. Markers flag newer docs and redirect docs. A doc whose pages are not built is linked where
+        :attr:`Resolver.doc_pages` says, or is plain text, with no warning. A versionless doc (the code reference
+        index) has no old versions: a link to it from an old version goes to its latest page with the "current code"
+        marker.
 
         Args:
             path: Path of the linked doc relative to ``docs/``; it must be a doc of the history.
             suffix: ``?query`` and ``#anchor`` of the link, appended to the target page URL; may be empty.
         """
+        doc_pages = self.resolver.doc_pages
+        if not doc_pages.is_built_doc(path):
+            url = doc_pages.locate_doc(path)
+            return RenderedLink(url + suffix if url is not None else None)
         history = self.resolver.history
         markers: list[Marker] = []
+        if doc_pages.is_versionless(path) and not history.is_latest(self.version):
+            return RenderedLink(
+                make_relative_url(make_doc_url(path) + suffix, self.page_url), (MARKERS["code-current"],)
+            )
         if history.is_latest(self.version):
             resolved = history.find_latest(path)
             url = make_doc_url(path)

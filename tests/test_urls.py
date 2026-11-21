@@ -1,4 +1,5 @@
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import pytest
@@ -35,6 +36,25 @@ def get_no_front_matter(_: Version) -> Mapping[str, object] | None:
     return None
 
 
+@dataclass(frozen=True)
+class _DocPages:
+    """Doc pages of a fake build: every doc is built and has versions, unless listed."""
+
+    unbuilt: frozenset[str] = frozenset()
+    versionless: frozenset[str] = frozenset()
+    host: str | None = None
+    """Base URL that unbuilt docs are linked under; None makes them text."""
+
+    def is_built_doc(self, path: str) -> bool:
+        return path not in self.unbuilt
+
+    def is_versionless(self, path: str) -> bool:
+        return path in self.versionless
+
+    def locate_doc(self, path: str) -> str | None:
+        return f"{self.host}/{path}" if self.host is not None else None
+
+
 def load_history_and_versions(repo: HistoryRepo) -> HistoryAndVersions:
     """Return the history of ``history_repo`` and its versions of ``meta/a.md`` and ``meta/b.md``.
 
@@ -51,7 +71,7 @@ def load_history_and_versions(repo: HistoryRepo) -> HistoryAndVersions:
 def make_resolver(
     history: History, front_matter_of: Callable[[Version], Mapping[str, object] | None] = get_no_front_matter
 ) -> Resolver:
-    return Resolver(history, CODE, CONFIG, front_matter_of)
+    return Resolver(history, CODE, CONFIG, front_matter_of, doc_pages=_DocPages())
 
 
 def test_latest_links_to_latest(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
@@ -133,6 +153,14 @@ def test_non_doc_targets(history_repo: HistoryRepo) -> None:
     assert make_link("https://e.org") == RenderedLink("https://e.org")
 
 
+def test_resolve_code_link_without_code_part(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
+    history, v, _ = load_history_and_versions(history_repo)
+    link_resolver = Resolver(history, None, CONFIG, get_no_front_matter, doc_pages=_DocPages())
+    links = PageLinks(link_resolver, v["a@c5"], "meta/a.html")
+    assert links.resolve_link("code:a.b") == RenderedLink(None, use_code_style=True)
+    assert not recwarn.list
+
+
 def test_code_links(history_repo: HistoryRepo) -> None:
     history, v, commits = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history)
@@ -175,7 +203,7 @@ def test_repo_links_without_source_url_are_plain_text(
     (root / "tools/x/f.py").write_text("", encoding="utf-8")
     make_commit(root, "add files", "2026-11-06T12:00:00+00:00")
     history = History.load(Git(root), "main")
-    link_resolver = Resolver(history, CODE, NO_SOURCE_CONFIG, get_no_front_matter)
+    link_resolver = Resolver(history, CODE, NO_SOURCE_CONFIG, get_no_front_matter, doc_pages=_DocPages())
 
     def make_link(href: str) -> RenderedLink:
         return PageLinks(link_resolver, history.find_latest("meta/a.md"), "meta/a.html").resolve_link(href)
@@ -223,3 +251,25 @@ def test_repo_links_use_the_version_commit(history_repo: HistoryRepo) -> None:
     assert PageLinks(link_resolver, working, "meta/a.html").resolve_link("../../compose.yaml") == RenderedLink(
         f"{SOURCE}/blob/{head}/compose.yaml"
     )
+
+
+def test_link_to_unbuilt_doc(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
+    history, v, _ = load_history_and_versions(history_repo)
+
+    def make_link(doc_pages: _DocPages) -> RenderedLink:
+        link_resolver = Resolver(history, CODE, CONFIG, get_no_front_matter, doc_pages=doc_pages)
+        return PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("b.md#x")
+
+    unbuilt = frozenset({"meta/b.md"})
+    assert make_link(_DocPages(unbuilt, host="https://h")) == RenderedLink("https://h/meta/b.md#x")
+    assert make_link(_DocPages(unbuilt)) == RenderedLink(None)
+    assert not recwarn.list
+
+
+def test_old_link_to_versionless_doc(history_repo: HistoryRepo) -> None:
+    history, v, commits = load_history_and_versions(history_repo)
+    link_resolver = Resolver(
+        history, CODE, CONFIG, get_no_front_matter, doc_pages=_DocPages(versionless=frozenset({"meta/b.md"}))
+    )
+    old_link = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("b.md#s")
+    assert old_link == RenderedLink("../../b.html#s", (MARKERS["code-current"],))

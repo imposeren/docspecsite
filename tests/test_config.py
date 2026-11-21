@@ -211,3 +211,7 @@ def test_load_records_an_unreadable_file(tmp_path: Path) -> None:
     assert config.adr_prefix == ""
     with pytest.raises(ConfigError, match=r"^docspecsite\.toml: cannot be read: "):
         config.require_valid()
+
+
+def test_source_url_without_trailing_slash() -> None:
+    assert ProjectConfig.from_bytes(b'source-url = "https://example.org/r/"\n').source_url == "https://example.org/r"

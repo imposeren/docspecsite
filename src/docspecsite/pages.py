@@ -31,8 +31,8 @@ class PageLink:
     title: str
     """Text of the link."""
 
-    url: str
-    """Site-root-relative URL the link points to."""
+    url: str | None
+    """Site-root-relative URL the link points to; None shows the title as text."""
 
     summary: str = ""
     """Summary shown next to the link; empty for none."""
@@ -276,8 +276,8 @@ class Templates:
         Args:
             page: Page to render; its :attr:`.Page.url` is the base of every relative link in the output.
             site_title: Title of the home doc, appended to the page title in ``<title>``.
-            indexes: The index URLs that tag and component links may point to; links to others are not made. None makes
-                every such link.
+            indexes: The index URLs that tag and component links and the site's Status link may point to; links to
+                others are not made. None makes every such link.
         """
         return self.environment.get_template("page.html").render(page=page, site_title=site_title, indexes=indexes)
 

@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import edit_text, move_sample_package_to_root, run_git, write_doc
+from conftest import edit_text, move_sample_package_to_root, run_git, write_doc, write_roles_module
 
 from docspecsite.check import Checker, CodeLinkCheck, LinkCheck
 from docspecsite.config import ProjectConfig
@@ -235,7 +235,7 @@ def test_run_reports_code_outside_its_package_dir_as_code_problem(code_tree: Pat
     assert checker.codebase is not None
     package = checker.codebase.packages_by_name["sample"]
     checker.codebase.packages_by_name["sample"] = replace(package, src=tmp_path / "elsewhere" / "sample")
-    [bad] = [p for p in checker.run(staged=False) if "cannot load code" in p.message]
+    [bad] = [p for p in checker.run(staged=False, code=True) if "cannot load code" in p.message]
     assert "outside" in bad.message
     assert "sample" in bad.message
 
@@ -280,13 +280,45 @@ def test_check_code_links_unknown(code_tree: Path) -> None:
     assert 'docs/meta/x.md:1: "code" entry is not a code element: sample.gone' in problems
 
 
-def test_check_docs_lines(code_tree: Path) -> None:
+def _break_docs_line(code_tree: Path) -> str:
+    """Point the ``Docs:`` line of ``sample.mod`` to a missing doc; return the problem a check reports for it."""
     mod = code_tree / "tools/sample/src/sample/mod.py"
     source = mod.read_text(encoding="utf-8")
     mod.write_text(source.replace("Docs: meta/vocabulary.md", "Docs: meta/missing.md"), encoding="utf-8")
     line = mod.read_text(encoding="utf-8").splitlines().index("Docs: meta/missing.md") + 1
-    problems = [str(p) for p in Checker(code_tree).check_docs_lines()]
-    assert f"tools/sample/src/sample/mod.py:{line}: Docs: line points to a missing doc: meta/missing.md" in problems
+    return f"tools/sample/src/sample/mod.py:{line}: Docs: line points to a missing doc: meta/missing.md"
+
+
+def test_check_docs_lines(code_tree: Path) -> None:
+    expected = _break_docs_line(code_tree)
+    assert expected in [str(p) for p in Checker(code_tree).check_docs_lines()]
+
+
+def test_check_ignores_docs_lines(code_tree: Path) -> None:
+    expected = _break_docs_line(code_tree)
+    assert expected not in [str(p) for p in Checker(code_tree).run(staged=False)]
+
+
+def test_check_code_reports_docs_lines(code_tree: Path) -> None:
+    expected = _break_docs_line(code_tree)
+    assert expected in [str(p) for p in Checker(code_tree).run(staged=False, code=True)]
+
+
+def test_check_code_reports_unknown_references(code_tree: Path) -> None:
+    write_roles_module(
+        code_tree,
+        "class Thing:\n"
+        "    def go(self) -> None:\n"
+        '        """Go.\n'
+        "\n"
+        "        Known :meth:`.go`, unknown :meth:`.nope`, and [x](code:sample.gone).\n"
+        '        """\n',
+    )
+    problems = [str(p) for p in Checker(code_tree).run(staged=False, code=True)]
+    file = "tools/sample/src/sample/roles.py"
+    assert f"{file}:{5}: unknown code element: :meth:`.nope`" in problems
+    assert f"{file}:{5}: unknown code element: code:sample.gone" in problems
+    assert not any(".go`" in p for p in problems)
 
 
 def test_run_reports_unknown_code_link(code_tree: Path) -> None:
@@ -311,7 +343,7 @@ def test_run_reports_unlocatable_docs_line(code_tree: Path) -> None:
         mod.read_text(encoding="utf-8") + "\n\ndef f() -> None:\n    'Title.\\n\\nDocs: meta/vocabulary.md'\n",
         encoding="utf-8",
     )
-    problems = [str(p) for p in Checker(code_tree).run(staged=False)]
+    problems = [str(p) for p in Checker(code_tree).run(staged=False, code=True)]
     assert any(p.startswith("tools/sample/src/sample/mod.py") and "cannot locate Docs: lines" in p for p in problems)
 
 

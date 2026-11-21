@@ -56,14 +56,14 @@ def get_installed_version(name: str) -> str:
 def make_targets_key(resolved: Mapping[str, RenderedLink]) -> str:
     """Return a hash of how the links of a page are rendered.
 
-    It covers each link's href and markers and does not depend on their order.
+    It covers each link's href, markers, code style and replaced text, and does not depend on their order.
 
     Args:
-        resolved: Rendering of each link of the page, keyed by the href as written in the doc; only the output href
-            and markers enter the hash.
+        resolved: Rendering of each link of the page, keyed by the href as written in the doc.
     """
     lines = sorted(
         f"{href}\0{out.href}\0{';'.join(f'{css}:{text}' for css, text in out.markers)}"
+        f"\0{out.use_code_style}\0{out.text!r}"
         for href, out in resolved.items()
     )
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
@@ -81,6 +81,13 @@ class BodyCache:
     """Name of the file that marks a cache root as made by this cache, so :meth:`.prune` may remove it."""
 
     # Cache state
+    fingerprint_prefix: str
+    """Start of the hash of the fingerprint.
+
+    Every root name under :attr:`directory` begins with it and a ``-``, so :meth:`prune` tells the roots of this
+    docspecsite version from the others.
+    """
+
     hit_count: int
     """Number of bodies taken from the cache."""
 
@@ -88,7 +95,7 @@ class BodyCache:
     """Number of bodies rendered because the cache did not have them."""
 
     root: Path
-    """This fingerprint's cache root under :attr:`.directory`."""
+    """Cache root of this fingerprint and variant under :attr:`directory`: ``<fingerprint_prefix>-<variant>``."""
 
     used_paths: set[Path]
     """Entry files read or written by this instance; :meth:`.prune` keeps only these."""
@@ -97,15 +104,18 @@ class BodyCache:
     directory: Path
     """See :meth:`.__init__`."""
 
-    def __init__(self, directory: Path, fingerprint: str) -> None:
+    def __init__(self, directory: Path, fingerprint: str, variant: str) -> None:
         """Prepare a cache in a directory.
 
         Args:
-            directory: Directory holding the cache roots; one root per fingerprint is made under it.
+            directory: Directory holding the cache roots; one root per fingerprint and variant is made under it.
             fingerprint: Docspecsite version fingerprint; entries made under another one are never read.
+            variant: Name of the set of built parts (``SiteBuilder.parts_label``); builds of different sets keep
+                separate roots, so none throws away the entries of another.
         """
         self.directory = directory
-        self.root = directory / hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
+        self.fingerprint_prefix = hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
+        self.root = directory / f"{self.fingerprint_prefix}-{variant}"
         self.used_paths = set()
         self.hit_count = 0
         self.miss_count = 0
@@ -197,14 +207,18 @@ class BodyCache:
             raise
 
     def prune(self) -> None:
-        """Delete the entries not used since construction, and the cache roots of other fingerprints.
+        """Delete the entries not used since construction from this root, and the cache roots of other fingerprints.
 
-        Only directories this cache created are removed.
+        Roots of other variants of this fingerprint are kept. Only directories this cache created are removed.
         """
         try:
             children = list(self.directory.iterdir())
             for child in children:
-                if child != self.root and child.is_dir() and (child / self.MARKER).is_file():
+                if (
+                    not child.name.startswith(f"{self.fingerprint_prefix}-")
+                    and child.is_dir()
+                    and (child / self.MARKER).is_file()
+                ):
                     shutil.rmtree(child, ignore_errors=True)
             for sub in ("hrefs", "bodies"):
                 folder = self.root / sub

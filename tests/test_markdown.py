@@ -1,4 +1,6 @@
-from docspecsite.markdown import Entry, Link, MarkdownText
+import pytest
+
+from docspecsite.markdown import Entry, HtmlRenderer, Link, MarkdownText, RenderedLink
 
 VOCABULARY = """# Vocabulary
 
@@ -92,3 +94,33 @@ def test_list_entries_section() -> None:
 
 def test_extract_links_includes_images() -> None:
     assert MarkdownText("See ![diagram](img/d.png).\n").extract_links() == [Link("img/d.png", 1)]
+
+
+def test_render_unlinked_code_style() -> None:
+    renderer = HtmlRenderer(lambda href: RenderedLink(None, use_code_style=True))
+    plain = renderer.render("[place](code:x.y)")
+    assert "<code>place</code>" in plain
+    assert "<a" not in plain
+    assert renderer.render("[`place`](code:x.y)").count("<code>") == 1
+
+
+def test_role_rule_tokens() -> None:
+    assert [link.target for link in MarkdownText(":py:meth:`.x`", use_roles=True).extract_links()] == ["role:.x"]
+    assert [link.target for link in MarkdownText("a :class:`~p.C` b", use_roles=True).extract_links()] == ["role:~p.C"]
+    assert [link.target for link in MarkdownText(":meth:``a`b``", use_roles=True).extract_links()] == ["role:a`b"]
+    assert MarkdownText(":ref:`x`", use_roles=True).extract_links() == []
+    assert MarkdownText(":py:meth:`.x`").extract_links() == []
+    spanning = MarkdownText(":meth:`a\nb` then\n[c](d)", use_roles=True).extract_links()
+    assert [link.line_number for link in spanning] == [1, 3]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["```\n:meth:`x`\n```\n", "`` :meth:`x` ``", "\\:meth:`x`", ":ref:`x`", "[see :meth:`x`](u)", ":meth:`x"],
+    ids=["fence", "code-span", "escaped", "other-role", "in-link", "unclosed"],
+)
+def test_role_rule_leaves_code_alone(text: str) -> None:
+    def keep(href: str) -> RenderedLink:
+        return RenderedLink(href)
+
+    assert HtmlRenderer(keep, use_roles=True).render(text) == HtmlRenderer(keep).render(text)

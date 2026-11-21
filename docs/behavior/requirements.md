@@ -2,7 +2,7 @@
 title: Docs system requirements
 summary: The numbered requirements (DS-n) docspecsite satisfies — source format, per-doc versioning, rendering, navigation and indexes, the generated code reference, checks, settings and how it runs.
 layer: behavior
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 components: [docs-system]

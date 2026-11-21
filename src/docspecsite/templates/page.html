@@ -1,8 +1,12 @@
 {% extends "base.html" %}
+{#- A chrome link; its title as text when it has no URL. -#}
+{% macro page_link(link) -%}
+{% if link.url is none %}{{ link.title }}{% else %}<a href="{{ link.url|rel }}">{{ link.title }}</a>{% endif %}
+{%- endmacro %}
 {% macro link_list(links) -%}
 <ul>
 {% for link in links -%}
-<li><a href="{{ link.url|rel }}">{{ link.title }}</a>{% for cls, text in link.markers %}<span class="marker {{ cls }}">{{ text }}</span>{% endfor %}{% if link.summary %} <span class="summary">{{ link.summary }}</span>{% endif %}</li>
+<li>{{ page_link(link) }}{% for cls, text in link.markers %}<span class="marker {{ cls }}">{{ text }}</span>{% endfor %}{% if link.summary %} <span class="summary">{{ link.summary }}</span>{% endif %}</li>
 {% endfor -%}
 </ul>
 {%- endmacro %}
@@ -26,7 +30,7 @@
 {% if page.breadcrumb -%}
 <nav class="breadcrumb">
 {% for link in page.breadcrumb -%}
-<a href="{{ link.url|rel }}">{{ link.title }}</a><span class="sep">›</span>
+{{ page_link(link) }}<span class="sep">›</span>
 {% endfor -%}
 <span class="current">{{ page.title }}</span>
 </nav>

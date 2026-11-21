@@ -1,12 +1,14 @@
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
 import griffe
 import pytest
-from conftest import load_sample_code
+from conftest import load_sample_code, write_roles_module
 
 from docspecsite.codeindex import CodeTarget
 from docspecsite.coderef import (
+    BrokenReference,
     Codebase,
     CodeError,
     CodeReference,
@@ -15,9 +17,35 @@ from docspecsite.coderef import (
     split_docs_lines,
 )
 from docspecsite.config import ProjectConfig
+from docspecsite.errors import DocspecsiteWarning
 from docspecsite.pages import Page, PageLink
+from docspecsite.urls import make_doc_url
 
 SAMPLE_MODULE_PATH = "tools/sample/src/sample/mod.py"
+ROLES_MODULE = """from sample.base import Base
+
+
+def f() -> None:
+    \"\"\"A function, see [the S class](code:sample.roles.S).\"\"\"
+
+
+def _private() -> None:
+    \"\"\"Hidden.\"\"\"
+
+
+class R:
+    \"\"\"Use :meth:`.go`, :class:`~sample.base.Base`, :meth:`~.nope` and :meth:`the nope <.nope2>`.\"\"\"
+
+    def __init__(self) -> None:
+        \"\"\"Make one.\"\"\"
+
+    def go(self) -> S:
+        \"\"\"Go.\"\"\"
+
+
+class S:
+    \"\"\"No init.\"\"\"
+"""
 
 
 def test_find_packages(code_tree: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -100,7 +128,9 @@ def _build_module_pages(
         source_url: Repository web URL used in the source links, in place of the config's; empty means no source links.
         described_in: Docs that describe each module, by module path, shown on its page.
     """
-    code_reference = CodeReference.for_commit(codebase, replace(config, source_url=source_url), "c0ffee")
+    code_reference = CodeReference.for_commit(
+        codebase, replace(config, source_url=source_url), "c0ffee", locate_doc=make_doc_url
+    )
     return [code_reference.build_page(module, described_in.get(module.path, [])) for module in codebase.modules]
 
 
@@ -132,7 +162,9 @@ def test_code_pages_list(code_tree: Path) -> None:
         "reference/code/sample.mod.html",
     ]
     assert pages["reference/code/sample.base.html"].children == ()
-    code_reference = CodeReference(load_sample_code(code_tree), ProjectConfig.load(code_tree), "")
+    code_reference = CodeReference(
+        load_sample_code(code_tree), ProjectConfig.load(code_tree), "", locate_doc=make_doc_url
+    )
     assert code_reference.build_module_children() == (
         PageLink("sample", "reference/code/sample.html", "Sample package."),
     )
@@ -179,6 +211,19 @@ def test_code_page_docs_lines_and_described_in(code_tree: Path) -> None:
     assert "Docs: meta/vocabulary.md" not in mod.body_html
     assert mod.described_in == (PageLink("X", "meta/x.html"),)
     assert pages["reference/code/sample.html"].described_in == ()
+
+    codebase = load_sample_code(code_tree)
+    config = ProjectConfig.load(code_tree)
+    module = next(m for m in codebase.modules if m.path == "sample.mod")
+    linking_reference = CodeReference.for_commit(
+        codebase, config, "c0ffee", locate_doc=lambda path: f"https://h/{path}"
+    )
+    assert (
+        '<a href="https://h/meta/vocabulary.md">meta/vocabulary.md</a>'
+        in linking_reference.build_page(module, ()).body_html
+    )
+    text_reference = CodeReference.for_commit(codebase, config, "c0ffee", locate_doc=lambda path: None)
+    assert "<li>meta/vocabulary.md</li>" in text_reference.build_page(module, ()).body_html
 
 
 def test_code_page_escapes_and_signature_forms(code_tree: Path) -> None:
@@ -254,3 +299,78 @@ def test_code_page_griffe_error_is_code_error(code_tree: Path, monkeypatch: pyte
         _build_pages(code_tree)
     assert str(raised.value) == "cannot document sample: cannot resolve sample.gone"
     assert isinstance(raised.value.__cause__, griffe.GriffeError)
+
+
+def _load_roles_module(root: Path) -> tuple[Codebase, griffe.Module]:
+    write_roles_module(root, ROLES_MODULE)
+    codebase = load_sample_code(root)
+    return codebase, next(m for m in codebase.modules if m.path == "sample.roles")
+
+
+def test_find_role_target(code_tree: Path) -> None:
+    codebase, module = _load_roles_module(code_tree)
+    class_r, method_go = module["R"], module["R.go"]
+    assert codebase.find_role_target(".go", method_go) == "sample.roles.R.go"
+    assert codebase.find_role_target(".go", class_r) == "sample.roles.R.go"
+    assert codebase.find_role_target(".f", method_go) == "sample.roles.f"
+    assert codebase.find_role_target(".S.__init__", module) == "sample.roles.S"
+    assert codebase.find_role_target(".__init__", method_go) == "sample.roles.R.__init__"
+    assert codebase.find_role_target("sample.base.Base", module) == "sample.base.Base"
+    assert codebase.find_role_target("go", method_go) == "sample.roles.R.go"
+    assert codebase.find_role_target("__init__", method_go) == "sample.roles.R.__init__"
+    assert codebase.find_role_target("S.__init__", module) == "sample.roles.S"
+    assert codebase.find_role_target("f", method_go) == "sample.roles.f"
+    assert codebase.find_role_target("Base", module) is None
+    assert codebase.find_role_target(".Base", module) is None
+    assert codebase.find_role_target("._private", module) is None
+
+
+def test_code_page_roles(code_tree: Path) -> None:
+    codebase, module = _load_roles_module(code_tree)
+    code_reference = CodeReference.for_commit(
+        codebase, ProjectConfig.load(code_tree), "c0ffee", locate_doc=make_doc_url
+    )
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        body = code_reference.build_page(module, ()).body_html
+    assert '<a href="#sample.roles.R.go"><code>sample.roles.R.go</code></a>' in body
+    assert '<a href="sample.base.html#sample.base.Base"><code>Base</code></a>' in body
+    assert '<code>.nope</code><span class="marker code-gone">no longer exists</span>' in body
+    assert '<code>the nope</code><span class="marker code-gone">no longer exists</span>' in body
+    assert [type(w.message) for w in recorded] == [DocspecsiteWarning, DocspecsiteWarning]
+    assert '<a href="#sample.roles.S">the S class</a>' in body
+    assert '-&gt; <a href="#sample.roles.S">S</a>' in body
+
+
+def test_collect_broken_references(code_tree: Path) -> None:
+    write_roles_module(
+        code_tree,
+        "def f() -> None:\n"
+        '    """\n'
+        "    Summary.\n"
+        "\n"
+        "    See :meth:`.nope`, [a](CODE:sample.gone), [b](CODE:sample.roles.f) and [c](code:sample.mod).\n"
+        "\n"
+        "    Args:\n"
+        "        a: First, :meth:`.f`.\n"
+        "\n"
+        "            More about :meth:`.nope2`.\n"
+        "\n"
+        "    Returns:\n"
+        "        Nothing, :class:`.gone`.\n"
+        '    """\n',
+    )
+    found = load_sample_code(code_tree).collect_broken_references()
+    file = "tools/sample/src/sample/roles.py"
+    assert found == [
+        BrokenReference(":meth:`.nope`", file, 5),
+        BrokenReference("CODE:sample.gone", file, 5),
+        BrokenReference(":meth:`.nope2`", file, 10),
+        BrokenReference(":class:`.gone`", file, 13),
+    ]
+
+
+def test_collect_broken_references_skips_namespace_package(tmp_path: Path) -> None:
+    namespace = griffe.Module("ns", filepath=[tmp_path / "a" / "ns", tmp_path / "b" / "ns"])
+    namespace.docstring = griffe.Docstring("See :meth:`.nope`.", lineno=1, endlineno=1, parent=namespace)
+    assert Codebase([namespace], []).collect_broken_references() == []

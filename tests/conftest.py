@@ -1,6 +1,7 @@
 """Shared fixtures: throwaway docs trees and git repositories."""
 
 import os
+import re
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -235,6 +236,18 @@ def edit_text(file: Path, edit: Callable[[str], str]) -> None:
         edit: Called with the current text; its result becomes the new text.
     """
     file.write_text(edit(file.read_text(encoding="utf-8")), encoding="utf-8")
+
+
+def extract_aside(html: str, cls: str) -> str:
+    """Return the inner HTML of the first ``<aside class="<cls>">`` in ``html``."""
+    found = re.search(rf'<aside class="{cls}">(.*?)</aside>', html, re.S)
+    assert found, cls
+    return found.group(1)
+
+
+def write_roles_module(root: Path, source: str) -> None:
+    """Write ``source`` as the module ``sample.roles`` of the sample package under ``root``."""
+    (root / "tools/sample/src/sample/roles.py").write_text(source, encoding="utf-8")
 
 
 def load_sample_code(root: Path) -> Codebase:

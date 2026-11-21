@@ -13,8 +13,8 @@ from docspecsite.markdown import Marker, RenderedLink
 FP = "a" * 64
 
 
-def _make_cache_root(base: Path, fp: str) -> Path:
-    return base / hashlib.sha256(fp.encode()).hexdigest()[:16]
+def _make_cache_root(base: Path, fp: str, variant: str = "docs") -> Path:
+    return base / f"{hashlib.sha256(fp.encode()).hexdigest()[:16]}-{variant}"
 
 
 def _make_counting_compute(value: str):
@@ -34,10 +34,10 @@ def _make_counting_compute(value: str):
 
 def test_body_cached_across_instances(tmp_path: Path) -> None:
     compute, calls = _make_counting_compute("<p>x</p>")
-    first_cache = BodyCache(tmp_path, FP)
+    first_cache = BodyCache(tmp_path, FP, "docs")
     assert first_cache.get_body("blob1", "k", compute) == "<p>x</p>"
     assert (first_cache.hit_count, first_cache.miss_count) == (0, 1)
-    second_cache = BodyCache(tmp_path, FP)
+    second_cache = BodyCache(tmp_path, FP, "docs")
     assert second_cache.get_body("blob1", "k", compute) == "<p>x</p>"
     assert len(calls) == 1
     assert (second_cache.hit_count, second_cache.miss_count) == (1, 0)
@@ -45,7 +45,7 @@ def test_body_cached_across_instances(tmp_path: Path) -> None:
 
 def test_key_change_rerenders(tmp_path: Path) -> None:
     compute, calls = _make_counting_compute("<p>x</p>")
-    cache = BodyCache(tmp_path, FP)
+    cache = BodyCache(tmp_path, FP, "docs")
     cache.get_body("blob1", "k1", compute)
     cache.get_body("blob1", "k2", compute)
     assert len(calls) == 2
@@ -53,8 +53,8 @@ def test_key_change_rerenders(tmp_path: Path) -> None:
 
 def test_fingerprint_separates(tmp_path: Path) -> None:
     compute, calls = _make_counting_compute("<p>x</p>")
-    BodyCache(tmp_path, FP).get_body("blob1", "k", compute)
-    other = BodyCache(tmp_path, "b" * 64)
+    BodyCache(tmp_path, FP, "docs").get_body("blob1", "k", compute)
+    other = BodyCache(tmp_path, "b" * 64, "docs")
     other.get_body("blob1", "k", compute)
     assert len(calls) == 2
     other.prune()
@@ -62,14 +62,35 @@ def test_fingerprint_separates(tmp_path: Path) -> None:
     assert (_make_cache_root(tmp_path, "b" * 64)).is_dir()
 
 
+def test_variants_kept_by_prune(tmp_path: Path) -> None:
+    compute, _ = _make_counting_compute("<p>x</p>")
+    docs_cache = BodyCache(tmp_path, FP, "docs")
+    docs_cache.get_body("blob1", "k", compute)
+    code_cache = BodyCache(tmp_path, FP, "code+docs")
+    code_cache.get_body("blob1", "k", compute)
+    code_cache.prune()
+    assert _make_cache_root(tmp_path, FP, "docs").is_dir()
+    assert _make_cache_root(tmp_path, FP, "code+docs").is_dir()
+    other_fingerprint_cache = BodyCache(tmp_path, "b" * 64, "docs")
+    other_fingerprint_cache.get_body("blob1", "k", compute)
+    other_fingerprint_cache.prune()
+    assert not _make_cache_root(tmp_path, FP, "docs").exists()
+    assert not _make_cache_root(tmp_path, FP, "code+docs").exists()
+    lookalike = tmp_path / f"{other_fingerprint_cache.fingerprint_prefix}x"
+    lookalike.mkdir()
+    (lookalike / BodyCache.MARKER).touch()
+    other_fingerprint_cache.prune()
+    assert not lookalike.exists()
+
+
 def test_prune_unused(tmp_path: Path) -> None:
     compute, _ = _make_counting_compute("<p>x</p>")
-    old = BodyCache(tmp_path, FP)
+    old = BodyCache(tmp_path, FP, "docs")
     old.get_body("blob1", "k", compute)
     old.get_body("blob2", "k", compute)
     old.get_hrefs("blob1", lambda: ["a.md"])
     old.get_hrefs("blob2", lambda: ["b.md"])
-    new = BodyCache(tmp_path, FP)
+    new = BodyCache(tmp_path, FP, "docs")
     new.get_body("blob1", "k", compute)
     new.get_hrefs("blob1", lambda: ["a.md"])
     new.prune()
@@ -79,17 +100,17 @@ def test_prune_unused(tmp_path: Path) -> None:
 
 
 def test_hrefs_cached_and_corrupt_is_miss(tmp_path: Path) -> None:
-    BodyCache(tmp_path, FP).get_hrefs("blob1", lambda: ["a.md"])
-    cache = BodyCache(tmp_path, FP)
+    BodyCache(tmp_path, FP, "docs").get_hrefs("blob1", lambda: ["a.md"])
+    cache = BodyCache(tmp_path, FP, "docs")
     assert cache.get_hrefs("blob1", lambda: ["never"]) == ["a.md"]
     (_make_cache_root(tmp_path, FP) / "hrefs" / "blob1.json").write_text("{not json")
-    assert BodyCache(tmp_path, FP).get_hrefs("blob1", lambda: ["b.md"]) == ["b.md"]
+    assert BodyCache(tmp_path, FP, "docs").get_hrefs("blob1", lambda: ["b.md"]) == ["b.md"]
     compute, calls = _make_counting_compute("<p>y</p>")
-    first_cache = BodyCache(tmp_path, FP)
+    first_cache = BodyCache(tmp_path, FP, "docs")
     first_cache.get_body("blob1", "k", compute)
     for path in (_make_cache_root(tmp_path, FP) / "bodies").iterdir():
         path.write_bytes(b"\xff\xfe")
-    assert BodyCache(tmp_path, FP).get_body("blob1", "k", compute) == "<p>y</p>"
+    assert BodyCache(tmp_path, FP, "docs").get_body("blob1", "k", compute) == "<p>y</p>"
     assert len(calls) == 2
     assert json.loads(next((_make_cache_root(tmp_path, FP) / "hrefs").iterdir()).read_text()) == ["b.md"]
 
@@ -101,6 +122,12 @@ def test_targets_key_order_independent() -> None:
         {"b.md": link_without_href, "a.md": link_with_marker}
     )
     assert make_targets_key({"a.md": link_with_marker}) != make_targets_key({"a.md": link_without_href})
+    assert make_targets_key({"a.md": link_without_href}) != make_targets_key(
+        {"a.md": RenderedLink(None, use_code_style=True)}
+    )
+    assert make_targets_key({"a.md": RenderedLink("a.html", text="x")}) != make_targets_key(
+        {"a.md": RenderedLink("a.html", text="y")}
+    )
 
 
 def test_fingerprint_is_stable_hex() -> None:
@@ -128,8 +155,8 @@ def test_prune_keeps_foreign_data(tmp_path: Path) -> None:
     (tmp_path / "keep" / "f.txt").write_text("x")
     (tmp_path / "foreign.txt").write_text("y")
     compute, _ = _make_counting_compute("<p>x</p>")
-    BodyCache(tmp_path, FP).get_body("blob1", "k", compute)
-    new = BodyCache(tmp_path, "b" * 64)
+    BodyCache(tmp_path, FP, "docs").get_body("blob1", "k", compute)
+    new = BodyCache(tmp_path, "b" * 64, "docs")
     new.get_body("blob1", "k", compute)
     new.prune()
     assert (tmp_path / "keep" / "f.txt").read_text() == "x"
@@ -139,7 +166,7 @@ def test_prune_keeps_foreign_data(tmp_path: Path) -> None:
 
 def test_prune_keeps_foreign_files_in_own_root(tmp_path: Path) -> None:
     compute, _ = _make_counting_compute("<p>x</p>")
-    cache = BodyCache(tmp_path, FP)
+    cache = BodyCache(tmp_path, FP, "docs")
     cache.get_body("blob1", "k", compute)
     (_make_cache_root(tmp_path, FP) / "bodies" / "sub").mkdir()
     cache.prune()
@@ -149,7 +176,7 @@ def test_prune_keeps_foreign_files_in_own_root(tmp_path: Path) -> None:
 def test_write_failure_is_not_fatal(tmp_path: Path) -> None:
     blocker = tmp_path / "file"
     blocker.write_text("not a directory")
-    cache = BodyCache(blocker, FP)
+    cache = BodyCache(blocker, FP, "docs")
     assert cache.get_hrefs("blob1", lambda: ["a.md"]) == ["a.md"]
     assert cache.get_body("blob1", "k", lambda: "<p>x</p>") == "<p>x</p>"
     cache.prune()

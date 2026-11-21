@@ -50,6 +50,7 @@ docker compose run --rm lint                               # ruff check
 docker compose run --rm format                             # ruff format
 docker compose run --rm typecheck                          # pyrefly, strict
 docker compose run --rm docs-check                         # validate docs (from this source)
+docker compose run --rm docs check --code                  # also validate references in the code (if the project uses it)
 docker compose run --rm docs list --status specified       # what's left to do
 docker compose run --rm docs-build && docker compose up docs-serve   # site on http://127.0.0.1:8071
 docker compose build dev                                   # after a change to pyproject.toml or uv.lock
