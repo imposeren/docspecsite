@@ -121,7 +121,7 @@ class SiteBuilder:
     """Parsed docs by doc path and blob SHA hash."""
 
     history: History
-    """Doc versions at the build ref, with the working-tree docs with :attr:`.include_worktree`."""
+    """Doc versions at the build ref, with the working-tree docs with :attr:`include_worktree`."""
 
     latest_docs: DocSet
     """Latest version of each doc that is valid UTF-8."""
@@ -136,7 +136,7 @@ class SiteBuilder:
     """
 
     worktree_files: frozenset[str]
-    """Working-tree non-Markdown files under ``docs/`` with :attr:`.include_worktree`, else none."""
+    """Working-tree non-Markdown files under ``docs/`` with :attr:`include_worktree`, else none."""
 
     # Parts built
     parts: frozenset[Part]
@@ -144,7 +144,7 @@ class SiteBuilder:
 
     # Filled by run()
     codebase: Codebase | None
-    """The project code; None until :meth:`.run` loads it, and when the project has no code to load."""
+    """The project code; None until :meth:`run` loads it, and when the project has no code to load."""
 
     index_renderer: IndexRenderer | None
     """Renderer of the index pages and ``llms.txt``; None until :meth:`run` makes it, and in a build without the docs
@@ -152,10 +152,10 @@ class SiteBuilder:
     """
 
     resolver: Resolver | None
-    """Resolver of the docs' links; None until :meth:`.run` makes it."""
+    """Resolver of the docs' links; None until :meth:`run` makes it."""
 
     vocabulary: Vocabulary | None
-    """The vocabulary of the latest docs; None until :meth:`.run` reads it."""
+    """The vocabulary of the latest docs; None until :meth:`run` reads it."""
 
     # Errors
     errors: list[str]
@@ -180,16 +180,16 @@ class SiteBuilder:
 
     # Arguments of __init__
     root: Path
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     include_worktree: bool
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     vendor_dir: Path | None
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     strict: bool
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(
         self,
@@ -210,7 +210,7 @@ class SiteBuilder:
             include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read
                 ``docspecsite.toml``, the code and the non-Markdown files under ``docs/`` from the working tree.
             vendor_dir: Directory of the vendored third-party files the site uses, already taken from
-                ``$DOCSPECSITE_VENDOR_DIR`` by :func:`.run_build`; None means there are none.
+                ``$DOCSPECSITE_VENDOR_DIR`` by :func:`run_build`; None means there are none.
             strict: Raise on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page instead of recording it.
             parts: The parts of the site to build; None means the docs, and the code too when the settings have
                 ``code-dirs``.
@@ -735,7 +735,7 @@ class SiteBuilder:
 
         Args:
             version: Version the diff page is for, the newer side.
-            previous: Version just before ``version``, as :meth:`.find_diff_base` returns it; the older side.
+            previous: Version just before ``version``, as :meth:`find_diff_base` returns it; the older side.
         """
         url = make_diff_url(version.path, version.short_id)
         this_url = (
@@ -814,7 +814,7 @@ class SiteBuilder:
     def copy_docs_files(self) -> None:
         """Copy the non-Markdown files under ``docs/`` into the site at the same path.
 
-        Templates are left out. With :attr:`.include_worktree` the files come from the working tree. A file whose site
+        Templates are left out. With :attr:`include_worktree` the files come from the working tree. A file whose site
         path collides with a generated file or directory is not copied and a warning is issued.
         """
         wanted = {
@@ -876,7 +876,7 @@ class SiteBuilder:
     def prepare_code_root(self) -> Generator[Path | None]:
         """Provide the directory the code is read from, or None when the code part is not built.
 
-        That is the working tree with :attr:`.include_worktree`, or else the ref's code directories extracted to a
+        That is the working tree with :attr:`include_worktree`, or else the ref's code directories extracted to a
         temporary directory that is removed on exit.
         """
         if not self.builds_code:
@@ -1056,7 +1056,7 @@ class SiteBuilder:
     def run(self, out: Path) -> BuildResult:
         """Build the pages and write the site; a builder builds its site once.
 
-        A page that cannot be built or rendered is left out; see :func:`.run_build`.
+        A page that cannot be built or rendered is left out; see :func:`run_build`.
 
         Args:
             out: Output directory; its files from the previous build that are not rebuilt are deleted.
@@ -1167,8 +1167,8 @@ def run_build(
     """Build the static site for a git ref.
 
     A page that cannot be built or rendered is left out. A :exc:`~docspecsite.errors.DocspecsiteError` is reported in
-    :attr:`.BuildResult.errors`; an internal error is issued as an :exc:`~docspecsite.errors.InternalErrorWarning` and
-    only counted in :attr:`.BuildResult.failed_count`. Problems that do not stop the build are issued as
+    :attr:`BuildResult.errors`; an internal error is issued as an :exc:`~docspecsite.errors.InternalErrorWarning` and
+    only counted in :attr:`BuildResult.failed_count`. Problems that do not stop the build are issued as
     :exc:`~docspecsite.errors.DocspecsiteWarning`.
 
     Args:

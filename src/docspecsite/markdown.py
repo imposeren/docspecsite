@@ -72,7 +72,7 @@ class MarkdownText:
 
     # Arguments of __init__
     text: str
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     use_roles: bool
     """See :meth:`__init__`."""
@@ -167,7 +167,7 @@ class MarkdownText:
         """Return one flag per token telling whether it is under a heading.
 
         All flags are true when ``section`` is None. A section runs from its heading to the next heading of the same
-        or a higher level. The result has one flag per token of :attr:`.tokens`.
+        or a higher level. The result has one flag per token of :attr:`tokens`.
 
         Args:
             section: Exact text of the heading (stripped, links and code as plain text) that opens the section; None
@@ -218,7 +218,7 @@ class MarkdownText:
     def list_entries(self, section: str | None = None) -> list[Entry]:
         """Return the list items of the text that contain a link.
 
-        Each is an :class:`.Entry` with its link targets and other text. The text is typically an ``index.md`` body.
+        Each is an :class:`Entry` with its link targets and other text. The text is typically an ``index.md`` body.
 
         Args:
             section: Exact text of a heading, such as ``Children``; only list items under it count (subsections
@@ -305,10 +305,10 @@ class HtmlRenderer:
 
     # Arguments of __init__
     link: Callable[[str], RenderedLink]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     toc_min_headings: int
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     use_roles: bool
     """See :meth:`__init__`."""
@@ -319,7 +319,7 @@ class HtmlRenderer:
         """Prepare the rendering of texts whose links are resolved the same way.
 
         Args:
-            link: Called for every link and image target (as :meth:`.MarkdownText.extract_links` returns it) to
+            link: Called for every link and image target (as :meth:`MarkdownText.extract_links` returns it) to
                 decide how it renders; a result with no href leaves the link text as plain text, and its markers
                 follow the link.
             toc_min_headings: Fewest ``##`` headings from which a "Contents" list of them (``###`` nested) is
@@ -405,7 +405,7 @@ class HtmlRenderer:
     def rewrite_inline(self, inline: Token) -> None:
         """Rewrite in place the link and image targets of an inline token.
 
-        Each target goes through :attr:`.link`: its href replaces the target, and its markers are added after the link.
+        Each target goes through :attr:`link`: its href replaces the target, and its markers are added after the link.
         A link with a :attr:`~RenderedLink.text` gets that text as its only content, in one code span. A link whose
         :attr:`href <RenderedLink.href>` is None is reduced to its text, in ``<code>`` when its
         :attr:`~RenderedLink.use_code_style` is set and the text is not one code span already.
@@ -471,7 +471,7 @@ class HtmlRenderer:
         """Return the Contents list of a document and where to insert it, or None.
 
         The position is the token index of the first ``##`` heading. There is no list when the document has fewer
-        ``##`` sections than :attr:`.toc_min_headings`, or when that is 0 or less.
+        ``##`` sections than :attr:`toc_min_headings`, or when that is 0 or less.
 
         Args:
             tokens: Tokens of the document being rendered, with heading ids already set by the anchors plugin.

@@ -48,10 +48,10 @@ class FrontMatterValidator(DocCheck):
     """The validator of docs' front matter and ADR file names, holding what the rules depend on in one run."""
 
     vocab: Vocabulary
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     adr_prefixes: tuple[str, ...] | None
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, vocab: Vocabulary, adr_prefixes: tuple[str, ...] | None) -> None:
         """Prepare the validation of the docs of one run.
@@ -145,10 +145,10 @@ class FrontMatterCheck:
 
     # Arguments of __init__
     doc: Doc
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     vocab: Vocabulary
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, doc: Doc, vocab: Vocabulary) -> None:
         """Prepare the check of a doc's front matter.
@@ -199,7 +199,7 @@ class FrontMatterCheck:
     def find_problems(self) -> list[Problem]:
         """Return the front matter's rule violations as problems, all on line 1 of the doc.
 
-        A check covers one doc once: call this a single time per :class:`.FrontMatterCheck`.
+        A check covers one doc once: call this a single time per :class:`FrontMatterCheck`.
         """
         front_matter = self.front_matter
         for field in self.REQUIRED:

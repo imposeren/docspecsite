@@ -68,7 +68,7 @@ def parse_code_target(href: str) -> str | None:
 def parse_body_ref(doc_path: str, href: str, line: int) -> Ref | CodeRef | Problem | None:
     """Classify a link found in the body of a doc.
 
-    Returns a :class:`.Ref` for a local link, a :class:`.CodeRef` for a ``code:`` link, a
+    Returns a :class:`Ref` for a local link, a :class:`CodeRef` for a ``code:`` link, a
     :class:`~docspecsite.problems.Problem` for a malformed or unsupported link, and None for web links and bare anchors.
 
     Args:

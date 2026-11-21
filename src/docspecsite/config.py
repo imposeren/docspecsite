@@ -80,10 +80,10 @@ class ProjectConfig:
     def from_bytes(cls, data: bytes | None) -> ProjectConfig:
         """Read the project settings from the content of ``docspecsite.toml``.
 
-        A missing setting takes its default. An unknown setting is listed in :attr:`.unknown_settings`; a setting with
-        an invalid value is listed in :attr:`.invalid_values` and also takes its default (an invalid ``code-dirs`` or
+        A missing setting takes its default. An unknown setting is listed in :attr:`unknown_settings`; a setting with
+        an invalid value is listed in :attr:`invalid_values` and also takes its default (an invalid ``code-dirs`` or
         ``external-adr-prefixes`` entry is left out). Content that is not valid UTF-8 TOML is described in
-        :attr:`.read_error`, and every setting takes its default.
+        :attr:`read_error`, and every setting takes its default.
 
         Args:
             data: Content of the root ``docspecsite.toml``, UTF-8 with an optional byte-order mark and any line
@@ -102,7 +102,7 @@ class ProjectConfig:
     def load(cls, root: Path) -> ProjectConfig:
         """Read the project settings from a working tree's ``docspecsite.toml``, as the ``from_bytes`` method does.
 
-        A file that exists but cannot be read is described in :attr:`.read_error`, and every setting takes its default.
+        A file that exists but cannot be read is described in :attr:`read_error`, and every setting takes its default.
 
         Args:
             root: Root of the working tree; without the file every setting takes its default.
@@ -145,7 +145,7 @@ class ProjectConfig:
     def get_components(self, dotted: str) -> tuple[str, ...]:
         """Return the component ids of a code element.
 
-        They are those of the longest :attr:`.code_components` prefix that matches ``dotted`` on whole dotted segments;
+        They are those of the longest :attr:`code_components` prefix that matches ``dotted`` on whole dotted segments;
         the result is empty when no prefix matches.
 
         Args:
@@ -212,7 +212,7 @@ class ProjectConfigParser:
 
     # Arguments of __init__
     settings: Mapping[str, object]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, settings: Mapping[str, object]) -> None:
         """Prepare a parse of the settings.

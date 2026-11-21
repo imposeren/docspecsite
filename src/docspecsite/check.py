@@ -35,7 +35,7 @@ class LinkCheck(DocCheck):
 
     # Arguments of __init__
     root: Path
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, root: Path) -> None:
         """Prepare the check of the links of a repository's docs.
@@ -50,7 +50,7 @@ class LinkCheck(DocCheck):
         """Check that the links of a doc resolve and return the problems found.
 
         Body and front-matter links count; a missing target or heading anchor is a problem. Link targets are looked up
-        as files under :attr:`.root`, and anchors in the target docs' text through :meth:`.read_heading_anchors`.
+        as files under :attr:`root`, and anchors in the target docs' text through :meth:`read_heading_anchors`.
 
         Args:
             doc: Working-tree doc whose links are checked.
@@ -78,7 +78,7 @@ class LinkCheck(DocCheck):
 
         Args:
             target: Path of an existing Markdown file relative to the repository root; the anchors are kept in
-                :attr:`.heading_anchors_by_target` for later calls.
+                :attr:`heading_anchors_by_target` for later calls.
         """
         if target not in self.heading_anchors_by_target:
             target_text = MarkdownText(read_text(self.root / target))
@@ -91,7 +91,7 @@ class CodeLinkCheck(DocCheck):
 
     # Arguments of __init__
     codebase: Codebase
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, codebase: Codebase) -> None:
         """Prepare the check of the code links of docs.
@@ -107,7 +107,7 @@ class CodeLinkCheck(DocCheck):
         Both ``code:`` links in the body and entries of the ``code`` front-matter field are checked.
 
         Args:
-            doc: Working-tree doc whose code links are looked up in :attr:`.codebase`.
+            doc: Working-tree doc whose code links are looked up in :attr:`codebase`.
         """
         problems: list[Problem] = []
         for ref in collect_code_refs(doc):
@@ -145,7 +145,7 @@ class Checker:
 
     # Arguments of __init__
     root: Path
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, root: Path) -> None:
         """Prepare the checks of a repository; the settings, docs, vocabulary and code are loaded on first use.
@@ -319,7 +319,7 @@ class Checker:
         """Check that every directory under ``docs/`` has an ``index.md`` listing its children; return the problems.
 
         Each child must be listed with a description under the ``## Children`` heading; redirect docs need no entry.
-        The directories and child files come from :attr:`.docs_tree`, the ``## Children`` lists from the docs.
+        The directories and child files come from :attr:`docs_tree`, the ``## Children`` lists from the docs.
         """
         docs_dir = self.root / "docs"
         problems: list[Problem] = []
@@ -371,7 +371,7 @@ class Checker:
     def check_names(self) -> list[Problem]:
         """Check that no file or directory under ``docs/`` has ``#`` or ``%`` in its name; return the problems.
 
-        Such names break links to the rendered page. Names are checked on disk, as :attr:`.docs_tree` lists them; a
+        Such names break links to the rendered page. Names are checked on disk, as :attr:`docs_tree` lists them; a
         directory with such a name is reported once, not again for everything inside it.
         """
         docs_dir = self.root / "docs"

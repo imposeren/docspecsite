@@ -10,12 +10,12 @@ from .docs import Doc
 class Problem:
     """A problem found in a doc or source file, as reported by ``docspecsite check``.
 
-    It prints as ``<path>[:<line>]: <message>``; bytes of a file name that are not UTF-8 (kept in :attr:`.path` and
-    :attr:`.message` as surrogate escapes) print as ``\\xNN``, so the line can be written to any UTF-8 stream.
+    It prints as ``<path>[:<line>]: <message>``; bytes of a file name that are not UTF-8 (kept in :attr:`path` and
+    :attr:`message` as surrogate escapes) print as ``\\xNN``, so the line can be written to any UTF-8 stream.
     """
 
     path: str
-    """Path of the file with the problem, relative to ``docs/`` unless :attr:`.under_docs` is false."""
+    """Path of the file with the problem, relative to ``docs/`` unless :attr:`under_docs` is false."""
 
     line_number: int | None
     """Line of the problem in the file, from 1; None when it is about the whole file."""
@@ -24,7 +24,7 @@ class Problem:
     """What is wrong, for the user."""
 
     under_docs: bool = True
-    """Whether :attr:`.path` is relative to ``docs/`` rather than to the repo root."""
+    """Whether :attr:`path` is relative to ``docs/`` rather than to the repo root."""
 
     def __str__(self) -> str:
         """Return the problem as one line: its location, then the message."""

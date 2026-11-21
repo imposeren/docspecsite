@@ -82,10 +82,10 @@ def is_usable_tag(tag: str) -> bool:
 def make_tag_url(tag: str) -> str:
     """Return the site path of the index page of a tag, ``tags/<tag>.html``.
 
-    It is built from the decoded tag; see :func:`.is_usable_tag`.
+    It is built from the decoded tag; see :func:`is_usable_tag`.
 
     Args:
-        tag: Tag value from front matter, unencoded; it should pass :func:`.is_usable_tag`.
+        tag: Tag value from front matter, unencoded; it should pass :func:`is_usable_tag`.
     """
     return f"tags/{tag}.html"
 
@@ -195,22 +195,22 @@ class Resolver:
 
     # Arguments of __init__
     history: History
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     code: CodeIndex | None
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     config: ProjectConfig
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     front_matter_of: Callable[[Version], Mapping[str, object] | None]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     doc_pages: DocPages
     """See :meth:`__init__`."""
 
     warn_on_dropped_repo_link: bool
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(
         self,
@@ -288,7 +288,7 @@ class Resolver:
 
         The first link of a latest version turned into plain text issues a
         :exc:`~docspecsite.errors.DocspecsiteWarning` naming its version and ``href``, unless
-        :attr:`.warn_on_dropped_repo_link` is false; later ones and those of older versions issue none.
+        :attr:`warn_on_dropped_repo_link` is false; later ones and those of older versions issue none.
 
         Args:
             version: Version holding the link; named in the warning, and only a latest version is warned about.
@@ -318,13 +318,13 @@ class PageLinks:
 
     # Arguments of __init__
     resolver: Resolver
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     version: Version
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     page_url: str
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, resolver: Resolver, version: Version, page_url: str) -> None:
         """Prepare to resolve the links of a version for a page.

@@ -73,7 +73,7 @@ class Git:
 
     # Arguments of __init__
     root: Path
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, root: Path) -> None:
         """Prepare queries on a repository.

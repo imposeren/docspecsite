@@ -20,13 +20,13 @@ class Doc:
     """POSIX path of the doc, relative to ``docs/``."""
 
     front_matter: dict[str, object] | None
-    """Front matter; ``None`` exactly when :attr:`.error` is set."""
+    """Front matter; ``None`` exactly when :attr:`error` is set."""
 
     body: str
     """Markdown text of the doc after its front matter; the whole text when it has none."""
 
     body_line: int
-    """1-based line of the file where :attr:`.body` starts."""
+    """1-based line of the file where :attr:`body` starts."""
 
     error: str | None
     """Why the front matter cannot be read, for the user; None when it is valid."""
@@ -40,11 +40,11 @@ class Doc:
     def parse(cls, path: str, text: str) -> Self:
         """Split the text of a doc into front matter and body.
 
-        Unreadable front matter is not raised: :attr:`.front_matter` is None and :attr:`.error` says why.
+        Unreadable front matter is not raised: :attr:`front_matter` is None and :attr:`error` says why.
 
         Args:
-            path: Doc path relative to ``docs/``; only stored in :attr:`.path`, nothing is read from it.
-            text: Whole file text, front matter included; :attr:`.body_line` keeps the body's line numbers relative
+            path: Doc path relative to ``docs/``; only stored in :attr:`path`, nothing is read from it.
+            text: Whole file text, front matter included; :attr:`body_line` keeps the body's line numbers relative
                 to it.
         """
         source, body_line = MarkdownText(text).split_front_matter()

@@ -25,7 +25,7 @@ class DocSet:
 
     # Arguments of __init__
     docs: tuple[Doc, ...]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, docs: Iterable[Doc]) -> None:
         """Hold docs and index them by path.

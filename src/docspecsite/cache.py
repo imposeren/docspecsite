@@ -73,12 +73,12 @@ class BodyCache:
     """On-disk cache of rendered page bodies.
 
     It has two levels: link hrefs per blob and body HTML per blob and rendering. Entries this instance did not use are
-    removed by :meth:`.prune`.
+    removed by :meth:`prune`.
     """
 
     # Constants
     MARKER = ".docspecsite-cache-root"
-    """Name of the file that marks a cache root as made by this cache, so :meth:`.prune` may remove it."""
+    """Name of the file that marks a cache root as made by this cache, so :meth:`prune` may remove it."""
 
     # Cache state
     fingerprint_prefix: str
@@ -98,11 +98,11 @@ class BodyCache:
     """Cache root of this fingerprint and variant under :attr:`directory`: ``<fingerprint_prefix>-<variant>``."""
 
     used_paths: set[Path]
-    """Entry files read or written by this instance; :meth:`.prune` keeps only these."""
+    """Entry files read or written by this instance; :meth:`prune` keeps only these."""
 
     # Arguments of __init__
     directory: Path
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, directory: Path, fingerprint: str, variant: str) -> None:
         """Prepare a cache in a directory.
@@ -142,12 +142,12 @@ class BodyCache:
     def get_body(self, blob: str, key: str, compute: Callable[[], str]) -> str:
         """Return the body HTML of a blob rendered for given link targets.
 
-        It comes from the cache or else is computed. Cache hits and misses are counted in :attr:`.hit_count` and
-        :attr:`.miss_count`.
+        It comes from the cache or else is computed. Cache hits and misses are counted in :attr:`hit_count` and
+        :attr:`miss_count`.
 
         Args:
             blob: Git blob SHA hash of the doc's text; part of the entry name with ``key`` and the fingerprint.
-            key: How the page's links and Contents list are rendered (:func:`.make_targets_key` plus the Contents
+            key: How the page's links and Contents list are rendered (:func:`make_targets_key` plus the Contents
                 threshold); a different key gives a separate entry.
             compute: Called only on a miss to render the body HTML; its result is stored.
         """
@@ -172,7 +172,7 @@ class BodyCache:
         A failing cache directory (read-only, full) only disables caching.
 
         Args:
-            path: Entry file under this cache's fingerprint root; the root also gets the marker that lets :meth:`.prune`
+            path: Entry file under this cache's fingerprint root; the root also gets the marker that lets :meth:`prune`
                 remove it.
             data: Entry contents, written atomically.
         """

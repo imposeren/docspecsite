@@ -39,7 +39,7 @@ class CodeError(DocspecsiteError):
     """Error for code that cannot be read for the docs, naming its source file in the ``file`` attribute when known."""
 
     file: str | None
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, message: str, *values: object, file: str | None = None) -> None:
         """Hold a message template, its values and the source file the error is about.
@@ -709,16 +709,16 @@ class CodeReference:
     """The code reference pages of a codebase: a page per module, and the links to its top-level packages."""
 
     codebase: Codebase
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     config: ProjectConfig
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     blob_base_url: str
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     titles: Mapping[str, str]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     locate_doc: Callable[[str], str | None]
     """See :meth:`__init__`."""
@@ -834,10 +834,10 @@ class CodePage:
 
     # Arguments of __init__
     reference: CodeReference
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     module: griffe.Module
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, reference: CodeReference, module: griffe.Module) -> None:
         """Prepare the page of a module.

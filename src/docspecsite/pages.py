@@ -87,7 +87,7 @@ class RedirectNotice:
     """Label of each redirect kind, shown as what happened to the doc."""
 
     label: str
-    """What happened to the doc, from :attr:`.REDIRECT_LABELS`; the redirect kind itself when it has no label."""
+    """What happened to the doc, from :attr:`REDIRECT_LABELS`; the redirect kind itself when it has no label."""
 
     targets: tuple[PageLink, ...]
     """Links to where readers should go instead."""
@@ -100,7 +100,7 @@ class RedirectNotice:
 class Page:
     """One HTML page of the site, with everything its template shows.
 
-    Every URL is site-root-relative; the template makes them relative to :attr:`.url`.
+    Every URL is site-root-relative; the template makes them relative to :attr:`url`.
     """
 
     LEADING_H1: ClassVar[re.Pattern[str]] = re.compile(r"\s*(<h1[\s>].*?</h1>)\s*", re.S)
@@ -274,7 +274,7 @@ class Templates:
         """Render a page to HTML.
 
         Args:
-            page: Page to render; its :attr:`.Page.url` is the base of every relative link in the output.
+            page: Page to render; its :attr:`Page.url` is the base of every relative link in the output.
             site_title: Title of the home doc, appended to the page title in ``<title>``.
             indexes: The index URLs that tag and component links and the site's Status link may point to; links to
                 others are not made. None makes every such link.

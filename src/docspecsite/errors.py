@@ -12,10 +12,10 @@ class MessageWithValues(Exception):  # noqa: N818 -- the base of warnings too, n
     """
 
     message: str
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     values: tuple[object, ...]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(self, message: str, *values: object) -> None:
         """Hold a message template and its values.

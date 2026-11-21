@@ -46,7 +46,7 @@ class Filters:
     def matches(self, front_matter: dict[str, object]) -> bool:
         """Return whether front matter matches every filter that is set.
 
-        :attr:`.component` and :attr:`.tag` match when the value is among the doc's components or tags.
+        :attr:`component` and :attr:`tag` match when the value is among the doc's components or tags.
 
         Args:
             front_matter: Front matter of one doc; ``components`` and ``tags`` must be lists to match a membership

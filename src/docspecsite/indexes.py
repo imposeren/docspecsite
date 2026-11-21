@@ -47,19 +47,19 @@ class IndexRenderer:
 
     # Arguments of __init__
     entries: list[IndexEntry]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     code_entries: list[IndexEntry]
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     config: ProjectConfig
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     site_title: str
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     vocabulary: Vocabulary
-    """See :meth:`.__init__`."""
+    """See :meth:`__init__`."""
 
     def __init__(
         self,
@@ -138,7 +138,7 @@ class IndexRenderer:
         Args:
             entry: Entry whose front matter is read.
             key: Field that sorts the entry into a status-board group, ``milestone`` or ``priority``.
-            missing: Name of the group for entries without the field, e.g. :attr:`.NO_MILESTONE`.
+            missing: Name of the group for entries without the field, e.g. :attr:`NO_MILESTONE`.
         """
         value = entry.front_matter.get(key)
         return missing if value is None else str(value)
@@ -148,7 +148,7 @@ class IndexRenderer:
 
         Docs whose status is outside :data:`~docspecsite.schema.STATUSES` are left out. Milestones used by docs but not
         in the roadmap follow the roadmap's alphabetically, then docs without one. The entry links are relative to
-        :attr:`.STATUS_PAGE`.
+        :attr:`STATUS_PAGE`.
         """
         parts: list[str] = []
         used_milestones = {self.get_value(e, "milestone", self.NO_MILESTONE) for e in self.entries}

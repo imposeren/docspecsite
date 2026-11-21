@@ -29,7 +29,7 @@ class Version:
     """POSIX path of the doc, relative to ``docs/``."""
 
     short_id: str
-    """First 12 characters of the commit's SHA hash; :attr:`.WORKTREE` for the working copy."""
+    """First 12 characters of the commit's SHA hash; :attr:`WORKTREE` for the working copy."""
 
     commit: str | None
     """Full SHA hash of the commit; None for the working copy."""
@@ -42,7 +42,7 @@ class Version:
     """Committer date, ``YYYY-MM-DD``; empty for the working copy."""
 
     subject: str
-    """Commit subject without a ``spec:`` or ``docs:`` prefix; :attr:`.WORKTREE_SUBJECT` for the working copy."""
+    """Commit subject without a ``spec:`` or ``docs:`` prefix; :attr:`WORKTREE_SUBJECT` for the working copy."""
 
     blob: str
     """SHA hash of the doc's git blob, the key of its contents."""
@@ -58,7 +58,7 @@ class History:
     """Versions of all docs at a ref, newest first, with their contents."""
 
     SUBJECT_PREFIX: ClassVar[re.Pattern[str]] = re.compile(r"^(spec|docs):\s*")
-    """Commit-subject prefix that :meth:`.strip_subject` removes."""
+    """Commit-subject prefix that :meth:`strip_subject` removes."""
 
     head: str
     """Full SHA hash of the commit the ref names."""
