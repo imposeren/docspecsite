@@ -58,6 +58,7 @@ Before you write a design down, apply the questions in `docs/agents/working-from
 - Design docs from `docs/meta/templates/architecture-doc.md`, at the mirrored path of the behavior they implement.
   Link to the ADRs that justify them.
   Use Mermaid for diagrams.
+- Write at the level `docs/meta/layers.md#architecture` describes; list in your report the code places that need a docstring or comment for detail you leave out.
 - Use the exact names of modules, interfaces, data and endpoints; `code:` entries use the project's dotted code paths.
 - External platform facts: each fact links to its source and states when it was checked.
 - Check current versions and facts on the web; don't rely on memory for anything that changes quickly.

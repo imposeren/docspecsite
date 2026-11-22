@@ -2,7 +2,7 @@
 title: Front matter
 summary: The YAML header every doc starts with — required fields, optional fields, allowed values, and an example.
 layer: meta
-status: implemented
+status: specified
 components: [docs-system]
 tags: [meta, front-matter, rules]
 related:
@@ -36,10 +36,10 @@ code: [my_project.orders.checkout]
 
 | Field | Required | Meaning |
 | -- | -- | -- |
-| `title` | yes | Human title. Usually also the first `#` heading. |
+| `title` | yes | Human title. Usually also the text of the doc's title ([authoring.md](authoring.md#page-shape)). |
 | `summary` | yes | **One sentence.** Shown in indexes and listings; agents use it to decide whether to open the doc. Make it specific. |
 | `layer` | yes | `root`, `meta`, `behavior`, `scenarios`, `architecture`, `ui`, `guides`, `agents`, `reference`. Must match the directory. |
-| `status` | yes | Lifecycle state, see [lifecycle.md](lifecycle.md). |
+| `status` | yes | Lifecycle state, see [lifecycle.md](lifecycle.md): one value, or, for a partly built doc, a list of distinct values from `implemented`, `specified` and `changed` (`[implemented, specified]`) whose first value covers the sections without a [status note](lifecycle.md#status-notes). |
 | `components` | yes (may be `[]`) | Parts of the system this doc is about. Values from the project's component list (see [vocabulary.md](vocabulary.md)). |
 | `tags` | yes (may be `[]`) | Free keywords for search and tag indexes. Lowercase, `-`-separated. |
 | `related` | yes (may be `[]`) | Sideways / cross-layer links: paths **relative to `docs/`**. Parent and children are implied by directories and are not listed. See [linking.md](linking.md). |

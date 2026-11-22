@@ -2,7 +2,7 @@
 title: Glossary — documentation terms
 summary: Definitions of the terms and abbreviations used by the documentation system itself (layer, depth, ADR, status, redirect doc…), and where the other glossaries live.
 layer: meta
-status: implemented
+status: specified
 components: [docs-system]
 tags: [meta, glossary]
 related:
@@ -49,6 +49,10 @@ Architecture docs cite these numbers to say which requirement a design element s
 
 How detailed a doc is, given by its position in its layer's directory tree; `index.md` at a layer's root is depth 0. See [structure.md](structure.md#depth).
 
+### Document brief
+
+The paragraph right after a doc's title, its level-1 heading: the whole doc in 2–5 sentences, so a reader who stops there has a correct picture. Not the front-matter `summary`, which is one sentence for listings. See [authoring.md](authoring.md#page-shape).
+
 ### Front matter
 
 The YAML block at the top of each doc holding its metadata. See [front-matter.md](front-matter.md).
@@ -87,6 +91,10 @@ How important a doc's target state is within its milestone: `must`, `should` or 
 
 What a doc becomes instead of being deleted or renamed: `status: redirect` plus `redirect_kind` (what happened), `redirect_to` (where the content went) and `reason` (why). It is a normal page with a notice and a link, never an automatic redirect. See [versioning.md](versioning.md#no-delete-no-rename).
 
+### Section note
+
+A note line in the block right after a heading, before any other content, recognized by the bold label at its start, such as a [status note](#status-note). A note line with an unknown label is ordinary text. See [lifecycle.md](lifecycle.md#section-notes).
+
 ### Spec
 
 Short for specification.
@@ -94,7 +102,11 @@ Here: any doc in `docs/` — a description of the system's target state.
 
 ### Status
 
-Where a doc is in its lifecycle: `draft`, `specified` (agreed, not built — i.e. work to do), `implemented`, `deprecated`, `redirect`. See [lifecycle.md](lifecycle.md).
+Where a doc is in its lifecycle: `draft`, `specified` (agreed, not built — i.e. work to do), `changed` (agreed, built in an older form — also work to do), `implemented`, `deprecated`, `redirect`. A partly built doc lists several of `implemented`, `specified` and `changed`, and marks its sections with [status notes](#status-note). See [lifecycle.md](lifecycle.md).
+
+### Status note
+
+The kind of [section note](#section-note), such as `> **Not built yet.**`, that gives its section, a heading and its text up to the next heading of any level, a status other than the doc's first `status` value, in a partly built doc. It does not cover the sections under deeper headings below it. A section has at most one; the doc's title and its [document brief](#document-brief) carry none, as the doc's whole `status` describes them. See [lifecycle.md](lifecycle.md#status-notes).
 
 ### Version (of a doc)
 

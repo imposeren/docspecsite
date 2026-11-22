@@ -2,7 +2,7 @@
 title: Working from specs
 summary: How agents (and people) design new work with the user, turn specified docs into code, write or change specs, and record technical decisions as ADRs.
 layer: agents
-status: implemented
+status: specified
 components: [agents]
 tags: [agents, workflow, adr, project-management]
 related:
@@ -28,6 +28,7 @@ related:
    If the project validates the references in its code (`Docs:` lines, and references to other code in docstrings), run the code check once the implementation is done (`docker compose run --rm docs check --optional-checks code`).
 
 4. Set the doc's `status: implemented` (and its parents' if all their children are done).
+   When only some sections are built, the doc's `status` lists the statuses that are left and the sections not built yet keep their [status notes](../meta/lifecycle.md#status-notes); a built section loses its status note.
 
 5. Write or update the [guides](../guides/index.md) for any new procedure it introduces (setup, migration, release step): whoever builds a thing writes its guide.
 
@@ -39,7 +40,7 @@ related:
 
 ## Changing what the system does
 
-Edit the docs to describe the **new target state** in every layer concerned (behavior → scenarios → ui → architecture), set them to `specified`, and commit them together with a subject like `spec: <what changed>`.
+Edit the docs to describe the **new target state** in every layer concerned (behavior → scenarios → ui → architecture), set them to `changed` (for what the code already implements in an older form) or `specified` (for what is new), or mark only the sections that change ([meta/lifecycle.md](../meta/lifecycle.md#partly-built-docs)), and commit them together with a subject like `spec: <what changed>`.
 That commit is the change request; implementing it follows the steps above.
 
 ## Designing before specifying
@@ -54,6 +55,9 @@ In Claude Code this is the superpowers `brainstorming` skill, then `writing-plan
    They stand on their own and don't copy the note's structure; technical choices become `proposed` ADRs ([below](#decision-records-adrs)).
    Where the note conflicts with existing docs or ADRs, the conflict goes to the user instead of the note winning.
    Then a fresh subagent that has not seen the design or the code reads the behavior, scenario and ui docs the `spec-writer` lists in its report, and rewrites what a non-developer user would not understand.
+   Its rewrite is checked for meaning: another fresh subagent compares the text before and after it and lists every rule, case, condition, default or message that was lost, added or changed; each one is fixed or goes to the user.
+   Then a builder check on the specs: a fresh subagent that can read the code, and look up its symbols and their uses with the language server where the project has one, reads the new and changed specs as the planner of their implementation would, and lists every place where it would have to guess: a missing message or rule, a case two requirements answer differently, a planned code location that does not fit the code; each one is fixed in the spec or goes to the user.
+   The user reviews the specs after these steps, so they read the text once, in its final form; each step is its own commit on the spec branch, so its changes show as a plain diff.
 3. **Plan:** only once those docs are `specified`, an implementation plan in `notes/plans/YYYY-MM-DD-<topic>.md` that cites them as its spec; then [implementing](#implementing-a-specified-doc) as above.
 
 ### Thinking ahead
@@ -65,6 +69,7 @@ Every design, in a design note or written straight into specs, questions each as
   If the seam is not worth building yet, the design must not block it, and a later-milestone doc proposes it.
 - **Personal preference.** A value that another reasonable project could choose differently (a directory name, a file name, a naming pattern, a limit, a default behavior) is a setting with a sensible default, not a constant.
   Leave a value fixed only when changing it would break the method or other projects; the doc says why.
+- **Names that leave room.** A generic word (backend, plugin, provider, handler, source) gets the domain it belongs to, in terms, headings, and settings or code names outside a namespace, whenever another thing of its kind is plausible.
 - Group settings by what they belong to: options of one part go in its own section (for example `[versioning.git]` for the git backend), and an option that only applies with another one goes under it.
 
 ## Writing a new doc

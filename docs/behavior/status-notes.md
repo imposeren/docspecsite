@@ -18,8 +18,8 @@ related:
 
 # Partly built docs
 
-A doc can be partly built: some of its sections are true in the code, others are not yet ([meta/lifecycle.md](../meta/lifecycle.md)).
-Its [status](../meta/glossary.md#status) in the [front matter](../meta/glossary.md#front-matter) is then a list, such as `status: [implemented, specified]`, and each section that differs from the first value carries a [status note](../meta/glossary.md) such as `> **Not built yet.**` among its [section notes](../meta/glossary.md).
+A doc can be partly built: some of its sections are true in the code, others are not yet ([meta/lifecycle.md](../meta/lifecycle.md#partly-built-docs)).
+Its [status](../meta/glossary.md#status) in the [front matter](../meta/glossary.md#front-matter) is then a list, such as `status: [implemented, specified]`, and each section that differs from the first value carries a [status note](../meta/glossary.md#status-note) such as `> **Not built yet.**` among its [section notes](../meta/glossary.md#section-note).
 `docspecsite check` checks that the list and the status notes agree, `docspecsite list` finds the doc under each of its statuses, and the site shows all of them.
 On the site, as on GitHub and in an editor, a status note reads like any other note.
 
@@ -27,7 +27,7 @@ On the site, as on GitHub and in an editor, a status note reads like any other n
 
 A doc's `status` is one of `draft`, `specified`, `changed`, `implemented`, `deprecated` and `redirect`; `changed` means the doc now describes a new form of something and the code still does an older form of it.
 A doc's title is its first level-1 heading, written `# Import` or underlined with `===`, and it comes right after the front matter ([DS-52](requirements.md#checks)).
-The title and its text up to the next heading, the doc's [document brief](../meta/glossary.md), belong to no section and carry no status note: the doc's whole `status` describes them, so the brief may mention built and unbuilt parts alike.
+The title and its text up to the next heading, the doc's [document brief](../meta/glossary.md#document-brief), belong to no section and carry no status note: the doc's whole `status` describes them, so the brief may mention built and unbuilt parts alike.
 For status, every other heading starts a section of its own, whatever the heading's level.
 A section is the heading and its text up to the next heading of any level, so a `##` section does not include the `###` sections below it.
 In a partly built doc's list, the first value is the status of every section without a status note, and each further value is the status of the sections whose status note gives it.

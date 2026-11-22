@@ -51,7 +51,8 @@ Scenarios are precise enough to become automated acceptance tests later.
 
 Technical design: services, data model, integrations, infrastructure, tooling, and **decisions** recorded as ADRs ([architecture decision records](glossary.md#adr)) in `architecture/decisions/`.
 Explains *why*, including options rejected.
-**Not here:** per-function or per-endpoint reference (that is the reference layer).
+It describes components, data, flows, invariants and decisions with their reasons, by their exact names.
+**Not here:** per-function or per-endpoint reference (that is the reference layer), and a library's internals or line-level mechanics: those belong in the code's docstrings and, for an algorithm that is not obvious, in a comment where it is implemented.
 
 ## ui
 

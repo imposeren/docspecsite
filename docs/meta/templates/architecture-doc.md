@@ -13,7 +13,7 @@ code: []
 
 # <Part name>
 
-<Summary paragraph: responsibility, boundaries, key technology.>
+<Document brief: responsibility, boundaries, key technology.>
 
 ## Responsibilities and boundaries
 

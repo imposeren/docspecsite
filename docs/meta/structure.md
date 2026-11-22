@@ -51,7 +51,7 @@ If they would, fix the parent.
 
 An `index.md` must:
 
-1. summarize the area in its first paragraph;
+1. summarize the area in its document brief;
 2. list every direct child doc and child directory in a `## Children` section, one list item each with a one-line description: `- [name.md](name.md) — …`, or `- [name/](name/index.md) — …` for a directory (redirect docs may be left out).
    The index may have other sections before or after it; links to children elsewhere do not count as listing them.
 

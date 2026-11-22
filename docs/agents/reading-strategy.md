@@ -2,7 +2,7 @@
 title: Reading strategy for agents
 summary: How an agent should find relevant docs and read only as deep as the task needs — summaries first, mirrored paths, related links, and the list command.
 layer: agents
-status: implemented
+status: specified
 components: [agents]
 tags: [agents, navigation, context]
 related:
@@ -23,7 +23,7 @@ Read **breadth-first, summaries first**, and go deeper only when the current doc
    Otherwise open the relevant layer's `index.md`, or use the docs tooling's `list` query (see [architecture/docs-tooling.md](../architecture/docs-tooling.md)).
    Without tooling, grep front matter: `grep -rl "components: \[.*<c>" docs/`.
 2. **Read the summary.**
-   Front-matter `summary` plus the first paragraph. Often enough.
+   Front-matter `summary` plus the document brief (the first paragraph). Often enough.
 3. **Go across before going deep.**
    The same part lives at the same path in other layers ([mirrored paths](../meta/structure.md#mirrored-paths)): behavior says *what*, scenarios say *exactly what*, ui says *what it looks like*, architecture says *how*, guides say *how to operate it*. Follow `related:` links.
 4. **Go deep only for specifics** — exact rules, formats, edge cases.
@@ -46,7 +46,7 @@ The rendered HTML site is for humans ([docspecsite](https://github.com/imposeren
 | Task | Read |
 | -- | -- |
 | Implement a feature | behavior doc → scenarios doc (acceptance criteria) → ui doc (if it has a UI) → architecture doc → its ADRs ([architecture decision records](../meta/glossary.md#adr)) |
-| Fix a bug | the `implemented` scenarios/behavior doc it contradicts → architecture doc |
+| Fix a bug | the `implemented` scenarios/behavior doc (or built section) it contradicts → architecture doc |
 | Write a new spec | [meta/authoring.md](../meta/authoring.md) → template → parent `index.md` → siblings' summaries |
 | Infra / tooling change | architecture doc for the area → its ADRs → the guides for that area |
 | Integrate an external platform | its `reference/external/` doc → the architecture doc of the integration |
@@ -55,4 +55,4 @@ The rendered HTML site is for humans ([docspecsite](https://github.com/imposeren
 
 - Don't load whole layers "for context".
 - Don't treat an **old version** page or a `draft`/`deprecated`/`redirect` doc as current spec.
-- Don't infer requirements from code alone; code may lag behind a `specified` doc.
+- Don't infer requirements from code alone; code may lag behind a `specified` or `changed` doc or section.

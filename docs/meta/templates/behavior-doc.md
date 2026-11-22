@@ -12,7 +12,7 @@ related:
 
 # <Capability name>
 
-<Summary paragraph in plain, non-technical language.>
+<Document brief in plain, non-technical language.>
 
 ## What it does
 

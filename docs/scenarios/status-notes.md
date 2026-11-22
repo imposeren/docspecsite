@@ -15,7 +15,7 @@ related:
 
 # Partly built docs — scenarios
 
-These scenarios pin down [Partly built docs](../behavior/status-notes.md): a doc whose [status](../meta/glossary.md#status) is a list, such as `[implemented, specified]`, with a [status note](../meta/glossary.md) (a [section note](../meta/glossary.md) such as `> **Not built yet.**` right after a heading) on each section that differs from the first status.
+These scenarios pin down [Partly built docs](../behavior/status-notes.md): a doc whose [status](../meta/glossary.md#status) is a list, such as `[implemented, specified]`, with a [status note](../meta/glossary.md#status-note) (a [section note](../meta/glossary.md#section-note) such as `> **Not built yet.**` right after a heading) on each section that differs from the first status.
 Each heading below the title starts a section of its own, so a status note does not cover its subsections, the sections under the deeper headings below it.
 
 ```gherkin

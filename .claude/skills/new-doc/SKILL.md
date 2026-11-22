@@ -22,6 +22,6 @@ Create a doc that follows `docs/meta/` rules on the first try.
    - if the parent was a single file `x.md` that now needs children, follow `docs/meta/structure.md#growing-a-doc-into-a-directory` (never rename; leave a redirect doc);
    - add `related:` entries both ways with counterparts in other layers;
    - ADRs: the line in `docs/architecture/decisions/index.md` is `- [<PREFIX>-NNNN](<PREFIX>-NNNN-<slug>.md) — <decision>, <status> — <title>` (`docs/meta/lifecycle.md#adrs`).
-5. **Write** the summary sentence and first paragraph so a reader can stop there (`docs/meta/authoring.md`).
+5. **Write** the `summary` sentence and the document brief (the first paragraph) so a reader can stop there (`docs/meta/authoring.md`).
 6. **Check** with the project's docs check (see `docs/architecture/docs-tooling.md`); if it doesn't exist yet, verify every link path exists.
 7. Do not commit unless asked.

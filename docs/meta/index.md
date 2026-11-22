@@ -32,7 +32,7 @@ What any docs tooling must provide is specified in [docspecsite's docs](https://
 7. **Never delete or rename a doc** — turn it into a redirect doc instead → [versioning.md](versioning.md#no-delete-no-rename).
 8. **Docs describe the target state**, not changes or bugs; `status` tracks how far the code has caught up → [lifecycle.md](lifecycle.md).
 9. **Summary first.**
-   A reader (human or agent) should be able to stop after the first paragraph → [authoring.md](authoring.md).
+   A reader (human or agent) should be able to stop after the document brief, the first paragraph → [authoring.md](authoring.md).
 
 ## Children
 
