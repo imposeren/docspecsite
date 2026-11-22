@@ -2,7 +2,7 @@
 title: Commands
 summary: The docspecsite command line — `check`, `list`, `backlinks` and `build`, with their options, output and exit codes.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 code: [docspecsite.cli]
@@ -11,21 +11,25 @@ tags: [cli, checks, rendering]
 related:
   - behavior/requirements.md
   - architecture/docs-tooling.md
+  - behavior/versioning-backends.md
 ---
 
 # Commands
 
-`docspecsite [--repo DIR] <command> [options]` works on the docs of one git repo: the current directory, or `DIR` given with `--repo` (the checked repo).
-It must be the top level of the git repo: a subdirectory of one stops every command with an error and exit code 1 (support for a docs project in a subdirectory is planned: [repo-subdirectory.md](repo-subdirectory.md)).
+`docspecsite [--repo DIR] <command> [options]` works on the docs of one repo: the current directory, or `DIR` given with `--repo` (the [checked repo](glossary.md)).
+Every command reads `docspecsite.toml` from disk first ([configuration.md](configuration.md)), then picks the [versioning backend](glossary.md), the part of docspecsite that reads the project's version control ([versioning-backends.md](versioning-backends.md)).
+These stop every command with an error and exit code 1: a backend chosen by name that cannot read the checked repo (such as `git` outside a git repository), and `auto` finding more than one backend that recognizes it.
+`list`, `build` and `backlinks` also stop when `backend` names no installed backend; `check` reports that as a problem ([configuration.md](configuration.md#versioning)).
+A subdirectory of a git repository stops every command with an error and exit code 1, also with `auto`, unless `backend = "none"` (support for a docs project in a subdirectory is planned: [repo-subdirectory.md](repo-subdirectory.md)).
 `docspecsite --version` prints the installed version.
-A command-line error (an unknown option, or an option value that is not valid, such as an unknown name in `--parts` or `--optional-checks`) stops the command before it starts, with a usage message on stderr and exit code 2.
+A command-line error (an unknown option, or an option value that is not valid, such as an unknown name in `--parts` or `--optional-checks`) stops the command before it starts, with a usage message on stderr (the command's error output) and exit code 2.
 
 | Command | Does |
 | -- | -- |
-| `check [--staged] [--optional-checks C,…]` | Runs every check ([DS-20](requirements.md#checks), [DS-33](requirements.md#checks)) on the working tree. `--staged` also rejects docs staged as deleted or renamed in git ([DS-6](requirements.md#versioning)); `--optional-checks` adds the optional checks it names: `code`, the code check ([DS-36](requirements.md#checks)). |
+| `check [--optional-checks C,…]` | Runs every check ([DS-20](requirements.md#checks), [DS-33](requirements.md#checks)) on the working tree. `--optional-checks` adds the optional checks it names: `code`, the code check ([DS-36](requirements.md#checks)), and the checks of the backend in use, such as `git:staged`, which reports docs marked in git as deleted or renamed in the next commit ("staged") ([DS-6](requirements.md#versioning), [DS-43](versioning-backends.md#requirements)). |
 | `list [--layer L] [--status S] [--component C] [--tag T] [--milestone M] [--priority P] [--format text\|json]` | Prints the docs whose front matter matches every given filter, from the working tree ([DS-17](requirements.md#navigation-and-indexes)). |
 | `backlinks <path> [--format text\|json]` | Prints the docs that link to `<path>` through body links, `related`, `redirect_to` or `superseded_by`, from the working tree ([DS-28](requirements.md#navigation-and-indexes)). |
-| `build [--ref main] [--out site] [--parts P,…] [--include-worktree] [--strict]` | Renders the static site for a git ref ([DS-7](requirements.md#rendering) … [DS-19](requirements.md#generated-reference-layer)). |
+| `build [--ref main] [--out site] [--parts P,…] [--include-worktree] [--strict]` | Renders the static site; with version control, from the history of a [ref](glossary.md) ([DS-7](requirements.md#rendering) … [DS-19](requirements.md#generated-reference-layer)). |
 
 ## check
 
@@ -34,12 +38,15 @@ A doc that cannot be read, or that is not valid UTF-8, is a problem on that doc,
 A doc whose page would take the URL of a generated page is a problem too ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
 A count of the problems follows on stderr.
 
-`--optional-checks` names the optional checks to run, separated by commas without spaces; an unknown name, or an empty list, is a command-line error whose message lists the optional checks there are.
+`--optional-checks` names the optional checks to run, separated by commas without spaces.
+docspecsite's own optional checks have plain names (`code`); a backend's checks are named `<backend>:<check>` (`git:staged`).
+Only docspecsite's own checks and those of the backend in use are available: any other name, such as `git:staged` with `backend = "none"`, or an empty list, is a command-line error whose message lists the available checks.
+The `git:staged` check (`--optional-checks git:staged`) is a problem for each doc that git has staged as deleted or renamed ([DS-6](requirements.md#versioning)); the `docs-check` commit hook runs it.
 The `code` check (`--optional-checks code`) checks the code in the settings' `code-dirs`, from the working tree: each `Docs:` line, Sphinx role and `code:` link in a docstring is a problem on its code file when its target is not found.
 A package name found in more than one code directory is a problem naming the package and its directories, and the code is then not checked.
 Without `code-dirs` it adds nothing.
 
-The exit code is 0 when no problem is found, and 1 when there are problems or when `--staged` is used outside a git repo.
+The exit code is 0 when no problem is found, and 1 when there are problems.
 
 ## list
 
@@ -64,8 +71,10 @@ The site is written to `--out` (default `site/`, relative to the current directo
 Files of the previous build that are no longer produced are removed; nothing else in the directory is touched.
 Rendered page bodies are kept in `.docspecsite-cache/` in the checked repo, so a rebuild renders only what changed ([DS-24](requirements.md#running)).
 
-- `--ref` names the branch, tag or commit whose first-parent history gives the versions; its code gives the code reference. The settings always come from the working tree's `docspecsite.toml` ([configuration.md](configuration.md)).
-- `--include-worktree` adds uncommitted doc changes as a "working copy (uncommitted)" version, and reads the code and the files under `docs/` from the working tree. It is meant for previews while writing, never for CI.
+The first line on stderr names the backend in use, and `(auto)` when `auto` picked it: `versioning: git (auto)`, `versioning: none (auto)`, `versioning: git`.
+
+- `--ref` names the [revision](glossary.md) whose history gives the versions; its code gives the code reference. With git it is a branch, tag or commit, and the history is its [main line of history](glossary.md); the default is `main`. With `none`, giving `--ref` is a command-line error. The settings always come from the working tree's `docspecsite.toml` ([configuration.md](configuration.md)).
+- `--include-worktree` adds uncommitted doc changes as a "working copy (uncommitted)" version, and reads the code and the files under `docs/` from the working tree. It is meant for previews while writing, never for CI (continuous integration, the automatic checks and builds on a server). With `none` it is accepted and changes nothing: the docs, the code and the files under `docs/` are always read from disk.
 - `--parts` names the parts to build, separated by commas without spaces: `docs`, `code` ([DS-35](requirements.md#rendering)).
   Without it, every part the repo has is built: `docs`, and `code` when `code-dirs` is set.
   An unknown part, or an empty list, is a command-line error; `code` without `code-dirs` stops the build before it starts.
@@ -82,7 +91,7 @@ A code-only build (`--parts code`):
 
 - writes the code reference and its entry page, which is also the site's root page;
 - has no index pages and no `llms.txt`; the breadcrumb above the code reference, component labels and status badges are text;
-- links `Docs:` lines, "described in" lists and the entry page's backlinks to the doc's Markdown file on the repo host at the built commit, or shows the doc's path as text without `source-url` or for a doc not in the built commit (with `--include-worktree`).
+- links `Docs:` lines, "described in" lists and the entry page's backlinks to the doc's Markdown file on the repo host at the built revision, through the backend's [link pattern](glossary.md) ([DS-42](versioning-backends.md#requirements)), or shows the doc's path as text when there is no link pattern to use (without `source-url`, or with `none` and no pattern set) or for a doc not in the built revision (with `--include-worktree`).
 
 The warning about `code-dirs` without `source-url` at the start of a build is given only when the `code` part is built.
 
@@ -93,4 +102,4 @@ Code that cannot be loaded (a package that is not valid Python or UTF-8, a packa
 A symlink in a code directory that points to an absolute path or out of the code directories is left out of the code read from the ref, with a warning naming it.
 The last line counts the pages built, rendered afresh, taken from the cache and failed.
 
-The exit code is 0 when every page was built, 1 when a page failed or the build could not start (for example a `docspecsite.toml` that is not valid TOML or has an invalid value), and 2 for an unknown ref.
+The exit code is 0 when every page was built, 1 when a page failed or the build could not start (for example a `docspecsite.toml` that is not valid TOML or has an invalid value), and 2 for an unknown ref and the other command-line errors.

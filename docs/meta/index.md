@@ -27,7 +27,7 @@ What any docs tooling must provide is specified in [docspecsite's docs](https://
 3. **Every directory has an `index.md`** that summarizes what is below it.
 4. **Same part of the system ⇒ same relative path** in every layer that covers it → [structure.md](structure.md#mirrored-paths).
 5. **Link down and across** (up is implied by the path); links must work in raw Markdown → [linking.md](linking.md).
-6. **A git commit is a version.**
+6. **A commit is a version** (in the project's version control, usually git).
    Edit freely, commit deliberately → [versioning.md](versioning.md).
 7. **Never delete or rename a doc** — turn it into a redirect doc instead → [versioning.md](versioning.md#no-delete-no-rename).
 8. **Docs describe the target state**, not changes or bugs; `status` tracks how far the code has caught up → [lifecycle.md](lifecycle.md).
@@ -40,7 +40,7 @@ What any docs tooling must provide is specified in [docspecsite's docs](https://
 - [structure.md](structure.md) — Directory layout, depth, `index.md`, mirrored paths, growing a doc into a folder.
 - [front-matter.md](front-matter.md) — Required and optional fields and their meaning.
 - [linking.md](linking.md) — Link kinds (up/down/across/code), link syntax, backlinks.
-- [versioning.md](versioning.md) — Commits as versions, no-delete/no-rename, redirect docs.
+- [versioning.md](versioning.md) — Commits (revisions) as versions, no-delete/no-rename, redirect docs.
 - [lifecycle.md](lifecycle.md) — `status` values and how docs act as a task list.
 - [authoring.md](authoring.md) — Writing style per layer and the doc [templates](templates/index.md).
 - [templates/](templates/index.md) — Copy-and-fill starting points for each kind of doc.

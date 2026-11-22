@@ -2,7 +2,7 @@
 title: Quality gate
 summary: How changes to docspecsite are checked — review against the spec before commit, prek hooks on commit (Ruff, strict Pyrefly, mdformat, and docspecsite checking its own docs from source), and the full test suite before a release.
 layer: architecture
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 components: [quality-gate]
@@ -26,7 +26,7 @@ CI is not set up for docspecsite yet; until it is, the full checks below run bef
 
 | Hook | Runs | Purpose |
 | -- | -- | -- |
-| `docs-check` | `uv run docspecsite check --staged`, from this repo's source, on every commit (a commit that only deletes a doc stages no file for a filter to match) | Checks docspecsite's own docs with the code being committed, and rejects staged `D`/`R` changes under `docs/` ([meta/versioning.md](../meta/versioning.md#no-delete-no-rename)). |
+| `docs-check` | `uv run docspecsite check --optional-checks git:staged`, from this repo's source, on every commit (a commit that only deletes a doc stages no file for a filter to match) | Checks docspecsite's own docs with the code being committed, and rejects staged `D`/`R` changes under `docs/` ([meta/versioning.md](../meta/versioning.md#no-delete-no-rename)). |
 | `mdformat` | mdformat on Markdown, with compact tables and front matter passed through ([BASE-0004](decisions/BASE-0004-mdformat-for-markdown.md)); settings in `.mdformat.toml` | Consistent Markdown; never re-wraps lines. |
 | `no-fixed-config-dir` | a pattern check over text files | The Claude Code config directory is written as `${CLAUDE_CONFIG_DIR:-~/.claude}`, never as a fixed path. |
 | standard hygiene | prek's built-in hooks: trailing whitespace, EOF newline, YAML validity, large files |  |

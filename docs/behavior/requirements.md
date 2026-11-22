@@ -2,7 +2,7 @@
 title: Docs system requirements
 summary: The numbered requirements (DS-n) docspecsite satisfies — source format, per-doc versioning, rendering, navigation and indexes, the generated code reference, checks, settings and how it runs.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 components: [docs-system]
@@ -29,19 +29,20 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
 
 ## Versioning
 
-- **DS-4** Versions come from git: every commit on the main branch that touches a doc is a version of it ([meta/versioning.md](../meta/versioning.md)).
+- **DS-4** Versions come from the project's [version control](glossary.md), git by default: every [revision](glossary.md) on the [main line of history](glossary.md) that touches a doc is a version of it ([meta/versioning.md](../meta/versioning.md)).
+  Where versions come from, and the choice of building without version control, is in [versioning-backends.md](versioning-backends.md) ([DS-40](versioning-backends.md#requirements), [DS-41](versioning-backends.md#requirements)).
 - **DS-5** History is **per doc**: each doc has its own list of versions.
-- **DS-6** Files under `docs/` cannot be deleted or renamed; a check rejects such commits.
+- **DS-6** Files under `docs/` cannot be deleted or renamed; where the version control can tell, an optional check of its [versioning backend](glossary.md) rejects such commits (with git: `git:staged`, [DS-43](versioning-backends.md#requirements)).
   Redirect docs replace them.
 
 ## Rendering
 
 - **DS-7** Every version of every doc is viewable as a page.
   The code reference's entry page (`docs/reference/code/index.md`) is the exception: like the rest of the code reference ([DS-18](#generated-reference-layer)), only its latest version is shown.
-- **DS-8** Each page shows a **version picker** listing all versions (date, short commit id, commit subject). A leading `spec:` or `docs:` prefix is removed from the subject, since it carries no information there.
+- **DS-8** Each page shows a **version picker** listing all versions (date, short revision id, message: with git, the commit subject). A leading `spec:` or `docs:` prefix is removed from the message, since it carries no information there.
 - **DS-9** Each non-latest version shows a **loud, persistent "OLD VERSION — not the current spec" warning** with a link to the latest version, and a marker in the page title.
 - **DS-10** Each version can show a **diff** against its previous version.
-- **DS-11** Links inside an old version resolve to the version of the target current at that commit; if the target did not exist yet, to its latest version, marked as newer ([meta/versioning.md](../meta/versioning.md#links-in-old-versions)).
+- **DS-11** Links inside an old version resolve to the version of the target current at that revision; if the target did not exist yet, to its latest version, marked as newer ([meta/versioning.md](../meta/versioning.md#links-in-old-versions)).
 - **DS-12** Redirect docs **never redirect automatically**. They render as normal pages with a prominent notice: what happened (`redirect_kind`), a link to the replacement doc(s) (`redirect_to`, when there is one), and the `reason`. Their version history stays available like any other doc's.
 - **DS-13** `code:` links and `Docs:` docstring lines resolve as described in [meta/linking.md](../meta/linking.md#code-links).
   `web-api:` links are part of the HTTP API reference ([web-api-reference.md](web-api-reference.md)).
@@ -77,18 +78,19 @@ Listings that include ADRs (index pages, the machine listing, `list`) sort docs 
 
 ## Generated reference layer
 
-- **DS-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with git or an IDE.
+- **DS-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with the version control or an IDE.
 - **DS-19** Code reference pages show "described in" backlinks from docs' `code:` fields.
 
 The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web-api-reference.md).
 
 ## Checks
 
-- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no deletes/renames under `docs/`, no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), every doc is readable UTF-8, and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
+- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), every doc is readable UTF-8, and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
   Doc templates are not docs and are not checked ([meta/structure.md](../meta/structure.md#outside-docs)).
   The code is not checked: specs may change before it does ([meta/linking.md](../meta/linking.md#code-links)).
+  Deletes and renames under `docs/` ([DS-6](#versioning)) are an optional check of the version control's backend ([DS-43](versioning-backends.md#requirements)).
 - **DS-36** A **code check**, run on demand once an implementation is done, validates the code's references: `Docs:` docstring lines point at existing docs (and headings, with an anchor), and Sphinx roles ([DS-34](#rendering)) and `code:` links in docstrings point at code the code reference shows.
-- **DS-21** The check runs automatically before code leaves a developer's machine and again in CI: docspecsite provides it as a prek hook, `docs-check`, that a project pins to a release tag ([guides/using-docspecsite.md](../guides/using-docspecsite.md)).
+- **DS-21** The check runs automatically before code leaves a developer's machine and again in CI: docspecsite provides it, with the git backend's `git:staged` check, as a prek hook, `docs-check`, that a project pins to a release tag ([guides/using-docspecsite.md](../guides/using-docspecsite.md)).
 - **DS-33** Every doc under `docs/architecture/decisions/` other than an `index.md` is an ADR, and its file name is `<PREFIX>-NNNN-<slug>.md` ([meta/structure.md](../meta/structure.md#adr-ids)).
   `PREFIX` is the repo's own prefix (`adr-prefix`) or the prefix of an external ADR (`external-adr-prefixes`).
   An external ADR comes into the repo from somewhere else, such as the template the repo was created from or another project, and keeps the ID it has there.
@@ -98,7 +100,8 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 ## Settings
 
-- **DS-32** Project settings live in `docspecsite.toml` at the root of the checked repo ([configuration.md](configuration.md)): the repo's ADR prefix, its web URL, where its code is and which components the code belongs to, and the Contents-list threshold.
+- **DS-32** Project settings live in `docspecsite.toml` at the root of the checked repo ([configuration.md](configuration.md)): the repo's ADR prefix, its web URL, where its code is and which components the code belongs to, the Contents-list threshold, and where versions come from ([versioning-backends.md](versioning-backends.md)).
+  The file is always read from disk, never through the version control.
   The file is optional; a missing setting takes its default.
   The check reports an unknown setting or an invalid value as a problem, and the setting takes its default; `list` and `build` stop on an invalid value or a file that is not valid TOML, and warn about an unknown setting, which they ignore.
   Settings anywhere else, such as `pyproject.toml`, are not read.
@@ -106,7 +109,7 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 ## Running
 
 - **DS-22** Building and serving docs run through Docker, in an image built from docspecsite's repo at a release tag; the check runs as a prek hook in an environment prek creates.
-  Nothing beyond Docker, git and prek is required on the host.
+  Nothing beyond Docker, prek and the project's version control (git by default) is required on the host.
 - **DS-23** docspecsite keeps its dependencies minimal.
-- **DS-24** Builds are incremental: unchanged versions are not re-rendered.
+- **DS-24** Builds are incremental: unchanged versions are not re-rendered, whichever backend gives them.
 - **DS-25** Output is static files that can be opened locally or served by any web server.

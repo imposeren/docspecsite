@@ -1,6 +1,6 @@
 ---
 title: Scenarios
-summary: Overview of Given/When/Then scenarios that pin down docspecsite's exact behavior; none are written yet, since the behavior docs and the tests cover it so far.
+summary: Overview of Given/When/Then scenarios that pin down docspecsite's exact behavior, written for new behavior; the behavior docs and the tests cover the rest.
 layer: scenarios
 status: draft
 components: []
@@ -14,7 +14,7 @@ related:
 Scenarios describe specific situations in Gherkin (Given / When / Then), one actor per scenario, at the same paths as the matching [behavior](../behavior/index.md) docs.
 They are written to be checkable and can later become automated acceptance tests.
 
-> No scenarios are written yet: [behavior/commands.md](../behavior/commands.md) and the tests pin down the behavior so far.
+> Scenarios are written for new behavior; for the rest, [behavior/commands.md](../behavior/commands.md) and the tests pin it down.
 > See [meta/layers.md](../meta/layers.md#scenarios) and [meta/templates/scenarios-doc.md](../meta/templates/scenarios-doc.md).
 
 ## Actors
@@ -26,4 +26,4 @@ Scenarios use these actor phrasings consistently:
 
 ## Children
 
-_No docs yet._
+- [versioning-backends.md](versioning-backends.md) — Choosing where versions come from, building without version control, versions from tags only, link patterns and versioning backend checks.

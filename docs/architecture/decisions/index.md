@@ -39,3 +39,6 @@ Each line gives the ADR's `decision` and `status`, then its title ([meta/lifecyc
 - [DSS-0002](DSS-0002-single-python-toolchain.md) — accepted, implemented — One Python version and one uv project
 - [DSS-0003](DSS-0003-ruff-and-strict-pyrefly.md) — accepted, implemented — Ruff for linting and formatting, strict Pyrefly for types
 - [DSS-0004](DSS-0004-pytest-for-tests.md) — accepted, implemented — pytest for tests
+- [DSS-0005](DSS-0005-entry-points-for-backends.md) — proposed, specified — Entry points for versioning backends
+- [DSS-0006](DSS-0006-history-level-backend-contract.md) — proposed, specified — History-level backend contract with a layered git backend
+- [DSS-0007](DSS-0007-git-command-line.md) — proposed, specified — git through its command line, not a git library

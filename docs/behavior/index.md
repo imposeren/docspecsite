@@ -2,7 +2,7 @@
 title: What docspecsite does
 summary: Plain-language overview of docspecsite — a tool that checks a repo's docs against the docs-driven method and renders every version of every doc as a static site — and where its requirements, commands and settings are described.
 layer: behavior
-status: implemented
+status: specified
 components: [docs-system]
 tags: [overview]
 related:
@@ -16,6 +16,7 @@ docspecsite is the tool behind the [docs-driven template](https://github.com/imp
 
 - It **checks** the docs on every commit: front matter, links, indexes, file names, and that no doc is deleted or renamed.
 - It **renders** a static site in which every doc has its own history: every commit that changed a doc is a version with its own page, a diff and a loud warning when it is not the latest.
+  The history comes from the project's version control, git by default; a project without one gets a site with only the current version of each doc.
 - It **answers questions** about the docs without rendering: which docs match some front-matter values, and which docs link to a given doc.
 - It **generates a code reference** from a project's Python code and links docs and code both ways.
 
@@ -29,6 +30,7 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 - [configuration.md](configuration.md) — The `docspecsite.toml` settings file at the root of a checked repo.
 - [web-api-reference.md](web-api-reference.md) — The planned HTTP API reference rendered from a committed web API schema.
 - [repo-subdirectory.md](repo-subdirectory.md) — Planned support for a docs project in a subdirectory of a git repo.
-- [tag-versions.md](tag-versions.md) — A planned setting that keeps only the doc versions current at the repo's tags.
+- [versioning-backends.md](versioning-backends.md) — Planned choice of where versions come from: git, no version control, or another version control from a separate package; versions from tags only.
+- [tag-versions.md](tag-versions.md) — Merged into versioning-backends.md.
 - [doc-symlinks.md](doc-symlinks.md) — Planned support for symlinks inside `docs/` that are read as their target.
 - [glossary.md](glossary.md) — docspecsite's terms in plain language.

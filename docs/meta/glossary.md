@@ -98,4 +98,5 @@ Where a doc is in its lifecycle: `draft`, `specified` (agreed, not built — i.e
 
 ### Version (of a doc)
 
-A git commit on the main branch that changed the doc. See [versioning.md](versioning.md).
+A revision (commit) on the main line of the project's version control — usually git — that changed the doc. See [versioning.md](versioning.md).
+Without version control, a doc has only its current version.

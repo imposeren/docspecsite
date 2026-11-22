@@ -1,8 +1,8 @@
 ---
 title: How docspecsite works
-summary: docspecsite's design — a small Python package that checks docs, reads per-doc history from git, renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
+summary: docspecsite's design — a small Python package that checks docs, reads per-doc history through a versioning backend (git by default), renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: implemented
+status: specified
 code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices]
 milestone: first-release
 priority: must
@@ -16,13 +16,14 @@ related:
   - architecture/decisions/DSS-0002-single-python-toolchain.md
   - architecture/dev-environment.md
   - architecture/quality-gate.md
+  - architecture/versioning-backends.md
 ---
 
 # How docspecsite works
 
 **docspecsite** is a small Python package that implements the [docs system requirements](../behavior/requirements.md).
 Those requirements are numbered `DS-1`, `DS-2`, … (DS = "docs system"), and this page cites them by number, e.g. "(DS-3)" means "this satisfies requirement DS-3 in that doc".
-It reads a repo's `docs/` and git history and writes a static site to `site/` (gitignored).
+It reads a repo's `docs/` and their history, through a versioning backend ([versioning-backends.md](versioning-backends.md)), and writes a static site to `site/` (gitignored).
 Its commands are `check`, `list`, `backlinks` and `build` ([behavior/commands.md](../behavior/commands.md)).
 Why a custom tool rather than MkDocs/Sphinx: [DSS-0001](decisions/DSS-0001-custom-per-doc-history-renderer.md) (an [architecture decision record](../meta/glossary.md#adr)).
 
@@ -48,13 +49,13 @@ Why a custom tool rather than MkDocs/Sphinx: [DSS-0001](decisions/DSS-0001-custo
   The directory holding it is named by `DOCSPECSITE_VENDOR_DIR`; without it, diagrams are shown as source.
   A static asset, not a Python dependency.
 - `griffe` (the library-only `griffelib` distribution) — docstrings → code reference pages ([DS-18](../behavior/requirements.md#generated-reference-layer)).
-- stdlib `tomllib` for `docspecsite.toml`, `difflib` for diffs, `subprocess` + the `git` CLI for history.
+- stdlib `tomllib` for `docspecsite.toml`, `difflib` for diffs, `importlib.metadata` entry points for finding versioning backends, `subprocess` + the `git` CLI for the git backend ([DSS-0007](decisions/DSS-0007-git-command-line.md)).
   No other dependencies ([DS-23](../behavior/requirements.md#running)).
 - Development only: pytest, Ruff and Pyrefly ([quality-gate.md](quality-gate.md)).
 
 ## Modules
 
-The package has one module per concern: the config file, the checks, the query commands, git history, the site build and the code reference.
+The package has one module per concern: the config file, the checks, the query commands, the versioning backends (with git and `none`), the history core works on, the site build and the code reference.
 State that several functions share lives on classes instead of being passed from function to function: the project's settings (`ProjectConfig`, read by a `ProjectConfigParser`), the loaded docs with their backlinks (`DocSet`), one check run (`Checker`), front-matter validation (`FrontMatterValidator`, with a `FrontMatterCheck` per doc), the project's code (`Codebase`) and its reference pages (`CodeReference`, with a `CodePage` per module), the index pages (`IndexRenderer`), the docs' version-aware links (`Resolver`, with the `PageLinks` of one page) and the site build (`SiteBuilder`, writing to the output directory through a `SiteWriter`).
 Each function then takes only what it uses itself, and the state each part works on is in one place.
 The generated [code reference](../reference/code/index.md) lists every module and class with its documentation.
@@ -62,7 +63,7 @@ The generated [code reference](../reference/code/index.md) lists every module an
 ## Configuration
 
 Settings come only from `docspecsite.toml` at the root of the checked repo ([DS-32](../behavior/requirements.md#settings), keys in [behavior/configuration.md](../behavior/configuration.md)).
-Every command reads the working-tree file from disk, never through git: reading the settings stays a light step that needs no history, and an old ref is built with today's settings.
+Every command reads the working-tree file from disk, never through the version control: reading the settings stays a light step that needs no history, the versioning backend is chosen from it before any history is read ([versioning-backends.md](versioning-backends.md#start-of-every-command)), and an old ref is built with today's settings.
 The settings say where the repo's code is (`code-dirs`), so docspecsite does not depend on how a project lays out or builds its code.
 One matcher (`docspecsite.config.ProjectConfig.is_code_dir`) decides which directories are code directories, both for the working tree and for the files of a ref, so `check` and `build` find the same packages; `.` (the repo root) makes `build` extract the whole tree.
 Unknown settings and invalid values are reported, never silently ignored.
@@ -76,11 +77,14 @@ The hand-written `architecture/decisions/index.md` lists ADRs grouped by prefix,
 
 ## History model
 
+Core works on the version history the selected backend returns ([versioning-backends.md](versioning-backends.md#contract)); with the `none` backend each doc has one version from disk and no `/v/` pages.
+The git backend, with `versions = "commits"` (the default), builds it as follows; `versions = "tags"` selects from the same lists ([versioning-backends.md](versioning-backends.md#git-backend)).
+
 - Ordered version list: `git rev-list --first-parent <ref>` (linear, newest first).
 - Versions of a doc: commits from that list that touch its path (`git log --first-parent --format=%H%x00%cI%x00%s <ref> -- <path>`) ([DS-4](../behavior/requirements.md#versioning), [DS-5](../behavior/requirements.md#versioning)).
 - Content of a version: `git show <commit>:<path>`, decoded as UTF-8 with a leading byte order mark dropped, as `check` reads the working tree.
 - git runs at the top level of the checked repo, and its `log` output is read with `--no-show-signature`, so a user's `log.showSignature` cannot put gpg output into it.
-- Version-aware link resolution ([DS-11](../behavior/requirements.md#rendering)): in doc A at commit X, a link to B resolves to B's newest version whose position in the first-parent list is at or after X's position (i.e. not newer than X).
+- Version-aware link resolution ([DS-11](../behavior/requirements.md#rendering)), in core and for every backend: in doc A's version X, a link to B resolves to B's newest version whose position in the backend's linear order is at or after X's position (i.e. not newer than X); with git commits mode the position is the commit's place in the first-parent list.
   If B has none, link to B's latest and add a "newer doc" marker.
 - Uncommitted working-tree changes are rendered as an extra "working copy (uncommitted)" version only when `--include-worktree` is given (useful while writing; never in CI).
   A working-tree file counts as changed when git hashes it, with its line-ending conversion and clean filters applied, to a blob other than the one in the ref's tree.
@@ -91,8 +95,8 @@ The hand-written `architecture/decisions/index.md` lists ADRs grouped by prefix,
 site/
   index.html                       rendered docs/index.md
   <path>.html                      latest version of docs/<path>.md
-  <path>/v/<short-sha>.html        each version (latest included, for permalinks)
-  <path>/v/<short-sha>.diff.html   diff vs previous version (DS-10)
+  <path>/v/<short-id>.html         each version (latest included, for permalinks); not for a versionless backend
+  <path>/v/<short-id>.diff.html    diff vs previous version (DS-10)
   reference/code/<dotted.path>.html   code reference pages (latest code only, no /v/ versions)
   tags/<tag>.html  components/<c>.html  status.html     indexes (DS-15)
   llms.txt                         machine listing (DS-16)
@@ -108,7 +112,7 @@ Some doc paths are **reserved**, because their page would take the URL of a gene
 
 The site is built in parts ([DS-35](../behavior/requirements.md#rendering)): `docs` is everything above except `reference/code/`, and `code` is `reference/code/` (module pages and the entry page `reference/code/index.html`).
 The build carries the set of parts it builds, and every link that crosses parts asks whether its target's part is in that set: the docs' resolver for `code:` links and the index and `llms.txt` entries of code modules, the code pages for `Docs:` lines, "described in" lists, links to docs and the page chrome (breadcrumb, components, status badge).
-A link into a part that is not built becomes text, or, from the code reference to a doc, a link to the doc's Markdown file under `<source-url>/blob/<commit>/docs/`.
+A link into a part that is not built becomes text, or, from the code reference to a doc, a link to the doc's Markdown file through the backend's `file-link` pattern (with git by default `<source-url>/blob/<commit>/docs/…`).
 A code-only build also writes the entry page as `index.html`, with its links relative to the root.
 Since the entry page has no old versions, a link to it from an old version of a doc leads to its latest page with the "current code" marker, like an old version's `code:` link.
 A build never reuses pages of an earlier build with other parts: a page's links depend on the parts, and the manifest leaves `--out` holding only what this build wrote.
@@ -120,12 +124,12 @@ Every page: breadcrumb, title, status badge, components and tags (linked to inde
 **Contents:** a doc with at least `toc-min-headings` `##` sections gets a generated "Contents" list of its `##` headings, each with its `###` headings nested, inserted in the body right before the first `##` section, so after the summary paragraph when there is one ([meta/authoring.md](../meta/authoring.md#page-shape)).
 It links to the same heading anchors that `docspecsite check` validates, and every version of the doc gets it.
 
-**Old versions** ([DS-9](../behavior/requirements.md#rendering)): a full-width sticky red banner "⚠ OLD VERSION — <date>, <short-sha> — this is NOT the current spec. → Latest version"; `<title>` prefixed with `[OLD]`; tinted page background.
+**Old versions** ([DS-9](../behavior/requirements.md#rendering)): a full-width sticky red banner "⚠ OLD VERSION — <date>, <short-id> — this is NOT the current spec. → Latest version"; `<title>` prefixed with `[OLD]`; tinted page background.
 **Redirect docs** ([DS-12](../behavior/requirements.md#rendering)): no automatic redirect. A normal page with a prominent notice box ("Renamed / Moved / Merged / Split / Became a directory / Replaced by … / Removed"), links to the replacement doc(s), the reason, the doc's own body, and its version picker. Links from other docs to a redirect doc are shown with a small "→ moved" marker.
 
 ## Code reference
 
-Python code is loaded once, from the built ref, with griffe: every package directly inside a `code-dirs` directory.
+Python code is loaded once, from the code directories the backend gives for the built revision, with griffe: every package directly inside a `code-dirs` directory.
 Only the **latest** code gets pages ([DS-18](../behavior/requirements.md#generated-reference-layer)): no version picker, no `/v/` pages; older code is read with git or an IDE.
 The hand-written entry page `docs/reference/code/index.md` follows the code: it is built from its latest version only, also in a full build ([DS-7](../behavior/requirements.md#rendering)).
 Each module gets one page, built from the code's structure as well as its docstrings, in the spirit of Sphinx's autodoc:
@@ -134,7 +138,7 @@ Each module gets one page, built from the code's structure as well as its docstr
 - for each class: base classes (linked), the class docstring, then **members** — methods, properties, attributes and class variables — each with full **signature, type annotations and defaults**, decorators (e.g. `@property`, `@classmethod`), and its docstring; inherited members listed separately with a link to where they are defined;
 - parameters, return values and raised exceptions from docstring sections (Google style), merged with the annotations;
 - every type in a signature linked to its own reference entry when it is project code;
-- every member with its own anchor and a link to its source at the built commit (under `source-url`);
+- every member with its own anchor and a link to its source at the built revision (through the backend's `file-link` pattern);
 - member sections collapsible and a per-page member index, so large classes stay navigable.
 
 Each page gets synthesized front matter (`layer: reference`, `components` from `code-components`) and goes through the same pipeline as other docs.
@@ -162,10 +166,10 @@ With `--strict`, the build sets `error` filters for both warning categories.
 
 ## Incremental builds
 
-A cache in `.docspecsite-cache/` (gitignored; inside the checked repo, so it persists between container runs) keys rendered HTML by (blob sha, hash of the resolved link targets, docspecsite version).
+A cache in `.docspecsite-cache/` (gitignored; inside the checked repo, so it persists between container runs) keys rendered HTML by (the version's content key from the backend — git's blob sha —, hash of the resolved link targets, docspecsite version).
 Only changed versions and pages whose link targets moved are re-rendered ([DS-24](../behavior/requirements.md#running)).
-A diff page's body is kept by the blob shas of its two versions, so an unchanged pair is not diffed again.
-The cache has one root per docspecsite version and set of built parts, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
+A diff page's body is kept by the content keys of its two versions, so an unchanged pair is not diffed again.
+The cache has one root per docspecsite version, set of built parts and versioning backend, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
 
 ## Docker image
 
@@ -177,6 +181,7 @@ The default, `runtime` (the last stage), is the image other repos use for `list`
 - the vendored Mermaid bundle is in `/opt/docspecsite-vendor`, named by `DOCSPECSITE_VENDOR_DIR`;
 - the entrypoint is `docspecsite`, the working directory `/repo`, and `git config --system --add safe.directory /repo` is set, so the image works for any user ID.
 
+The image holds the built-in backends; a project that uses a third-party backend builds its own image `FROM` this one with the backend's package added ([versioning-backends.md](versioning-backends.md#operational-notes)).
 A project builds it with docker compose straight from this repo's git URL at a release tag (`build: context: https://github.com/imposeren/docspecsite.git#vX.Y.Z`) and bind-mounts its own repo at `/repo`; no registry is involved.
 Only `src/` and the files uv installs from are copied into the image (`.dockerignore`).
 
@@ -184,7 +189,8 @@ The `dev` target shares the base (Python, git, Mermaid) and installs every depen
 
 ## prek hook
 
-`.pre-commit-hooks.yaml` defines one hook, `docs-check`: `docspecsite check --staged` with `language: python`, so prek installs docspecsite from this repo at the pinned tag into an environment of its own.
+`.pre-commit-hooks.yaml` defines one hook, `docs-check`: `docspecsite check --optional-checks git:staged` with `language: python`, so prek installs docspecsite from this repo at the pinned tag into an environment of its own.
+A third-party backend is added to the hook's environment through `additional_dependencies`.
 It runs on every commit (`always_run`, no file names passed), because a commit that only deletes or renames a doc stages no file that a filter could match ([DS-6](../behavior/requirements.md#versioning), [DS-21](../behavior/requirements.md#checks)).
 
 ## How other repos use docspecsite
@@ -194,7 +200,7 @@ Its settings are in its own `docspecsite.toml`.
 Step by step: [guides/using-docspecsite.md](../guides/using-docspecsite.md).
 How releases are named: [versioning.md](versioning.md).
 
-docspecsite checks its own docs with its own source, not a release: its `.pre-commit-config.yaml` runs `uv run docspecsite check --staged` ([quality-gate.md](quality-gate.md)).
+docspecsite checks its own docs with its own source, not a release: its `.pre-commit-config.yaml` runs `uv run docspecsite check --optional-checks git:staged` ([quality-gate.md](quality-gate.md)).
 
 ## See also
 

@@ -54,4 +54,4 @@ code: [my_project.orders.checkout]
 | `date` | ADRs only | `YYYY-MM-DD` of the decision. |
 
 Unknown fields are allowed but should be added here before use, so the schema stays discoverable.
-Depth and version information are **never** stored in front matter — they come from the path and from git.
+Depth and version information are **never** stored in front matter — they come from the path and from version control.

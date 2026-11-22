@@ -2,7 +2,7 @@
 title: Components
 summary: The list of docspecsite's components — the allowed values of the `components` front-matter field and the path segments used across layers.
 layer: architecture
-status: implemented
+status: specified
 components: []
 tags: [overview, components]
 related:
@@ -22,9 +22,10 @@ Add a component here in the same change that first uses it.
 | Component | Meaning |
 | -- | -- |
 | `cli` | The `docspecsite` command line, its settings file (`docspecsite.toml`) and how it reports errors. |
-| `checks` | `docspecsite check`: front matter, ADR file names, links, indexes, names, staged deletes and renames. |
+| `checks` | `docspecsite check`: front matter, ADR file names, links, indexes, names, and the optional checks. |
 | `queries` | `docspecsite list` and `docspecsite backlinks`: answers about the docs without rendering. |
-| `site` | `docspecsite build`: per-doc history from git, rendered pages, diffs, index pages, the machine listing and the build cache. |
+| `site` | `docspecsite build`: per-doc history from the versioning backend, rendered pages, diffs, index pages, the machine listing and the build cache. |
+| `versioning` | Versioning backends: choosing one, the `git` and `none` backends, the contract other backends implement, and their optional checks. |
 | `code-reference` | Loading a project's Python code, its reference pages, and links between docs and code. |
 | `distribution` | How other repos get docspecsite: the Docker image, the prek hook and release tags. |
 
