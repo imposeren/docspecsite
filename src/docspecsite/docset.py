@@ -10,10 +10,10 @@ from types import MappingProxyType
 from typing import Self
 
 from .config import ProjectConfig
-from .docs import Doc, derive_doc_path, is_template
+from .docs import DOCS_DIR, Doc, derive_doc_path, is_template
 from .links import DocLinks
 from .query import Backlink, Filters
-from .text import read_text
+from .text import UnreadableTextError, read_text
 
 
 class DocSet:
@@ -27,14 +27,22 @@ class DocSet:
     docs: tuple[Doc, ...]
     """See :meth:`__init__`."""
 
-    def __init__(self, docs: Iterable[Doc]) -> None:
+    read_errors_by_path: Mapping[str, UnreadableTextError]
+    """See :meth:`__init__`."""
+
+    def __init__(
+        self, docs: Iterable[Doc], read_errors_by_path: Mapping[str, UnreadableTextError] | None = None
+    ) -> None:
         """Hold docs and index them by path.
 
         Args:
             docs: Docs with distinct paths, in the order :attr:`docs` keeps them.
+            read_errors_by_path: Why each doc that could not be read is left out of ``docs``, by path relative to
+                ``docs/``; None means every doc was read.
         """
         self.docs = tuple(docs)
         self.by_path = MappingProxyType({doc.path: doc for doc in self.docs})
+        self.read_errors_by_path = MappingProxyType({} if read_errors_by_path is None else dict(read_errors_by_path))
 
     def __iter__(self) -> Iterator[Doc]:
         """Return an iterator over the docs in their order."""
@@ -49,14 +57,35 @@ class DocSet:
     def load(cls, root: Path) -> Self:
         """Return the docs of a repository's working tree, sorted by path.
 
-        Every ``docs/**/*.md`` is read except templates.
+        Every ``docs/**/*.md`` is read except templates. A doc that cannot be read or is not valid UTF-8 is left out,
+        with its error in :attr:`read_errors_by_path`.
 
         Args:
             root: Repository root; docs are read from its ``docs/`` directory in the working tree, not from git.
         """
         docs_dir = root / "docs"
         files = {f.relative_to(docs_dir).as_posix(): f for f in docs_dir.rglob("*.md") if f.is_file()}
-        return cls([Doc.parse(path, read_text(files[path])) for path in sorted(files) if not is_template(path)])
+        docs: list[Doc] = []
+        read_errors_by_path: dict[str, UnreadableTextError] = {}
+        for path in sorted(files):
+            if is_template(path):
+                continue
+            try:
+                docs.append(Doc.parse(path, read_text(files[path])))
+            except UnreadableTextError as error:
+                read_errors_by_path[path] = error
+        return cls(docs, read_errors_by_path)
+
+    def require_readable(self) -> Self:
+        """Return this doc set if every doc was read.
+
+        Raises:
+            UnreadableTextError: A doc could not be read or is not valid UTF-8; the message names the first such doc.
+        """
+        if self.read_errors_by_path:
+            path = min(self.read_errors_by_path)
+            raise UnreadableTextError("%s%s: %s", DOCS_DIR, path, self.read_errors_by_path[path])
+        return self
 
     def select(self, filters: Filters, config: ProjectConfig) -> list[Doc]:
         """Return the docs matching all filters, sorted by path with ADRs ordered by prefix first.

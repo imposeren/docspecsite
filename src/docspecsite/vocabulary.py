@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Self
 
 from .markdown import MarkdownText
-from .text import read_text
+from .text import UnreadableTextError, read_text
 
 
 @dataclass(frozen=True)
@@ -42,13 +42,20 @@ class Vocabulary:
     def load(cls, root: Path) -> Self:
         """Return the vocabulary found in the docs of a repository.
 
+        A vocabulary doc that cannot be read or is not valid UTF-8 counts as missing.
+
         Args:
             root: Repository root whose working-tree ``docs/`` holds the vocabulary docs.
         """
 
         def read(path: str) -> str | None:
             file = root / "docs" / path
-            return read_text(file) if file.is_file() else None
+            if not file.is_file():
+                return None
+            try:
+                return read_text(file)
+            except UnreadableTextError:
+                return None
 
         return cls.parse(read)
 

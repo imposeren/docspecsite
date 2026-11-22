@@ -289,7 +289,8 @@ class Codebase:
                 to find the packages.
 
         Raises:
-            CodeError: A package's code cannot be loaded, such as code that is not valid UTF-8.
+            CodeError: A package's code cannot be loaded, such as code that is not valid UTF-8, or a package name is
+                found in more than one code directory.
             griffe.GriffeError: griffe cannot load a package.
         """
         packages = cls.find_packages(root, config)
@@ -322,6 +323,9 @@ class Codebase:
             root: Directory holding the code: the repository root, or the code extracted from the ref.
             config: Settings whose :attr:`~docspecsite.config.ProjectConfig.code_dirs` globs are expanded under
                 ``root``.
+
+        Raises:
+            CodeError: A package name is found in more than one code directory.
         """
         root = root.resolve()
         candidates: set[Path] = set()
@@ -335,6 +339,13 @@ class Codebase:
             for package_dir in sorted(code_dir.iterdir()):
                 if package_dir.is_dir() and (package_dir / "__init__.py").is_file():
                     packages.append(Package(package_dir.name, package_dir, repo_code_dir))
+        # Repo paths of the code directories holding each package name, in code directory order.
+        code_dirs_by_name: dict[str, list[str]] = {}
+        for package in packages:
+            code_dirs_by_name.setdefault(package.name, []).append(package.repo_code_dir)
+        for name, repo_code_dirs in sorted(code_dirs_by_name.items()):
+            if len(repo_code_dirs) > 1:
+                raise CodeError("package %s is in more than one code directory: %s", name, ", ".join(repo_code_dirs))
         return packages
 
     @classmethod

@@ -108,31 +108,44 @@ def test_build_old_and_latest(repo: HistoryRepo, tmp_path: Path) -> None:
     assert 'href="../../b.html"' in permalink
 
 
-def test_build_is_incremental(repo: HistoryRepo, tmp_path: Path) -> None:
+def test_build_is_incremental(repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root, _ = repo
     site_dir = tmp_path / "site"
     first_build = run_build(root, "main", site_dir)
     assert first_build.rendered_count > 0
+    diff_calls: list[int] = []
+    render_diff_html = SiteBuilder.render_diff_html
+
+    def count_diff(old: str, new: str) -> str:
+        diff_calls.append(1)
+        return render_diff_html(old, new)
+
+    monkeypatch.setattr(SiteBuilder, "render_diff_html", staticmethod(count_diff))
     second_build = run_build(root, "main", site_dir)
+    assert not diff_calls
     assert second_build.rendered_count == 0
     assert second_build.cached_count == first_build.rendered_count + first_build.cached_count
     write_doc(root, "meta/b.md", "No links. Changed once more.\n")
     make_commit(root, "spec: change b again", "2026-11-07T12:00:00+00:00")
     third_build = run_build(root, "main", site_dir)
-    assert third_build.rendered_count == 1
-    assert third_build.rendered_count + third_build.cached_count == second_build.cached_count + 1
+    assert third_build.rendered_count == 2  # the new version's body and its diff
+    assert third_build.rendered_count + third_build.cached_count == second_build.cached_count + 2
+    assert diff_calls == [1]  # pruning kept the other diffs, so only the new one is diffed
 
 
 def test_build_relative_links_only(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
     write_doc(
-        root, "meta/d.md", "See [a](a.md#x), [dir](../architecture/), [img](pic.png) and [code](code:sample.mod).\n"
+        root,
+        "meta/d.md",
+        "See [a](a.md#x), [dir](../architecture/), [home](../), [img](pic.png) and [code](code:sample.mod).\n",
     )
     (root / "docs/meta/pic.png").write_bytes(b"\x89PNG")
     make_commit(root, "spec: add d", "2026-11-07T12:00:00+00:00")
     site_dir = tmp_path / "site"
     run_build(root, "main", site_dir)
     assert (site_dir / "meta/pic.png").read_bytes() == b"\x89PNG"
+    assert '<a href="../index.html">home</a>' in _read(site_dir, "meta/d.html")  # the docs root is its index doc
     pages = list(site_dir.rglob("*.html"))
     assert pages
     for page in pages:
@@ -183,6 +196,19 @@ def test_write_site_writes_only_changed_files(tmp_path: Path) -> None:
     assert (site_dir / "a.html").stat().st_mtime_ns == touched >= stamp
     assert not (site_dir / "d/b.html").exists()
     assert (site_dir / "d/c.html").read_bytes() == b"c"
+
+
+def test_write_site_switches_files_and_directories(tmp_path: Path) -> None:
+    site_dir = tmp_path / "out"
+    SiteWriter(site_dir).write({"notes": b"n", "d/v/x.html": b"x", "e/f/g.html": b"g", "k/a.html": b"a"})
+    (site_dir / "k/mine.txt").write_text("mine", encoding="utf-8")
+    SiteWriter(site_dir).write({"notes/v/a.html": b"a", "d": b"d"})
+    assert (site_dir / "notes/v/a.html").read_bytes() == b"a"
+    assert (site_dir / "d").read_bytes() == b"d"
+    assert not (site_dir / "e").exists()
+    assert (site_dir / "k/mine.txt").is_file()
+    SiteWriter(site_dir).write({})
+    assert sorted(p.name for p in site_dir.iterdir()) == [SiteWriter.MANIFEST_FILENAME, "k"]
 
 
 def test_write_site_refuses_paths_outside_out(tmp_path: Path) -> None:
@@ -451,6 +477,21 @@ def test_build_code_error_is_a_warning(repo: HistoryRepo, tmp_path: Path, monkey
     assert "cannot load code: cannot locate Docs: lines of sample.mod" in _get_messages(recorded)
 
 
+def test_build_package_in_two_code_dirs_is_a_warning(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    other = root / "tools/other/src/sample"
+    other.mkdir(parents=True)
+    (other / "__init__.py").write_text('"""Other sample."""\n', encoding="utf-8")
+    make_commit(root, "add a second sample package", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    with pytest.warns(DocspecsiteWarning) as recorded:
+        run_build(root, "main", site_dir)
+    assert (site_dir / "meta/a.html").is_file()
+    assert not (site_dir / "reference/code/sample.html").exists()
+    expected = "cannot load code: package sample is in more than one code directory: tools/other/src, tools/sample/src"
+    assert expected in _get_messages(recorded)
+
+
 def test_build_code_page_error_is_local(repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root, _ = repo
     original = CodeReference.build_page
@@ -487,6 +528,28 @@ def test_build_code_template_error_is_local(repo: HistoryRepo, tmp_path: Path, m
         "reference/code/sample.base: DocspecsiteError: no code template",
         "reference/code/sample.mod: DocspecsiteError: no code template",
     )
+
+
+def test_build_keeps_generated_pages_over_docs_at_reserved_paths(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    write_doc(root, "meta/tagged.md", tags=["t"])
+    write_doc(root, "status.md", "Mine.\n", title="My status")
+    write_doc(root, "tags/t.md", "Mine.\n", title="My tag")
+    write_doc(root, "reference/code/sample.md", "Mine.\n", title="My module")
+    make_commit(root, "add docs at reserved paths", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result = run_build(root, "main", site_dir)
+    message = "ReservedPathError: reserved path: the doc's page would take the URL of"
+    assert build_result.errors == (
+        f"docs/reference/code/sample.md: {message} the code reference pages",
+        f"docs/status.md: {message} the status page",
+        f"docs/tags/t.md: {message} the tag pages",
+    )
+    assert build_result.failed_count == 3
+    assert "My status" not in _read(site_dir, "status.html")
+    assert "My tag" not in _read(site_dir, "tags/t.html")
+    assert "My module" not in _read(site_dir, "reference/code/sample.html")
+    assert not (site_dir / "status/v").exists()
 
 
 def test_build_docs_files_colliding_with_generated_files(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -661,10 +724,10 @@ def _break_doc(monkeypatch: pytest.MonkeyPatch, path: str, error: BaseException)
     """
     original = SiteBuilder.build_doc_page
 
-    def raise_in_doc_page(self: SiteBuilder, v: Version, *args: Any) -> Page:
+    def raise_in_doc_page(self: SiteBuilder, v: Version, *args: Any, **kwargs: Any) -> Page:
         if v.path == path:
             raise error
-        return original(self, v, *args)
+        return original(self, v, *args, **kwargs)
 
     monkeypatch.setattr(SiteBuilder, "build_doc_page", raise_in_doc_page)
 
@@ -1115,6 +1178,7 @@ def _add_code_only_docs(root: Path) -> str:
     )
     (root / "docs/reference/code/diagram.png").write_bytes(b"\x89PNG")
     write_doc(root, "meta/x.md", "X.\n", title="X doc", code=["sample.mod"])
+    write_doc(root, "meta/y.md", "See [the code](../reference/code/index.md).\n", title="Y doc")
     return make_commit(root, "spec: add the code reference", "2026-11-07T12:00:00+00:00")
 
 
@@ -1149,6 +1213,8 @@ def test_build_code_only(repo: HistoryRepo, tmp_path: Path) -> None:
     assert 'src="diagram.png"' in entry
     related = extract_aside(entry, "related")
     assert f'<a href="{docs_blob_url}/meta/x.md">X doc</a>' in related
+    backlinks = extract_aside(entry, "backlinks")
+    assert f'<a href="{docs_blob_url}/meta/y.md">Y doc</a>' in backlinks
     mod = _read(site_dir, "reference/code/sample.mod.html")
     breadcrumb = mod.split('<nav class="breadcrumb">', 1)[1].split("</nav>", 1)[0]
     assert '\nindex<span class="sep">' in breadcrumb  # the home doc, titled by its file name
@@ -1191,12 +1257,15 @@ def test_build_code_only_without_source_url(repo: HistoryRepo, tmp_path: Path) -
     entry = _read(site_dir, "reference/code/index.html")
     assert "and X.</p>" in entry
     assert "meta/x.md" not in entry
+    backlinks = extract_aside(entry, "backlinks")
+    assert "meta/y.md" in backlinks
+    assert "<a" not in backlinks
 
 
 def test_build_code_only_worktree_new_doc(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
     head_sha = _add_code_only_docs(root)
-    write_doc(root, "meta/new.md", "New.\n", title="New doc")
+    write_doc(root, "meta/new.md", "See [the code](../reference/code/index.md).\n", title="New doc")
     edit_text(
         root / "tools/sample/src/sample/mod.py",
         lambda text: text.replace("Docs: meta/vocabulary.md\n", "Docs: meta/vocabulary.md\nDocs: meta/new.md\n", 1),
@@ -1207,6 +1276,10 @@ def test_build_code_only_worktree_new_doc(repo: HistoryRepo, tmp_path: Path) -> 
     assert f'href="https://github.com/o/r/blob/{head_sha}/docs/meta/vocabulary.md"' in docs_links
     new_item = docs_links.split("meta/new.md", 1)[0].rsplit("<li>", 1)[1]
     assert "<a" not in new_item
+    backlinks = extract_aside(_read(site_dir, "reference/code/index.html"), "backlinks")
+    assert f'<a href="https://github.com/o/r/blob/{head_sha}/docs/meta/y.md">Y doc</a>' in backlinks
+    new_backlink = backlinks.split("meta/new.md", 1)[0].rsplit("<li>", 1)[1]
+    assert "<a" not in new_backlink
 
 
 def test_build_docs_line_to_missing_doc_is_text(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -1221,3 +1294,33 @@ def test_build_docs_line_to_missing_doc_is_text(repo: HistoryRepo, tmp_path: Pat
     docs_links = _extract_docs_links(_read(site_dir, "reference/code/sample.mod.html"))
     missing_item = docs_links.split("meta/missing.md", 1)[0].rsplit("<li>", 1)[1]
     assert "<a" not in missing_item
+
+
+def test_build_doc_with_a_byte_order_mark(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    file = write_doc(root, "meta/a.md", "Saved with a BOM.\n", title="Doc with a BOM")
+    edit_text(file, lambda text: f"\ufeff{text}")
+    make_commit(root, "spec: a with a BOM", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir)
+    page = _read(site_dir, "meta/a.html")
+    assert "<h1>Doc with a BOM</h1>" in page
+    assert "title: Doc with a BOM" not in page
+
+
+def test_build_leaves_out_unsafe_symlinks_in_code_dirs(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    pkg = root / "tools/sample/src/sample"
+    (pkg / "absolute").symlink_to("/usr/share")
+    (pkg / "outside").symlink_to("../../../../docs")
+    make_commit(root, "add symlinks", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    with pytest.warns(DocspecsiteWarning) as recorded:
+        run_build(root, "main", site_dir)
+    messages = _get_messages(recorded)
+    for name in ("absolute", "outside"):
+        assert (
+            f"tools/sample/src/sample/{name}: symlink to an absolute path or out of the code directories, left out"
+            in messages
+        )
+    assert (site_dir / "reference/code/sample.mod.html").is_file()

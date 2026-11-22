@@ -3,7 +3,6 @@
 Docs: meta/versioning.md
 """
 
-import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -13,6 +12,7 @@ from typing import ClassVar, Self
 from .docs import DOCS_DIR, derive_doc_path, is_template, make_dir_index_path
 from .errors import DocspecsiteError
 from .git import Commit, Git
+from .text import NOT_UTF8_MESSAGE, decode_text
 
 
 @dataclass(frozen=True)
@@ -108,16 +108,6 @@ class History:
         index_path = make_dir_index_path(path)
         return index_path if index_path in self.versions_by_path else path
 
-    def find_previous(self, version: Version) -> Version | None:
-        """Return the version just before another, or None when that is its doc's first.
-
-        Args:
-            version: Version of a doc in this history; the result is the next older version of the same doc.
-        """
-        versions = self.versions_by_path[version.path]
-        index = versions.index(version)
-        return versions[index + 1] if index + 1 < len(versions) else None
-
     def is_latest(self, version: Version) -> bool:
         """Return whether a version is the newest of its doc.
 
@@ -162,7 +152,7 @@ class History:
         """
         if not self.is_decodable(version):
             raise NotUtf8Error(
-                "docs/%s: not valid UTF-8 (%s at byte %d)", version.path, *self.decode_errors_by_sha[version.blob_sha]
+                f"{DOCS_DIR}%s: {NOT_UTF8_MESSAGE}", version.path, *self.decode_errors_by_sha[version.blob_sha]
             )
         return self.texts_by_sha[version.blob_sha]
 
@@ -197,36 +187,30 @@ class History:
 
         worktree_bytes_by_sha: dict[str, bytes] = {}
         if worktree_root is not None:
-            for repo_path in git.list_worktree_files(DOCS_DIR):
-                path = repo_path.removeprefix(DOCS_DIR)
-                if not cls.is_doc(path):
-                    continue
-                worktree_bytes = (worktree_root / repo_path).read_bytes()
-                sha = cls.compute_blob_sha(worktree_bytes)
-                if sha != tree.get(f"{DOCS_DIR}{path}"):
-                    worktree_bytes_by_sha[sha] = worktree_bytes
+            worktree_doc_paths = [
+                repo_path
+                for repo_path in git.list_worktree_files(DOCS_DIR)
+                if cls.is_doc(repo_path.removeprefix(DOCS_DIR))
+            ]
+            for repo_path, sha in git.hash_files(worktree_doc_paths).items():
+                if sha != tree.get(repo_path):
+                    path = repo_path.removeprefix(DOCS_DIR)
+                    worktree_bytes_by_sha[sha] = (worktree_root / repo_path).read_bytes()
                     version = Version(path, None, -1, sha)
                     versions.setdefault(path, []).insert(0, version)
 
         committed_bytes_by_sha = git.read_blobs(v.blob_sha for vs in versions.values() for v in vs if not v.is_worktree)
         texts_by_sha: dict[str, str] = {}
         decode_errors_by_sha: dict[str, tuple[str, int]] = {}
-        for sha, data in {**committed_bytes_by_sha, **worktree_bytes_by_sha}.items():
+        # A working-tree file whose filtered contents match a committed blob keeps the blob's bytes: the file's own
+        # bytes may differ (such as in line endings), and committed versions show the committed text.
+        for sha, data in {**worktree_bytes_by_sha, **committed_bytes_by_sha}.items():
             try:
-                texts_by_sha[sha] = data.decode("utf-8")
+                texts_by_sha[sha] = decode_text(data)
             except UnicodeDecodeError as error:
                 decode_errors_by_sha[sha] = (error.reason, error.start)
         versions_by_path = {path: tuple(vs) for path, vs in versions.items()}
         return cls(head, versions_by_path, texts_by_sha, frozenset(tree), decode_errors_by_sha)
-
-    @staticmethod
-    def compute_blob_sha(data: bytes) -> str:
-        """Return the git blob SHA hash of some contents.
-
-        Args:
-            data: Raw bytes of a working-tree file, hashed as git would so they can be compared with the tree's blob.
-        """
-        return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
     @staticmethod
     def is_doc(path: str) -> bool:

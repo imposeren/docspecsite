@@ -19,7 +19,7 @@ from .check import Checker
 from .config import ConfigError, ProjectConfig
 from .docset import DocSet
 from .errors import DOCSPECSITE_WARNINGS
-from .git import GitError, UnknownRefError
+from .git import Git, GitError, UnknownRefError
 from .parts import parse_parts
 from .query import (
     Filters,
@@ -27,6 +27,7 @@ from .query import (
     format_list,
     resolve_doc_path,
 )
+from .text import UnreadableTextError
 
 
 class CommandParser:
@@ -48,7 +49,7 @@ class CommandParser:
             "--repo",
             type=Path,
             default=Path("."),
-            help="repository root containing docs/",
+            help="top level of the git repository containing docs/",
         )
         commands = parser.add_subparsers(dest="command", metavar="command")
 
@@ -139,8 +140,8 @@ def run_check_command(args: argparse.Namespace) -> int:
 def run_list_command(args: argparse.Namespace) -> int:
     """Run the ``list`` command and print the matching docs.
 
-    Returns exit status 1 when ``docspecsite.toml`` is not valid TOML or has an invalid value, else 0. Unknown
-    settings are printed as warnings.
+    Returns exit status 1 when ``docspecsite.toml`` is not valid TOML or has an invalid value, or when a doc cannot be
+    read or is not valid UTF-8, else 0. Unknown settings are printed as warnings.
 
     Args:
         args: Parsed ``list`` options; ``repo``, the filters and ``format`` are used.
@@ -159,23 +160,33 @@ def run_list_command(args: argparse.Namespace) -> int:
         milestone=args.milestone,
         priority=args.priority,
     )
-    sys.stdout.write(format_list(DocSet.load(args.repo).select(filters, config), args.format))
+    try:
+        doc_set = DocSet.load(args.repo).require_readable()
+    except UnreadableTextError as error:
+        print(f"docspecsite list: {error}", file=sys.stderr)
+        return 1
+    sys.stdout.write(format_list(doc_set.select(filters, config), args.format))
     return 0
 
 
 def run_backlinks_command(args: argparse.Namespace) -> int:
     """Run the ``backlinks`` command and print the result.
 
-    Returns exit status 2 when the argument is not a doc, else 0.
+    Returns exit status 1 when a doc cannot be read or is not valid UTF-8, 2 when the argument is not a doc, else 0.
 
     Args:
         args: Parsed ``backlinks`` options; ``repo``, ``path`` (the doc to find links to) and ``format`` are used.
     """
+    try:
+        doc_set = DocSet.load(args.repo).require_readable()
+    except UnreadableTextError as error:
+        print(f"docspecsite backlinks: {error}", file=sys.stderr)
+        return 1
     target = resolve_doc_path(args.repo, args.path)
     if target is None:
         print(f"not a doc: {args.path}", file=sys.stderr)
         return 2
-    sys.stdout.write(format_backlinks(DocSet.load(args.repo).backlinks_by_target.get(target, ()), args.format))
+    sys.stdout.write(format_backlinks(doc_set.backlinks_by_target.get(target, ()), args.format))
     return 0
 
 
@@ -263,6 +274,8 @@ def run_build_command(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Run the ``docspecsite`` command line and return the exit status.
 
+    Every command stops with exit status 1 when the checked repo is a subdirectory of a git repository.
+
     Args:
         argv: Arguments after the program name, e.g. ``["check", "--staged"]``; None reads ``sys.argv``.
     """
@@ -272,6 +285,11 @@ def main(argv: list[str] | None = None) -> int:
     if handler is None:
         parser.print_usage()
         return 0
+    try:
+        Git(args.repo).require_top_level()
+    except GitError as error:
+        print(f"docspecsite: {error}", file=sys.stderr)
+        return 1
     return handler(args)
 
 

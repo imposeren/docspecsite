@@ -54,6 +54,15 @@ def test_find_packages(code_tree: Path, tmp_path_factory: pytest.TempPathFactory
     assert Codebase.find_packages(tmp_path_factory.mktemp("empty"), ProjectConfig.from_bytes(None)) == []
 
 
+def test_find_packages_rejects_a_name_in_two_code_dirs(code_tree: Path) -> None:
+    other = code_tree / "tools/other/src/sample"
+    other.mkdir(parents=True)
+    (other / "__init__.py").write_text('"""Other sample."""\n', encoding="utf-8")
+    with pytest.raises(CodeError) as raised:
+        Codebase.find_packages(code_tree, ProjectConfig.load(code_tree))
+    assert str(raised.value) == "package sample is in more than one code directory: tools/other/src, tools/sample/src"
+
+
 def test_index_targets(code_tree: Path) -> None:
     codebase = load_sample_code(code_tree)
     assert codebase.index.get("sample.mod") == CodeTarget("sample.mod", None)

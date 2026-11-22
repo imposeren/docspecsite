@@ -201,15 +201,18 @@ def docs_tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def run_git(root: Path, *args: str, env: Mapping[str, str] | None = None) -> str:
+def run_git(root: Path, *args: str, env: Mapping[str, str] | None = None, input: str | None = None) -> str:
     """Run ``git -C <root> <args>``, raise if it fails, and return its output without surrounding whitespace.
 
     Args:
         root: Repository the command runs in (``-C``).
         *args: Git subcommand and its arguments.
         env: Environment of the command, such as commit dates; None inherits the test process's environment.
+        input: Text fed to the command's stdin, such as an object for ``hash-object --stdin``; None feeds none.
     """
-    completed = subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True, env=env)
+    completed = subprocess.run(
+        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True, env=env, input=input
+    )
     return completed.stdout.strip()
 
 

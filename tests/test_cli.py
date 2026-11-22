@@ -13,6 +13,7 @@ from docspecsite.build import BuildResult
 from docspecsite.cli import main
 from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteWarning, InternalErrorWarning
+from docspecsite.git import Git, GitError
 
 
 def test_version_prints_name_and_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -124,6 +125,19 @@ def test_cli_list_accepts_a_byte_order_mark(docs_tree: Path, capsys: pytest.Capt
     assert adr_paths[:2] == ["architecture/decisions/PYRF-0001-b.md", "architecture/decisions/APP-0001-a.md"]
 
 
+@pytest.mark.parametrize("command", [["list"], ["backlinks", "index.md"], ["backlinks", "nope.md"]])
+def test_cli_list_and_backlinks_stop_on_undecodable_doc(
+    docs_tree: Path, capsys: pytest.CaptureFixture[str], command: list[str]
+) -> None:
+    (docs_tree / "docs/meta/latin.md").write_bytes(b"---\ntitle: Caf\xe9\n---\n")
+    assert main(["--repo", str(docs_tree), *command]) == 1
+    captured = capsys.readouterr()
+    assert captured.err == (
+        f"docspecsite {command[0]}: docs/meta/latin.md: not valid UTF-8 (invalid continuation byte at byte 14)\n"
+    )
+    assert captured.out == ""
+
+
 def test_cli_backlinks_unknown_path_exit_2(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--repo", str(docs_tree), "backlinks", "nope.md"]) == 2
     assert "not a doc: nope.md" in capsys.readouterr().err
@@ -226,7 +240,7 @@ def test_cli_build_pythonwarnings_error_shows_internal_error_traceback(git_repo:
         "import sys\n"
         "from docspecsite import build\n"
         "from docspecsite.cli import main\n"
-        "def build_broken_page(*args):\n"
+        "def build_broken_page(*args, **kwargs):\n"
         "    raise RuntimeError('injected bug')\n"
         "build.SiteBuilder.build_doc_page = build_broken_page\n"
         "sys.exit(main(sys.argv[1:]))\n"
@@ -269,3 +283,44 @@ def test_cli_check_code_flag(code_tree: Path, capsys: pytest.CaptureFixture[str]
     assert main(["--repo", str(code_tree), "check"]) == 0
     assert main(["--repo", str(code_tree), "check", "--code"]) == 1
     assert "unknown code element: :func:`.nope`" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "command", [["check"], ["list"], ["backlinks", "index.md"], ["build", "--out", "site"]], ids=lambda c: c[0]
+)
+def test_cli_stops_at_a_subdirectory_of_a_git_repo(
+    git_repo: Path, capsys: pytest.CaptureFixture[str], command: list[str]
+) -> None:
+    subdirectory = git_repo / "docs"
+    assert main(["--repo", str(subdirectory), *command]) == 1
+    assert capsys.readouterr().err == (
+        f"docspecsite: {subdirectory} must be the top level of its git repo (subdirectories are not supported yet)\n"
+    )
+
+
+def test_cli_stops_in_a_subdirectory_of_a_git_repo_by_default(
+    git_repo: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(git_repo / "docs")
+    assert main(["check"]) == 1
+    assert "must be the top level of its git repo" in capsys.readouterr().err
+
+
+def test_cli_list_without_git(
+    docs_tree: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", str(docs_tree / "no-bin"))
+    assert main(["--repo", str(docs_tree), "list", "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize("command", [["check"], ["list"], ["backlinks", "index.md"]], ids=lambda c: c[0])
+def test_cli_runs_when_git_cannot_tell_the_top_level(
+    docs_tree: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], command: list[str]
+) -> None:
+    def refuse(_git: Git, *args: str, stdin: bytes | None = None) -> bytes:
+        raise GitError("git %s failed: %s", args[0], "fatal: detected dubious ownership in repository")
+
+    monkeypatch.setattr(Git, "run", refuse)
+    assert main(["--repo", str(docs_tree), *command]) == 0
+    assert capsys.readouterr().err == ""

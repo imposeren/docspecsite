@@ -44,7 +44,10 @@ from .pages import (
 from .parts import Part
 from .urls import (
     CODE_INDEX_DOC,
+    COMPONENT_PAGES_DIR,
+    RESERVED_PATH_MESSAGE,
     STATUS_PAGE,
+    TAG_PAGES_DIR,
     PageLinks,
     Resolver,
     encode_href_path,
@@ -55,6 +58,7 @@ from .urls import (
     make_doc_url,
     make_relative_url,
     make_version_url,
+    map_reserved_owners,
 )
 from .vocabulary import Vocabulary
 
@@ -69,6 +73,10 @@ VENDOR_ENV = "DOCSPECSITE_VENDOR_DIR"
 
 class BuildError(DocspecsiteError):
     """Error for a site that cannot be built: an invalid root ``docspecsite.toml``, or a failed strict build."""
+
+
+class ReservedPathError(DocspecsiteError):
+    """Error for a doc whose page would take the URL of a generated page."""
 
 
 @dataclass(frozen=True)
@@ -129,7 +137,8 @@ class SiteWriter:
         """Write the site's files below the output directory and remove files left over from the previous build.
 
         Only files whose bytes changed are rewritten. ``<out>/.docspecsite-manifest`` lists the files written; nothing
-        outside the previous manifest is ever deleted.
+        outside the previous manifest is ever deleted. The leftover files are deleted first, together with the
+        directories they leave empty, so a path may turn from a file into a directory, or back, between builds.
 
         Args:
             files: Every file of the new site, as bytes by site path relative to the output directory; files of the
@@ -142,21 +151,39 @@ class SiteWriter:
         self.out.mkdir(parents=True, exist_ok=True)
         manifest = self.out / self.MANIFEST_FILENAME
         previous_paths = manifest.read_text(encoding="utf-8").splitlines() if manifest.is_file() else []
+        for path in previous_paths:
+            if path not in files and self.is_inside(path):
+                self.delete_leftover(path)
         refused_paths: list[str] = []
         for path, data in files.items():
             if self.is_inside(path):
                 self.write_if_changed(self.out / path, data)
             else:
                 refused_paths.append(path)
-        for path in previous_paths:
-            if path in files or not self.is_inside(path):
-                continue
-            target = self.out / path
-            if target.is_file() and not target.is_symlink():
-                target.unlink()
         written = sorted(path for path in files if path not in refused_paths)
         self.write_if_changed(manifest, "".join(f"{path}\n" for path in written).encode())
         return refused_paths
+
+    def delete_leftover(self, path: str) -> None:
+        """Delete a file of the previous build, and the directories above it that it leaves empty.
+
+        A symlink or a directory at the path is kept, and so is every directory that still holds something; the output
+        directory itself is never removed.
+
+        Args:
+            path: Site path from the previous manifest, relative to the output directory; it must stay inside it.
+        """
+        target = self.out / path
+        if not target.is_file() or target.is_symlink():
+            return
+        target.unlink()
+        for parent in PurePosixPath(path).parents:
+            if parent == PurePosixPath("."):
+                break
+            try:
+                (self.out / parent).rmdir()
+            except OSError:
+                break  # not empty, or not a directory
 
     @staticmethod
     def is_relative_down(path: str) -> bool:
@@ -426,8 +453,26 @@ class SiteBuilder:
         """
         return cls.is_code_doc(path)
 
+    @cached_property
+    def reserved_owners_by_path(self) -> Mapping[str, str]:
+        """The generated pages whose URL the page of a doc at a reserved path would take, by the doc's path.
+
+        Paths are relative to ``docs/``; docs at other paths have no entry.
+        """
+        return MappingProxyType(map_reserved_owners(self.history.versions_by_path))
+
     def is_built_doc(self, path: str) -> bool:
         """Return whether the pages of a doc are built, given the parts built.
+
+        A doc at a reserved path, whose page would take the URL of a generated page, is never built.
+
+        Args:
+            path: Doc path relative to ``docs/``.
+        """
+        return self.is_doc_part_built(path) and path not in self.reserved_owners_by_path
+
+    def is_doc_part_built(self, path: str) -> bool:
+        """Return whether the part of the site that a doc belongs to is built.
 
         Args:
             path: Doc path relative to ``docs/``.
@@ -725,32 +770,84 @@ class SiteBuilder:
 
         These are its latest page, a ``/v/`` page per version and the diff pages. Each is named ``docs/<path>@<id>``
         in error lines. The code reference index has only its latest page: no ``/v/`` page, diff page or picker.
+        A doc at a reserved path, whose page would take the URL of a generated page, gets none: one page named
+        ``docs/<path>`` fails instead, with a :exc:`ReservedPathError`.
 
         Args:
             extra_children: Child links shown on a doc's pages, by doc path relative to ``docs/``; the build gives the
                 code reference index its top-level packages. Docs missing from it get none.
         """
         pages: list[Pending] = []
+        for path, owner in sorted(self.reserved_owners_by_path.items()):
+            if self.is_doc_part_built(path):
+                pages.append((f"{DOCS_DIR}{path}", partial(self.refuse_reserved_doc, owner)))
         for path in sorted(filter(self.is_built_doc, self.history.versions_by_path)):
             versions = self.history.versions_by_path[path]
-            backlink_list = tuple(
-                PageLink(b.title or b.doc.path, make_doc_url(b.doc.path))
-                for b in self.latest_docs.backlinks_by_target.get(path, ())
-                if self.is_built_doc(b.doc.path)
-            )
+            backlink_list = self.build_backlink_list(path)
             child_list = extra_children.get(path, ())
             if self.is_versionless(path):
-                versions = [self.history.find_latest(path)]
-            for version in versions:
-                name = f"{DOCS_DIR}{path}@{version.short_id}"
-                urls = self.list_page_urls(version)
-                pages.extend(
-                    (name, partial(self.build_doc_page, version, url, backlink_list, child_list)) for url in urls
+                versions = (self.history.find_latest(path),)
+                picker_entries: tuple[PickerEntry, ...] = ()
+            else:
+                picker_entries = tuple(
+                    PickerEntry(make_picker_label(version), self.make_version_page_url(version), is_current=False)
+                    for version in versions
                 )
-                previous = self.find_diff_base(version)
-                if previous is not None:
-                    pages.append((name, partial(self.build_diff_page, version, previous)))
+            for version, previous in zip(versions, (*versions[1:], None), strict=True):
+                name = f"{DOCS_DIR}{path}@{version.short_id}"
+                diff_base = self.find_diff_base(version, previous)
+                pages.extend(
+                    (
+                        name,
+                        partial(
+                            self.build_doc_page,
+                            version,
+                            url,
+                            backlink_list,
+                            child_list,
+                            picker_entries,
+                            has_diff_page=diff_base is not None,
+                        ),
+                    )
+                    for url in self.list_page_urls(version)
+                )
+                if diff_base is not None:
+                    pages.append((name, partial(self.build_diff_page, version, diff_base)))
         return pages
+
+    def build_backlink_list(self, path: str) -> tuple[PageLink, ...]:
+        """Return the links to the latest docs that link to a doc, as its pages show them.
+
+        A linking doc goes where :meth:`locate_doc` says: its page when its pages are built. A doc of the docs part in a
+        build without that part (a code-only build, whose entry page shows it) that it gives no URL is its path as text.
+        Other linking docs whose pages are not built, such as the code reference's entry page in a build without the
+        code part, are left out.
+
+        Args:
+            path: Path relative to ``docs/`` of the linked doc.
+        """
+        backlink_list: list[PageLink] = []
+        for backlink in self.latest_docs.backlinks_by_target.get(path, ()):
+            source_path = backlink.doc.path
+            if not self.is_built_doc(source_path) and (self.is_code_doc(source_path) or self.is_docs_part_built):
+                continue
+            url = self.locate_doc(source_path)
+            backlink_list.append(
+                PageLink(backlink.title or source_path, url) if url is not None else PageLink(source_path, None)
+            )
+        return tuple(backlink_list)
+
+    @staticmethod
+    def refuse_reserved_doc(owner: str) -> Page:
+        """Fail the page of a doc at a reserved path.
+
+        Args:
+            owner: The generated pages whose URL the doc's page would take, for the error message.
+
+        Raises:
+            ReservedPathError: Always.
+        """
+        raise ReservedPathError(RESERVED_PATH_MESSAGE, owner)
 
     def list_page_urls(self, version: Version) -> list[str]:
         """Return the site paths the page of a version is written to.
@@ -771,20 +868,33 @@ class SiteBuilder:
             urls.append(make_version_url(path, version.short_id))
         return urls
 
-    def find_diff_base(self, version: Version) -> Version | None:
+    def find_diff_base(self, version: Version, previous: Version | None) -> Version | None:
         """Return the earlier version that the diff page of a version compares it with, or None.
 
         None means the version has no diff page; a versionless doc has none. A version that is not valid UTF-8 has no
         diff and is no version's previous one; its own pages report it.
 
         Args:
-            version: Version whose diff page is considered; the first version of a doc has none.
+            version: Version whose diff page is considered.
+            previous: The version of the same doc just before ``version``; None for the doc's first version, which has
+                no diff page.
         """
-        if self.is_versionless(version.path):
+        if self.is_versionless(version.path) or previous is None:
             return None
-        previous = self.history.find_previous(version)
-        has_diff = previous is not None and self.history.is_decodable(previous) and self.history.is_decodable(version)
+        has_diff = self.history.is_decodable(previous) and self.history.is_decodable(version)
         return previous if has_diff else None
+
+    def make_version_page_url(self, version: Version) -> str:
+        """Return the site path of the page the picker and diff pages link a version to.
+
+        It is the doc's page for the latest version, else the version's ``/v/`` page.
+
+        Args:
+            version: Version of a doc whose pages are built.
+        """
+        if self.history.is_latest(version):
+            return make_doc_url(version.path)
+        return make_version_url(version.path, version.short_id)
 
     def build_common_page(self, version: Version, url: str) -> Page:
         """Return the page of a version at a URL with the parts every doc page shares.
@@ -818,35 +928,28 @@ class SiteBuilder:
         url: str,
         backlink_list: tuple[PageLink, ...],
         child_list: tuple[PageLink, ...],
+        picker_entries: tuple[PickerEntry, ...],
+        *,
+        has_diff_page: bool,
     ) -> Page:
         """Return the page of a version, with picker, related docs, backlinks and children.
 
         Args:
-            version: Version shown on the page; the picker lists all versions of its doc.
+            version: Version shown on the page.
             url: Site path the page is written to; the latest version is built at both the doc's URL and its ``/v/``
                 URL.
             backlink_list: Links to the latest docs that link to this doc, the same for every version.
             child_list: Extra child links of the doc (the code reference index's packages); empty for other docs.
+            picker_entries: The picker's entries for all versions of the doc, the same for every version, with none
+                current; the page marks the entry of ``version``. Empty for a doc without a picker.
+            has_diff_page: Whether the version has a diff page, which the page links to.
         """
         if self.resolver is None:
             raise RuntimeError("the resolver is made by run(), before the pages are built")
         front_matter = self.get_front_matter(version) or {}
         root_links = PageLinks(self.resolver, version, self.ROOT_PAGE)
-        latest_version = self.history.find_latest(version.path)
-        picker = (
-            ()
-            if self.is_versionless(version.path)
-            else tuple(
-                PickerEntry(
-                    make_picker_label(other),
-                    make_doc_url(version.path)
-                    if other == latest_version
-                    else make_version_url(version.path, other.short_id),
-                    other == version,
-                )
-                for other in self.history.versions_by_path[version.path]
-            )
-        )
+        current_url = self.make_version_page_url(version)
+        picker = tuple(PickerEntry(entry.label, entry.url, entry.url == current_url) for entry in picker_entries)
         redirect = None
         if is_redirect(front_matter):
             kind = str(front_matter.get("redirect_kind", ""))
@@ -860,9 +963,7 @@ class SiteBuilder:
             self.build_common_page(version, url),
             body_html=body,
             picker=picker,
-            diff_url=make_diff_url(version.path, version.short_id)
-            if self.find_diff_base(version) is not None
-            else None,
+            diff_url=make_diff_url(version.path, version.short_id) if has_diff_page else None,
             redirect=redirect,
             children=child_list,
             children_heading="Packages",
@@ -879,11 +980,7 @@ class SiteBuilder:
             previous: Version just before ``version``, as :meth:`find_diff_base` returns it; the older side.
         """
         diff_url = make_diff_url(version.path, version.short_id)
-        version_url = (
-            make_doc_url(version.path)
-            if self.history.is_latest(version)
-            else make_version_url(version.path, version.short_id)
-        )
+        version_url = self.make_version_page_url(version)
         previous_url = make_version_url(previous.path, previous.short_id)
         previous_href = escape(make_relative_url(previous_url, diff_url))
         version_href = escape(make_relative_url(version_url, diff_url))
@@ -891,7 +988,12 @@ class SiteBuilder:
             f'<p class="diff-versions">Changes from <a href="{previous_href}">{escape(make_picker_label(previous))}</a>'
             f' to <a href="{version_href}">{escape(make_picker_label(version))}</a></p>\n'
         )
-        body = heading + self.render_diff_html(self.history.read_text(previous), self.history.read_text(version))
+        diff_html = self.cache.get_diff_body(
+            previous.blob_sha,
+            version.blob_sha,
+            lambda: self.render_diff_html(self.history.read_text(previous), self.history.read_text(version)),
+        )
+        body = heading + diff_html
         page = self.build_common_page(version, diff_url)
         return replace(page, title=f"Diff: {page.title}", body_html=body)
 
@@ -1023,7 +1125,8 @@ class SiteBuilder:
         """Provide the directory the code is read from, or None when the code part is not built.
 
         That is the working tree with :attr:`include_worktree`, or else the ref's code directories extracted to a
-        temporary directory that is removed on exit.
+        temporary directory that is removed on exit. A symlink there that points to an absolute path or out of the code
+        directories is left out, with a :class:`~docspecsite.errors.DocspecsiteWarning` naming it.
         """
         if not self.is_code_part_built:
             yield None
@@ -1034,7 +1137,13 @@ class SiteBuilder:
         with TemporaryDirectory(prefix="docspecsite-code-") as tmp:
             dirs = self.find_code_dirs()
             if dirs:
-                self.git.extract(self.history.head, dirs, Path(tmp))
+                for path in self.git.extract(self.history.head, dirs, Path(tmp)):
+                    warnings.warn(
+                        DocspecsiteWarning(
+                            "%s: symlink to an absolute path or out of the code directories, left out", path
+                        ),
+                        stacklevel=1,
+                    )
             yield Path(tmp)
 
     def read_latest_text(self, path: str) -> str | None:
@@ -1179,7 +1288,7 @@ class SiteBuilder:
             page.url
             for _, page in pages
             if page.url == STATUS_PAGE
-            or (page.url.startswith(("tags/", "components/")) and SiteWriter.is_relative_down(page.url))
+            or (page.url.startswith((TAG_PAGES_DIR, COMPONENT_PAGES_DIR)) and SiteWriter.is_relative_down(page.url))
         )
         for name, page in pages:
             self.emit(name, page, index_urls)

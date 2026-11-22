@@ -1,3 +1,4 @@
+import codecs
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -240,6 +241,73 @@ def test_run_reports_code_outside_its_package_dir_as_code_problem(code_tree: Pat
     assert "sample" in bad.message
 
 
+def test_run_reports_undecodable_doc_and_checks_the_others(docs_tree: Path) -> None:
+    (docs_tree / "docs/meta/latin.md").write_bytes(b"---\ntitle: Caf\xe9\n---\n")
+    _list_in_meta_index(docs_tree, "latin")
+    write_doc(docs_tree, "meta/a.md", "# A\n\n[x](nope.md)\n")
+    _list_in_meta_index(docs_tree, "a")
+    messages = [str(p) for p in Checker(docs_tree).run(include_staged=False)]
+    assert "docs/meta/latin.md: not valid UTF-8 (invalid continuation byte at byte 14)" in messages
+    assert any(m.startswith("docs/meta/a.md:") and "nope.md does not exist" in m for m in messages)
+
+
+def test_check_indexes_skips_undecodable_index(docs_tree: Path) -> None:
+    index_file = docs_tree / "docs/meta/index.md"
+    index_file.write_bytes(index_file.read_bytes() + b"\xff\n")
+    assert find_index_problems(docs_tree) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_run_reports_unreadable_doc(docs_tree: Path) -> None:
+    write_doc(docs_tree, "meta/locked.md")
+    _list_in_meta_index(docs_tree, "locked")
+    (docs_tree / "docs/meta/locked.md").chmod(0)
+    messages = [str(p) for p in Checker(docs_tree).run(include_staged=False)]
+    assert messages == ["docs/meta/locked.md: cannot be read: Permission denied"]
+
+
+def test_run_reports_undecodable_vocabulary_doc(docs_tree: Path) -> None:
+    vocabulary_file = docs_tree / "docs/meta/vocabulary.md"
+    vocabulary_file.write_bytes(vocabulary_file.read_bytes() + b"\xff\n")
+    messages = [str(p) for p in Checker(docs_tree).run(include_staged=False)]
+    assert any(m.startswith("docs/meta/vocabulary.md: not valid UTF-8 (invalid start byte at byte ") for m in messages)
+
+
+@pytest.mark.parametrize(("prefix", "offset"), [(b"", 3), (codecs.BOM_UTF8, 6)], ids=["plain", "bom"])
+def test_check_links_to_undecodable_target_with_anchor(docs_tree: Path, prefix: bytes, offset: int) -> None:
+    (docs_tree / "docs/meta/templates").mkdir()
+    (docs_tree / "docs/meta/templates/x.md").write_bytes(prefix + b"# T\xff\n")
+    write_doc(docs_tree, "meta/a.md", "# A\n\n[t](templates/x.md#t)\n")
+    [problem] = find_link_problems(docs_tree)
+    assert problem.startswith("docs/meta/a.md:")
+    assert problem.endswith(
+        f': cannot check heading "#t": docs/meta/templates/x.md: not valid UTF-8 (invalid start byte at byte {offset})'
+    )
+
+
+def test_run_reports_a_package_in_two_code_dirs(code_tree: Path) -> None:
+    other = code_tree / "tools/other/src/sample"
+    other.mkdir(parents=True)
+    (other / "__init__.py").write_text('"""Other sample."""\n', encoding="utf-8")
+    messages = [str(p) for p in Checker(code_tree).run(include_staged=False, include_code=True)]
+    assert messages == [
+        "(code): cannot load code: package sample is in more than one code directory: tools/other/src, tools/sample/src"
+    ]
+
+
+def test_run_reports_docs_at_reserved_paths(docs_tree: Path) -> None:
+    write_doc(docs_tree, "status.md")
+    write_doc(docs_tree, "meta/a.md")
+    write_doc(docs_tree, "meta/a/v/x.md")
+    write_doc(docs_tree, "reference/code/index.md")
+    message = "reserved path: the doc's page would take the URL of"
+    reserved = [str(p) for p in Checker(docs_tree).run(include_staged=False) if "reserved path" in p.message]
+    assert reserved == [
+        f"docs/meta/a/v/x.md: {message} the version pages of docs/meta/a.md",
+        f"docs/status.md: {message} the status page",
+    ]
+
+
 def test_run_reports_schema_problems(docs_tree: Path) -> None:
     write_doc(docs_tree, "meta/a.md", components=["nope"])
     messages = [str(p) for p in Checker(docs_tree).run(include_staged=False)]
@@ -335,6 +403,17 @@ def test_check_docs_lines_missing_anchor(code_tree: Path) -> None:
     )
     problems = [str(p) for p in Checker(code_tree).check_docs_lines()]
     assert 'tools/sample/src/sample/mod.py:3: no heading "#nope" in docs/meta/vocabulary.md' in problems
+
+
+def test_check_docs_lines_to_undecodable_doc(code_tree: Path) -> None:
+    module_file = code_tree / "tools/sample/src/sample/mod.py"
+    module_file.write_text(
+        module_file.read_text(encoding="utf-8").replace("meta/vocabulary.md", "meta/vocabulary.md#nope"),
+        encoding="utf-8",
+    )
+    vocabulary_file = code_tree / "docs/meta/vocabulary.md"
+    vocabulary_file.write_bytes(vocabulary_file.read_bytes() + b"\xff\n")
+    assert [str(p) for p in Checker(code_tree).check_docs_lines()] == []
 
 
 def test_run_reports_unlocatable_docs_line(code_tree: Path) -> None:

@@ -1,6 +1,7 @@
 """Incremental-build cache of link hrefs and rendered page bodies.
 
-Unchanged versions are not re-rendered: hrefs are cached per blob and body HTML per fingerprint, blob and link targets.
+Unchanged versions are not re-rendered: hrefs are cached per blob, body HTML per fingerprint, blob and link targets,
+and diff HTML per fingerprint and the blobs of its two versions.
 
 Docs: architecture/docs-tooling.md
 """
@@ -22,11 +23,15 @@ from .markdown import RenderedLink
 class BodyCache:
     """On-disk cache of rendered page bodies.
 
-    It has two levels: link hrefs per blob and body HTML per blob and rendering. Entries this instance did not use are
-    removed by :meth:`prune`.
+    It has two levels: link hrefs per blob and body HTML per blob and rendering, with diff HTML per pair of blobs.
+    Entries this instance did not use are removed by :meth:`prune`.
     """
 
     # Constants
+    DIFF_KEY_PREFIX = "diff\0"
+    """Start of the :meth:`get_body` key of a diff entry, before the older blob's SHA hash; body keys never start with
+    it."""
+
     MARKER_FILENAME = ".docspecsite-cache-root"
     """Name of the file that marks a cache root as made by this cache, so :meth:`prune` may remove it."""
 
@@ -172,6 +177,18 @@ class BodyCache:
         body_html = compute()
         self.store(path, body_html.encode())
         return body_html
+
+    def get_diff_body(self, old_blob_sha: str, new_blob_sha: str, compute: Callable[[], str]) -> str:
+        """Return the diff HTML between two blobs, from the cache or else computed (and cached).
+
+        It is counted like a page body in :attr:`hit_count` and :attr:`miss_count`.
+
+        Args:
+            old_blob_sha: Git blob SHA hash of the older version's text, the ``-`` side of the diff.
+            new_blob_sha: Git blob SHA hash of the newer version's text, the ``+`` side.
+            compute: Called only on a miss to diff the two texts; its result is stored.
+        """
+        return self.get_body(new_blob_sha, f"{self.DIFF_KEY_PREFIX}{old_blob_sha}", compute)
 
     def store(self, path: Path, data: bytes) -> None:
         """Write a cache entry.

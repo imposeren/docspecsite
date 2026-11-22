@@ -1,4 +1,4 @@
-"""The checks of a repository's docs: front matter, links, code links, indexes, names and staged deletes.
+"""The checks of a repository's docs: front matter, links, code links, indexes, names, reserved paths, staged deletes.
 
 Docs: behavior/requirements.md#checks
 Docs: architecture/docs-tooling.md
@@ -19,7 +19,8 @@ from .links import DocLinks
 from .markdown import MarkdownText
 from .problems import DocCheck, Problem
 from .schema import FrontMatterValidator
-from .text import read_text
+from .text import UnreadableTextError, read_text
+from .urls import RESERVED_PATH_MESSAGE, map_reserved_owners
 from .vocabulary import Vocabulary
 
 # A directory under docs/: its path, and the names of its subdirectories and of its other children, each sorted.
@@ -70,8 +71,15 @@ class LinkCheck(DocCheck):
                         f'"{ref.kind}" must be a doc (path relative to docs/): {ref.target}',
                     )
                 )
-            elif ref.anchor and is_existing_doc_target and ref.anchor not in self.read_heading_anchors(ref.target):
-                problems.append(Problem(doc.path, ref.line_number, f'no heading "#{ref.anchor}" in {ref.target}'))
+            elif ref.anchor and is_existing_doc_target:
+                try:
+                    heading_anchors = self.read_heading_anchors(ref.target)
+                except UnreadableTextError as error:
+                    message = f'cannot check heading "#{ref.anchor}": {ref.target}: {error}'
+                    problems.append(Problem(doc.path, ref.line_number, message))
+                    continue
+                if ref.anchor not in heading_anchors:
+                    problems.append(Problem(doc.path, ref.line_number, f'no heading "#{ref.anchor}" in {ref.target}'))
         return problems
 
     def read_heading_anchors(self, target: str) -> set[str]:
@@ -81,6 +89,9 @@ class LinkCheck(DocCheck):
 
         Args:
             target: Path of an existing Markdown file relative to the repository root.
+
+        Raises:
+            UnreadableTextError: The file cannot be read or is not valid UTF-8.
         """
         if target not in self.heading_anchors_by_target:
             target_text = MarkdownText(read_text(self.root / target))
@@ -174,8 +185,12 @@ class Checker:
 
     @cached_property
     def doc_set(self) -> DocSet:
-        """The working-tree docs."""
-        return DocSet.load(self.root)
+        """The working-tree docs; each doc that cannot be read is left out, and recorded as a problem on it."""
+        doc_set = DocSet.load(self.root)
+        self.loading_problems.extend(
+            Problem(path, None, str(error)) for path, error in doc_set.read_errors_by_path.items()
+        )
+        return doc_set
 
     @cached_property
     def docs_tree(self) -> list[DocsDirectory]:
@@ -256,8 +271,8 @@ class Checker:
     def run(self, include_staged: bool, include_code: bool = False) -> list[Problem]:
         """Run all checks of the docs and return the problems found, sorted and without duplicates.
 
-        The checks cover front matter, links and their heading anchors, directory indexes, file names, links from
-        the code, and the settings; the full list is the project's requirement DS-20. The references in the
+        The checks cover front matter, links and their heading anchors, directory indexes, file names, reserved paths,
+        links from the code, and the settings; the full list is the project's requirement DS-20. The references in the
         docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when ``include_code`` is set, by
         :meth:`check_code_references`.
 
@@ -277,6 +292,7 @@ class Checker:
                 problems.extend(doc_check.check(doc))
         problems.extend(self.check_indexes())
         problems.extend(self.check_names())
+        problems.extend(self.check_reserved_paths())
         try:
             if include_code:
                 problems.extend(self.check_code_references())
@@ -319,6 +335,8 @@ class Checker:
         problems: list[Problem] = []
         for docs_line in self.codebase.collect_docs_lines():
             path, _, anchor = docs_line.target.partition("#")
+            if path in self.doc_set.read_errors_by_path:
+                continue  # an unreadable doc is a problem of its own
             doc = self.doc_set.by_path.get(path)
             if doc is None:
                 message = f"Docs: line points to a missing doc: {path}"
@@ -333,6 +351,7 @@ class Checker:
         """Check that every directory under ``docs/`` has an ``index.md`` listing its children; return the problems.
 
         Each child must be listed with a description under the ``## Children`` heading; redirect docs need no entry.
+        A directory whose index cannot be read is not checked.
         The directories and child files come from :attr:`docs_tree`, the ``## Children`` lists from the docs.
         """
         docs_dir = self.root / "docs"
@@ -341,6 +360,8 @@ class Checker:
             directory_path = directory.relative_to(docs_dir).as_posix()
             directory_path = "" if directory_path == "." else directory_path
             index_path = make_dir_index_path(directory_path)
+            if index_path in self.doc_set.read_errors_by_path:
+                continue  # an unreadable doc is a problem of its own
             index_doc = self.doc_set.by_path.get(index_path)
             if index_doc is None:
                 problems.append(Problem(directory_path, None, "directory has no index.md"))
@@ -409,6 +430,14 @@ class Checker:
                 reported_directories.append(path)
             problems.append(Problem(path.relative_to(docs_dir).as_posix(), None, self.FORBIDDEN_NAME_MESSAGE))
         return problems
+
+    def check_reserved_paths(self) -> list[Problem]:
+        """Check that no doc's page would take the URL of a generated page; return the problems.
+
+        Docs that could not be read count too.
+        """
+        owners_by_path = map_reserved_owners({*self.doc_set.by_path, *self.doc_set.read_errors_by_path})
+        return [Problem(path, None, RESERVED_PATH_MESSAGE % owner) for path, owner in sorted(owners_by_path.items())]
 
     def find_staged_deletes_renames(self) -> list[Problem]:
         """Return the problems for docs that are staged as deleted or renamed in git.

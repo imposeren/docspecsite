@@ -11,7 +11,7 @@ from docspecsite.errors import DocspecsiteWarning
 from docspecsite.git import Git
 from docspecsite.history import History, Version
 from docspecsite.markdown import RenderedLink
-from docspecsite.urls import MARKERS, PageLinks, Resolver, make_relative_url
+from docspecsite.urls import MARKERS, PageLinks, Resolver, find_reserved_owner, make_relative_url
 
 SOURCE = "https://github.com/o/r"
 CONFIG = ProjectConfig((), SOURCE, {})
@@ -289,3 +289,25 @@ def test_old_link_to_versionless_doc(history_repo: HistoryRepo) -> None:
     )
     old_link = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("b.md#s")
     assert old_link == RenderedLink("../../b.html#s", (MARKERS["code-current"],))
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("status.md", "the status page"),
+        ("tags/x.md", "the tag pages"),
+        ("tags/index.md", "the tag pages"),
+        ("components/a/b.md", "the component pages"),
+        ("reference/code/sample.mod.md", "the code reference pages"),
+        ("reference/code/index.md", None),
+        ("meta/v/x.md", "the version pages of docs/meta.md"),
+        ("meta/v/deep/x.md", "the version pages of docs/meta.md"),
+        ("index/v/x.md", "the version pages of docs/index.md"),
+        ("guides/v/x.md", None),
+        ("v/x.md", None),
+        ("meta/status.md", None),
+        ("tags.md", None),
+    ],
+)
+def test_find_reserved_owner(path: str, expected: str | None) -> None:
+    assert find_reserved_owner(path, {"index.md", "meta.md", path}) == expected

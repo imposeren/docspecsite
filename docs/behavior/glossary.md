@@ -2,7 +2,7 @@
 title: Glossary — docspecsite terms
 summary: Plain-language definitions of the terms docspecsite's docs and output use — checked repo, problem, ref, site, page, version, code reference, ADR prefix.
 layer: behavior
-status: specified
+status: implemented
 components: []
 tags: [glossary]
 related:

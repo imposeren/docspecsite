@@ -9,7 +9,8 @@ Docs: meta/linking.md
 import posixpath
 import re
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Container, Mapping
+from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Protocol
 from urllib.parse import quote
@@ -27,6 +28,20 @@ URL_SCHEME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 CODE_INDEX_DOC = "reference/code/index.md"
 STATUS_PAGE = "status.html"
 """Site path of the status page, the index page of every doc's status; every page links to it when it is built."""
+
+TAG_PAGES_DIR = "tags/"
+"""Site directory of the index pages of the tags."""
+
+COMPONENT_PAGES_DIR = "components/"
+"""Site directory of the index pages of the components."""
+
+CODE_PAGES_DIR = "reference/code/"
+"""Site directory of the code reference pages, one per module."""
+
+VERSIONS_DIR_NAME = "v"
+"""Name of the directory beside a doc's page that holds the pages of its versions and their diffs."""
+
+RESERVED_PATH_MESSAGE = "reserved path: the doc's page would take the URL of %s"
 
 MARKERS: Mapping[str, Marker] = MappingProxyType(
     {
@@ -48,6 +63,55 @@ def make_doc_url(path: str) -> str:
     return f"{path.removesuffix('.md')}.html"
 
 
+def make_versions_dir(path: str) -> str:
+    """Return the site directory of the version and diff pages of a doc, ``x/y/v/`` for ``x/y.md``.
+
+    Args:
+        path: Doc path relative to ``docs/``; the directory sits beside its page.
+    """
+    return f"{path.removesuffix('.md')}/{VERSIONS_DIR_NAME}/"
+
+
+def find_reserved_owner(path: str, doc_paths: Container[str]) -> str | None:
+    """Return which generated pages a doc's page would take the URL of, or None when the doc's path is not reserved.
+
+    Reserved are the status page's path, every path under the tag, component and code reference page directories but
+    the code reference's entry page, and every path under the version page directory of another doc. The result
+    names the pages for the user, such as ``the status page``.
+
+    Docs: architecture/docs-tooling.md#output-layout
+
+    Args:
+        path: Doc path relative to ``docs/``.
+        doc_paths: Paths of every doc, relative to ``docs/``; a doc owns the version page directory beside its page.
+    """
+    url = make_doc_url(path)
+    if url == STATUS_PAGE:
+        return "the status page"
+    if url.startswith(TAG_PAGES_DIR):
+        return "the tag pages"
+    if url.startswith(COMPONENT_PAGES_DIR):
+        return "the component pages"
+    if url.startswith(CODE_PAGES_DIR) and path != CODE_INDEX_DOC:
+        return "the code reference pages"
+    for directory in PurePosixPath(path).parents:
+        owner_path = f"{directory.parent}.md"
+        if directory.name == VERSIONS_DIR_NAME and directory.parent.name and owner_path in doc_paths:
+            return f"the version pages of {DOCS_DIR}{owner_path}"
+    return None
+
+
+def map_reserved_owners(doc_paths: Collection[str]) -> dict[str, str]:
+    """Return which generated pages the page of each doc at a reserved path would take the URL of, by doc path.
+
+    The owners are named as the ``find_reserved_owner`` function names them.
+
+    Args:
+        doc_paths: Paths of every doc, relative to ``docs/``; docs at paths that are not reserved get no entry.
+    """
+    return {path: owner for path in doc_paths if (owner := find_reserved_owner(path, doc_paths)) is not None}
+
+
 def make_version_url(path: str, vid: str) -> str:
     """Return the site URL of the page of a version of a doc.
 
@@ -56,7 +120,7 @@ def make_version_url(path: str, vid: str) -> str:
         vid: :attr:`Version.short_id <docspecsite.history.Version.short_id>` of the version: a short commit SHA hash,
             or ``worktree`` for the working copy.
     """
-    return f"{path.removesuffix('.md')}/v/{vid}.html"
+    return f"{make_versions_dir(path)}{vid}.html"
 
 
 def make_diff_url(path: str, vid: str) -> str:
@@ -67,7 +131,7 @@ def make_diff_url(path: str, vid: str) -> str:
         vid: :attr:`Version.short_id <docspecsite.history.Version.short_id>` of the newer version of the diff: a short
             commit SHA hash, or ``worktree``.
     """
-    return f"{path.removesuffix('.md')}/v/{vid}.diff.html"
+    return f"{make_versions_dir(path)}{vid}.diff.html"
 
 
 def is_usable_tag(tag: str) -> bool:
@@ -89,7 +153,7 @@ def make_tag_url(tag: str) -> str:
     Args:
         tag: Tag value from front matter, unencoded; it should pass :func:`is_usable_tag`.
     """
-    return f"tags/{tag}.html"
+    return f"{TAG_PAGES_DIR}{tag}.html"
 
 
 def make_component_url(component_id: str) -> str:
@@ -100,7 +164,7 @@ def make_component_url(component_id: str) -> str:
     Args:
         component_id: Component id from a doc's or code module's ``components``, unencoded.
     """
-    return f"components/{component_id}.html"
+    return f"{COMPONENT_PAGES_DIR}{component_id}.html"
 
 
 def encode_href_path(path: str) -> str:
@@ -118,7 +182,7 @@ def make_code_url(target: CodeTarget) -> str:
     Args:
         target: Where the element is shown: its module names the page, its anchor (if any) the member on it.
     """
-    url = f"reference/code/{target.module}.html"
+    url = f"{CODE_PAGES_DIR}{target.module}.html"
     return f"{url}#{target.anchor}" if target.anchor else url
 
 

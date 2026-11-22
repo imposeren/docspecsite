@@ -15,6 +15,7 @@ from typing import ClassVar
 from .docs import is_str_list, make_string_tuple
 from .errors import DocspecsiteError, DocspecsiteWarning
 from .schema import ADR_DIR, ADR_NAME_PATTERN
+from .text import decode_text
 
 
 class ConfigError(DocspecsiteError):
@@ -93,7 +94,7 @@ class ProjectConfig:
         if not content:
             return ProjectConfigParser({}).parse()
         try:
-            text = content.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+            text = decode_text(content).replace("\r\n", "\n").replace("\r", "\n")
             settings = tomllib.loads(text)
         except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
             return replace(ProjectConfigParser({}).parse(), read_error=f"not valid TOML: {error}")
