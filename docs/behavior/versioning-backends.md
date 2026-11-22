@@ -1,6 +1,6 @@
 ---
 title: Where versions come from
-summary: Planned — a project chooses where docspecsite reads the versions of its docs from (git, no version control at all, or another version control added by a separate package), and git can give a version for every commit or only for tagged releases.
+summary: A project chooses where docspecsite reads the versions of its docs from (git, no version control at all, or another version control added by a separate package), and git can give a version for every commit or only for tagged releases.
 layer: behavior
 status: specified
 milestone: later

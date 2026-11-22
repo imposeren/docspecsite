@@ -28,9 +28,10 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 - [requirements.md](requirements.md) — The numbered docs system requirements (`DS-n`) that docspecsite satisfies.
 - [commands.md](commands.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.
 - [configuration.md](configuration.md) — The `docspecsite.toml` settings file at the root of a checked repo.
-- [web-api-reference.md](web-api-reference.md) — The planned HTTP API reference rendered from a committed web API schema.
-- [repo-subdirectory.md](repo-subdirectory.md) — Planned support for a docs project in a subdirectory of a git repo.
-- [versioning-backends.md](versioning-backends.md) — Planned choice of where versions come from: git, no version control, or another version control from a separate package; versions from tags only.
+- [web-api-reference.md](web-api-reference.md) — The HTTP API reference rendered from a committed web API schema.
+- [repo-subdirectory.md](repo-subdirectory.md) — Support for a docs project in a subdirectory of a git repo.
+- [versioning-backends.md](versioning-backends.md) — The choice of where versions come from: git, no version control, or another version control from a separate package; versions from tags only.
 - [tag-versions.md](tag-versions.md) — Merged into versioning-backends.md.
-- [doc-symlinks.md](doc-symlinks.md) — Planned support for symlinks inside `docs/` that are read as their target.
+- [doc-symlinks.md](doc-symlinks.md) — Support for symlinks inside `docs/` that are read as their target.
+- [status-notes.md](status-notes.md) — Partly built docs: a list of statuses with status notes, checked, listed and shown on the site.
 - [glossary.md](glossary.md) — docspecsite's terms in plain language.

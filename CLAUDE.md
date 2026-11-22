@@ -27,7 +27,7 @@ docspecsite checks a repo's docs against the docs-driven method and renders ever
    Replace them with a redirect doc (`status: redirect`, `redirect_kind:`, `redirect_to:`, `reason:`).
 3. Write docs as the target state in present tense.
    No TODOs, change requests or bug reports in docs.
-4. Keep `status` honest: `specified` = to do, `implemented` = true in the code.
+4. Keep `status` honest: `specified` = to do, `changed` = to do over an older form, `implemented` = true in the code; a partly built doc lists several and gives the sections that differ status notes (`docs/meta/lifecycle.md#partly-built-docs`).
 5. A technical choice not covered by an ADR (architecture decision record, in `docs/architecture/decisions/`) → write a `decision: proposed` ADR and ask.
 6. Every doc has front matter (`title, summary, layer, status, components, tags, related`); components come from `docs/architecture/components.md`.
 7. Body links are relative to the file; front-matter paths are relative to `docs/`.
@@ -52,6 +52,7 @@ docker compose run --rm typecheck                          # pyrefly, strict
 docker compose run --rm docs-check                         # validate docs (from this source)
 docker compose run --rm docs check --optional-checks code  # also validate references in the code (if the project uses it)
 docker compose run --rm docs list --status specified       # what's left to do
+docker compose run --rm docs list --status changed         # what's left to redo
 docker compose run --rm docs-build && docker compose up docs-serve   # site on http://127.0.0.1:8071
 docker compose build dev                                   # after a change to pyproject.toml or uv.lock
 docker build -t docspecsite:runtime .                      # the image other repos build

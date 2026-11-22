@@ -8,9 +8,11 @@ priority: must
 components: [docs-system]
 tags: [requirements, versioning, rendering, checks]
 related:
+  - scenarios/requirements.md
   - meta/versioning.md
   - architecture/docs-tooling.md
   - behavior/commands.md
+  - behavior/status-notes.md
 ---
 
 # Docs system requirements
@@ -63,10 +65,10 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
 
 ## Navigation and indexes
 
-- **DS-14** Each page shows: breadcrumb (up), children (down), `related` and computed **backlinks** (across), status, components and tags.
-- **DS-15** Generated index pages: per tag, per component, and a **status board** grouping docs by `status`, then by `milestone` (in roadmap order) and `priority`.
+- **DS-14** Each page shows: breadcrumb (up), children (down), `related` and computed **backlinks** (across), status (every status of a partly built doc, [DS-49](status-notes.md#requirements)), components and tags.
+- **DS-15** Generated index pages: per tag, per component, and a **status board** grouping docs by `status`, then by `milestone` (in roadmap order) and `priority`; a partly built doc is listed under each of its statuses ([DS-48](status-notes.md#requirements)).
 - **DS-16** A plain-text machine listing of all docs (path, title, summary, status, components) for agents.
-- **DS-17** A query command for agents: list docs filtered by tag / component / status / layer / milestone / priority, without rendering.
+- **DS-17** A query command for agents: list docs filtered by tag / component / status / layer / milestone / priority, without rendering; a partly built doc matches each of its statuses ([DS-47](status-notes.md#requirements)).
 - **DS-28** A query command for agents: list the docs that link to a given doc (body links, `related`, `redirect_to`), without rendering.
 - **DS-29** The rendered site is for humans. Agents use the raw Markdown and git for content, history and diffs, and lookup commands for code and the web API schema (DS-30, DS-31); the tooling provides no Markdown copies of rendered pages.
 - **DS-30** A query command for agents: print one part of the committed web API schema (an operation, the operations of a tag, or a schema) as Markdown with references resolved, without rendering.
@@ -85,10 +87,21 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 ## Checks
 
-- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), every doc is readable UTF-8, and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
+- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), every doc is readable UTF-8, every doc has its title in its place ([DS-52](#checks)), and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
+  It also checks that a partly built doc's statuses and its status notes agree ([DS-44](status-notes.md#requirements) to [DS-46](status-notes.md#requirements)).
   Doc templates are not docs and are not checked ([meta/structure.md](../meta/structure.md#outside-docs)).
   The code is not checked: specs may change before it does ([meta/linking.md](../meta/linking.md#code-links)).
   Deletes and renames under `docs/` ([DS-6](#versioning)) are an optional check of the version control's backend ([DS-43](versioning-backends.md#requirements)).
+- **DS-51** A problem may carry a **hint**: a line right under the problem that says how to fix it in this case, such as which value to add and the text of the field as it then reads ([commands.md](commands.md#check)).
+  The problem line always has the same form, so scripts can match it; the wording of the hint differs from case to case, and `check --no-hints` leaves hints out.
+  In problems and hints, every piece of exact text (a value, a field name, a status note text, a heading, text to write, a path to create) is in double quotes; the path that says where the problem is stays unquoted.
+- **DS-52** A doc's **title** is its first level-1 heading: a line that starts with a single `#`, such as `# Import`, or a line underlined with `===`; either style may be used ([meta/authoring.md](../meta/authoring.md#page-shape)).
+  A heading inside a block quote or a list is not a level-1 heading.
+  The title comes right after the front matter: only blank lines may come between them, and any other text there, an HTML comment included, is a problem.
+  A doc has exactly one level-1 heading, its title.
+  The check reports text between the front matter and the title, a doc without a title, and each level-1 heading after the title; the problems and their hints are in [commands.md](commands.md#check).
+  These rules are not checked in a doc whose front matter is missing or does not load: that is already a problem of its own.
+  The site shows the title as the page's heading; for a doc without a title, it shows the front matter's `title` instead.
 - **DS-36** A **code check**, run on demand once an implementation is done, validates the code's references: `Docs:` docstring lines point at existing docs (and headings, with an anchor), and Sphinx roles ([DS-34](#rendering)) and `code:` links in docstrings point at code the code reference shows.
 - **DS-21** The check runs automatically before code leaves a developer's machine and again in CI: docspecsite provides it, with the git backend's `git:staged` check, as a prek hook, `docs-check`, that a project pins to a release tag ([guides/using-docspecsite.md](../guides/using-docspecsite.md)).
 - **DS-33** Every doc under `docs/architecture/decisions/` other than an `index.md` is an ADR, and its file name is `<PREFIX>-NNNN-<slug>.md` ([meta/structure.md](../meta/structure.md#adr-ids)).

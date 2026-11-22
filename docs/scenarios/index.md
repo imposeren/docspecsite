@@ -27,3 +27,5 @@ Scenarios use these actor phrasings consistently:
 ## Children
 
 - [versioning-backends.md](versioning-backends.md) — Choosing where versions come from, building without version control, versions from tags only, link patterns and versioning backend checks.
+- [status-notes.md](status-notes.md) — Partly built docs: status lists and status notes in the check, `list` and on the site.
+- [requirements.md](requirements.md) — The docs check's rules on a doc's title, and the heading a page without one shows.

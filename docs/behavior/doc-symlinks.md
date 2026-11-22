@@ -1,6 +1,6 @@
 ---
 title: Symlinked docs
-summary: Planned — a symlink under docs/ that points to another file inside docs/ is read as that file, by check and in every built version.
+summary: A symlink under docs/ that points to another file inside docs/ is read as that file, by check and in every built version.
 layer: behavior
 status: specified
 milestone: later

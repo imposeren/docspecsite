@@ -1,6 +1,6 @@
 ---
 title: HTTP API reference
-summary: Planned — the HTTP API reference rendered from a project's committed web API schema, with one page per schema version, resolved `web-api:` links and a check that the committed schema is up to date.
+summary: The HTTP API reference rendered from a project's committed web API schema, with one page per schema version, resolved `web-api:` links and a check that the committed schema is up to date.
 layer: behavior
 status: specified
 milestone: web-api-reference

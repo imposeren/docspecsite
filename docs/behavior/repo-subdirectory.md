@@ -1,6 +1,6 @@
 ---
 title: Docs project in a repo subdirectory
-summary: Planned — docspecsite works on a docs project that lives in a subdirectory of a git repo, such as one service of a monorepo.
+summary: docspecsite works on a docs project that lives in a subdirectory of a git repo, such as one service of a monorepo.
 layer: behavior
 status: specified
 milestone: later

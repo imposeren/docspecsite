@@ -3,7 +3,7 @@ title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history through a versioning backend (git by default), renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
 status: specified
-code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices]
+code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices, docspecsite.docs, docspecsite.problems, docspecsite.markdown]
 milestone: first-release
 priority: must
 components: [docs-system, cli, checks, queries, site, code-reference, distribution]
@@ -17,6 +17,7 @@ related:
   - architecture/dev-environment.md
   - architecture/quality-gate.md
   - architecture/versioning-backends.md
+  - behavior/status-notes.md
 ---
 
 # How docspecsite works
@@ -89,6 +90,44 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
 - Uncommitted working-tree changes are rendered as an extra "working copy (uncommitted)" version only when `--include-worktree` is given (useful while writing; never in CI).
   A working-tree file counts as changed when git hashes it, with its line-ending conversion and clean filters applied, to a blob other than the one in the ref's tree.
 
+## Statuses and status notes
+
+A doc's `status` is one value or, for a partly built doc, a list ([behavior/status-notes.md](../behavior/status-notes.md), DS-44 to DS-49).
+The status is parsed once into one type that every reader uses; the section notes are read from the Markdown parser's block structure; and two checks compare them with the rules: the status note check, and the title check that keeps each doc's title in its place (DS-52).
+
+```mermaid
+flowchart TD
+  H["A heading at the top level of the doc<br/>(not inside a block quote or list)"] --> T{"The doc's first level-1 heading<br/>(# or underlined with ===)?"}
+  T -- yes --> Title["The title: no section.<br/>It and the brief under it carry no status note;<br/>the doc's whole status describes them"]
+  T -- no --> N{"A status note right after it?"}
+  N -- no --> First["A section with the first value of status"]
+  N -- yes --> Own["A section with the status note's status"]
+```
+
+- **Vocabulary.** `docspecsite.schema` holds the statuses (`STATUSES`, also the status board's order), the values a list may hold (`LIST_STATUSES`) and the default status note texts by status (`STATUS_NOTES`); `schema.is_valid_status` is the one rule for a valid `status`.
+  The project's `status-notes` setting, held by `ProjectConfig.status_notes`, replaces default texts.
+- **Parsed status.** `docspecsite.docs.DocStatus` is the parsed field, built once per doc (`Doc.status`), and every reader of the status goes through it instead of reading the front matter: the `list` filter and output, `llms.txt`, index entries, the status board and the page badges (parse, don't validate).
+  A single value and a one-value list give the same `DocStatus`; its values stay in the doc's order with duplicates kept, so the check can report them.
+  It formats itself for listings, for JSON and for hints.
+  A `status` of the wrong shape gives no values, so the doc is left off the status board like one with an unknown status.
+- **Front-matter check.** `FrontMatterCheck.check_status` reports an invalid `status` (DS-44), and a single-only value in a list and a value listed twice, with hints (DS-46).
+- **Title and sections.** `docspecsite.markdown.MarkdownText` is the one place that decides which heading is the doc's title: the first level-1 heading at the top level, in either style.
+  The title check and the section notes both take the title from it, so they never disagree.
+  Every other top-level heading opens a section, and sections form no tree: a section's status is its own status note's, else the first value, and nothing is compared between a heading and the headings above or below it.
+- **Section notes.** `MarkdownText.get_section_notes` returns each note line with a bold label from the block quotes right after a heading, as a `SectionNote`: its label, its heading as written in the file (`#` marks included, so problems quote it as it is), whether that heading is the title, and its line.
+  It reads the tokens of markdown-it, which docspecsite already uses for links and headings, so code blocks and notes after other content are left out without rules of their own (DS-45).
+  It does not filter labels.
+- **Note kinds.** `docspecsite.check` keeps a registry of note kinds, `StatusNoteCheck.note_kinds_by_label`, from label to kind; `StatusNote` (a label and its status) is the only kind, and a later kind (such as a warning) is a new entry.
+  A label that is not in the registry stays ordinary text (DS-45), and nothing relies on the order of the notes in a block.
+- **Status note check.** `StatusNoteCheck`, a `DocCheck`, compares a doc's `DocStatus` with its status notes (DS-46).
+  One mistake gives one problem: it skips a doc whose `status` the front-matter check rejects, a status note under the title gives only the title problem, and a second status note in a section gives only its own problem while its status still counts as given.
+  Its hints are built from the `DocStatus` with a value added or removed, and offer adding a value only when the result is a valid `status`.
+- **Title check.** `TitleCheck`, a `DocCheck` in `docspecsite.check`, reports a doc whose text does not start with its title and each level-1 heading after the title (DS-52); it skips a doc whose front matter is missing or does not load.
+  It compares lines, not blocks, since markdown-it leaves link reference definitions out of its blocks: any line that is not blank before the title's line is text before the title.
+  Its hints quote the heading as written and, for a doc without a title, offer the front matter's `title`.
+- **Rendering** does not touch status notes: they are ordinary block quotes in the body.
+  A page shows one status badge per value, index entries one per value, and the status board places an entry under each of its values (DS-48, DS-49).
+
 ## Output layout
 
 ```
@@ -119,7 +158,7 @@ A build never reuses pages of an earlier build with other parts: a page's links 
 
 ## Page anatomy
 
-Every page: breadcrumb, title, status badge, components and tags (linked to indexes), version picker, body, related + backlinks panel; code pages also list their submodules (doc index pages list their children in their own `## Children` section) ([DS-8](../behavior/requirements.md#rendering), [DS-14](../behavior/requirements.md#navigation-and-indexes)).
+Every page: breadcrumb, title, status badges (one per status, [statuses](#statuses-and-status-notes)), components and tags (linked to indexes), version picker, body, related + backlinks panel; code pages also list their submodules (doc index pages list their children in their own `## Children` section) ([DS-8](../behavior/requirements.md#rendering), [DS-14](../behavior/requirements.md#navigation-and-indexes)).
 
 **Contents:** a doc with at least `toc-min-headings` `##` sections gets a generated "Contents" list of its `##` headings, each with its `###` headings nested, inserted in the body right before the first `##` section, so after the summary paragraph when there is one ([meta/authoring.md](../meta/authoring.md#page-shape)).
 It links to the same heading anchors that `docspecsite check` validates, and every version of the doc gets it.
@@ -153,6 +192,12 @@ From there a role goes through the same link rewriting and markers as a `code:` 
 `check --optional-checks code` ([DS-36](../behavior/requirements.md#checks)) loads the code from the working tree and looks up each docstring's `Docs:` lines, roles and `code:` links with the same lookup as the pages, without rendering anything; plain `check` does not look at docstrings.
 `Docs:` docstring lines become links, and "described in" lists come from `code:` fields ([DS-13](../behavior/requirements.md#rendering), [DS-19](../behavior/requirements.md#generated-reference-layer)).
 The HTTP API reference is not built yet ([behavior/web-api-reference.md](../behavior/web-api-reference.md)).
+
+## Problems and hints
+
+`docspecsite.problems.Problem` holds a problem's location, its message and an optional hint ([DS-51](../behavior/requirements.md#checks)).
+It prints as the problem line, then, when it has a hint, the hint line (`  hint: <hint>`); `check --no-hints` prints the problem line only.
+The message keeps one form per kind of problem, so the problem line is stable for scripts; how to fix the case goes into the hint.
 
 ## Errors and warnings
 

@@ -18,12 +18,13 @@ related:
 # Configuration — docspecsite.toml
 
 A repo's settings for docspecsite live in `docspecsite.toml` at its root ([DS-32](requirements.md#settings)).
-The file is optional, and every key in it is optional.
-A missing key takes its default.
-Without the file, every setting takes its default.
+The file is optional, and every key in it is optional: a missing key takes its default, and without the file every setting takes its default.
+Every command reads the file as it is on disk in the checked-out files, never a copy kept by the version control, committed or staged: `build --ref` builds an older ref with today's settings, not the ones committed with it.
+
+## Settings
+
 `check` reports an unknown key (such as a misspelled `adr_prefix`), a value of the wrong kind and a file that is not valid TOML as problems on `docspecsite.toml`: a setting with a wrong value takes its default, and a file that is not valid TOML makes `check` skip the ADR file-name rule, since the repo's prefix is unknown.
 `list` and `build` stop with an error on a file that is not valid TOML or a value of the wrong kind; they warn about an unknown key and ignore it, so a setting from a newer docspecsite release doesn't stop an older one.
-Every command reads the file from the working tree, as it is on disk, never through the version control: `build --ref` builds an older ref with today's settings, not the ones committed with it.
 
 ```toml
 adr-prefix = "APP"
@@ -52,6 +53,14 @@ tag-pattern = "v*"
 | `code-dirs` | none | Directories, relative to the repo root, that hold the Python packages for the code reference; shell-style globs such as `services/*/src` are allowed, and `.` is the repo root. `check` reports an entry that is empty, absolute or contains `..` and leaves it out; `list` and `build` stop on it. A package is a directory with an `__init__.py` directly inside one of them, and its name must be unique across the directories: `check --optional-checks code` reports a name found in more than one, and `build` warns that it cannot load the code. Without it, there is no code reference and `code:` links cannot resolve. |
 | `code-components` | none | Table of component lists (lists of strings) by dotted module path. A code element gets the components of the longest key that matches its dotted path on whole segments, such as `example.api` for `example.api.routes`. Components must be in the repo's component list ([meta/vocabulary.md](../meta/vocabulary.md)). |
 | `toc-min-headings` | `5` | A whole number of 0 or more. A doc with at least this many `##` sections gets a generated Contents list of its `##` and `###` headings, placed before the first `##` section ([meta/authoring.md](../meta/authoring.md#page-shape)). `0` turns the list off. |
+| `status-notes` | the default texts | A `[status-notes]` section with one [status note](../meta/glossary.md) text per status: `specified`, `changed` and `implemented`, each the bold label without `**` and `>`, such as `specified = "Ще не зроблено."`. A status left out keeps its default text ([status-notes.md](status-notes.md)). `check` reports an unknown status, an empty text or one with spaces at its start or end (it could never match a bold label), and two statuses with the same text, and the setting then keeps its defaults; `list` and `build` stop on them. |
+
+The problems `check` reports for `status-notes`:
+
+- `"status-notes" must be a table of status note texts by status`
+- `"status-notes" has an unknown status: "done"`
+- `"status-notes" text of "specified" must be non-empty text without leading or trailing spaces`, for an empty text, one with spaces at its start or end, and a value that is not text
+- `"status-notes" gives "implemented" and "specified" the same text: "Built."`
 
 ## Versioning
 

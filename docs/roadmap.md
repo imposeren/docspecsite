@@ -13,7 +13,7 @@ related:
 # Roadmap
 
 Milestones in the order they are reached.
-A milestone is a target state, not a list of tasks: it is reached when every doc with that `milestone` and `priority: must` is `implemented` ([meta/lifecycle.md](meta/lifecycle.md#using-status-as-a-task-list)).
+A milestone is a target state, not a list of tasks: it is reached when every doc with that `milestone` and `priority: must` has the single status `implemented` ([meta/lifecycle.md](meta/lifecycle.md#using-status-as-a-task-list)).
 Milestone ids (the values used in the `milestone` field) never change once used.
 
 | Id | Goal |
