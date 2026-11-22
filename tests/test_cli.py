@@ -23,6 +23,17 @@ def test_version_prints_name_and_version(capsys: pytest.CaptureFixture[str]) -> 
     assert capsys.readouterr().out.strip() == "docspecsite 0.1.0"
 
 
+@pytest.mark.parametrize("command", ["check", "build"])
+def test_help_shows_set_defaults_only(capsys: pytest.CaptureFixture[str], command: str) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main([command, "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "(default: False)" in help_text
+    assert "(default: None)" not in help_text
+    assert "(default: frozenset())" not in help_text
+
+
 def test_docs_tree_fixture_is_valid_layout(docs_tree: Path) -> None:
     docs = docs_tree / "docs"
     assert (docs / "roadmap.md").is_file()
@@ -260,13 +271,6 @@ def test_cli_build_pythonwarnings_error_shows_internal_error_traceback(git_repo:
     assert not (tmp_path / "site").exists()
 
 
-def test_cli_build_bad_parts(git_repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    site_dir = tmp_path / "site"
-    assert main(["--repo", str(git_repo), "build", "--parts", "web", "--out", str(site_dir)]) == 1
-    assert capsys.readouterr().err.startswith("docspecsite build: unknown part")
-    assert not site_dir.exists()
-
-
 def test_cli_build_value_error_inside_build_is_not_a_build_error(
     git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -278,11 +282,45 @@ def test_cli_build_value_error_inside_build_is_not_a_build_error(
         main(["--repo", str(git_repo), "build", "--out", str(tmp_path / "site")])
 
 
-def test_cli_check_code_flag(code_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_check_optional_checks_code(code_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
     write_roles_module(code_tree, 'def f() -> None:\n    """Go.\n\n    See :func:`.nope`.\n    """\n')
     assert main(["--repo", str(code_tree), "check"]) == 0
-    assert main(["--repo", str(code_tree), "check", "--code"]) == 1
+    assert main(["--repo", str(code_tree), "check", "--optional-checks", "code"]) == 1
     assert "unknown code element: :func:`.nope`" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("command", "message"),
+    [
+        (["check", "--optional-checks", "web"], "unknown optional check: 'web' (available: code)"),
+        (["check", "--optional-checks", ""], "no optional checks given (available: code)"),
+        (["build", "--parts", "web"], "unknown part: 'web' (available: docs, code)"),
+        (["build", "--parts", ""], "no parts given (available: docs, code)"),
+    ],
+    ids=["unknown-check", "no-checks", "unknown-part", "no-parts"],
+)
+def test_cli_bad_option_list_is_a_usage_error(
+    git_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: list[str],
+    message: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        main(["--repo", str(git_repo), *command])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith(f"usage: docspecsite {command[0]} ")
+    assert err.endswith(f"docspecsite {command[0]}: error: argument {command[1]}: {message}\n")
+    assert not (tmp_path / "site").exists()
+
+
+def test_cli_check_has_no_code_flag(docs_tree: Path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--repo", str(docs_tree), "check", "--code"])
+    assert exc.value.code == 2
 
 
 @pytest.mark.parametrize(

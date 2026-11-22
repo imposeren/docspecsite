@@ -2,7 +2,7 @@
 title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history from git, renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: specified
+status: implemented
 code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices]
 milestone: first-release
 priority: must

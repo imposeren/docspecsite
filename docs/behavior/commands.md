@@ -2,7 +2,7 @@
 title: Commands
 summary: The docspecsite command line — `check`, `list`, `backlinks` and `build`, with their options, output and exit codes.
 layer: behavior
-status: specified
+status: implemented
 milestone: first-release
 priority: must
 code: [docspecsite.cli]

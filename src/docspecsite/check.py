@@ -5,11 +5,13 @@ Docs: architecture/docs-tooling.md
 """
 
 import posixpath
+from enum import nonmember
 from functools import cached_property
 from pathlib import Path
 
 import griffe
 
+from .choices import Choice
 from .coderef import Codebase, CodeError
 from .config import ProjectConfig
 from .docs import DOCS_DIR, Doc, is_dir_index, make_dir_index_path
@@ -132,6 +134,15 @@ class CodeLinkCheck(DocCheck):
                 message = f'"code" entry is not a code element: {ref.dotted_path}'
             problems.append(Problem(doc.path, ref.line_number, message))
         return problems
+
+
+class OptionalCheck(Choice):
+    """A check that runs only when asked for by name."""
+
+    KIND = nonmember("optional check")
+
+    CODE = "code"
+    """The references in the code's docstrings: ``Docs:`` lines, roles and ``code:`` links."""
 
 
 class Checker:
@@ -268,19 +279,19 @@ class Checker:
             doc_checks.append(CodeLinkCheck(self.codebase))
         return doc_checks
 
-    def run(self, include_staged: bool, include_code: bool = False) -> list[Problem]:
+    def run(self, include_staged: bool, optional_checks: frozenset[OptionalCheck] = frozenset()) -> list[Problem]:
         """Run all checks of the docs and return the problems found, sorted and without duplicates.
 
         The checks cover front matter, links and their heading anchors, directory indexes, file names, reserved paths,
         links from the code, and the settings; the full list is the project's requirement DS-20. The references in the
-        docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when ``include_code`` is set, by
-        :meth:`check_code_references`.
+        docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when ``optional_checks`` has
+        :attr:`OptionalCheck.CODE`, by :meth:`check_code_references`.
 
         Docs: behavior/requirements.md#checks
 
         Args:
             include_staged: Also report docs staged as deleted or renamed; needs git.
-            include_code: Also check the references in the code's docstrings.
+            optional_checks: The optional checks to run as well.
 
         Raises:
             GitError: ``include_staged`` is set and the repository root is not a git working tree.
@@ -294,7 +305,7 @@ class Checker:
         problems.extend(self.check_names())
         problems.extend(self.check_reserved_paths())
         try:
-            if include_code:
+            if OptionalCheck.CODE in optional_checks:
                 problems.extend(self.check_code_references())
         except (CodeError, griffe.GriffeError) as error:
             problems.append(self.make_code_problem(error))

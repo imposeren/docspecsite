@@ -11,16 +11,17 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, override
 
 from . import __version__
 from .build import BuildError, run_build
-from .check import Checker
+from .check import Checker, OptionalCheck
+from .choices import Choice
 from .config import ConfigError, ProjectConfig
 from .docset import DocSet
 from .errors import DOCSPECSITE_WARNINGS
 from .git import Git, GitError, UnknownRefError
-from .parts import parse_parts
+from .parts import Part
 from .query import (
     Filters,
     format_backlinks,
@@ -33,8 +34,31 @@ from .text import UnreadableTextError
 class CommandParser:
     """Builder of the argument parser of the ``docspecsite`` command."""
 
-    FORMATTER: type[argparse.HelpFormatter] = argparse.ArgumentDefaultsHelpFormatter
-    """Help formatter class of the command and its subcommands; it shows each option's default."""
+    class HelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+        """Help formatter of the command and its subcommands; it shows each option's default unless it is unset."""
+
+        @override
+        def _get_help_string(self, action: argparse.Action) -> str | None:
+            if action.default is None or action.default == frozenset():
+                return action.help
+            return super()._get_help_string(action)
+
+    @staticmethod
+    def parse_choices[C: Choice](choice_type: type[C], text: str) -> frozenset[C]:
+        """Return the options of a choice type named in a comma-separated command-line value.
+
+        Args:
+            choice_type: The kind of options the value names.
+            text: Option names separated by commas, e.g. ``docs,code``.
+
+        Raises:
+            argparse.ArgumentTypeError: The text is empty or names an unknown option; the message is the one of
+                :meth:`Choice.parse_list <docspecsite.choices.Choice.parse_list>`, so the usage error shows it.
+        """
+        try:
+            return choice_type.parse_list(text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(str(exc)) from exc
 
     @staticmethod
     def build() -> argparse.ArgumentParser:
@@ -42,7 +66,7 @@ class CommandParser:
         parser = argparse.ArgumentParser(
             prog="docspecsite",
             description="Check docs and render every version of every doc from git history.",
-            formatter_class=CommandParser.FORMATTER,
+            formatter_class=CommandParser.HelpFormatter,
         )
         parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
         parser.add_argument(
@@ -53,22 +77,26 @@ class CommandParser:
         )
         commands = parser.add_subparsers(dest="command", metavar="command")
 
-        check_parser = commands.add_parser("check", help="validate the docs", formatter_class=CommandParser.FORMATTER)
+        check_parser = commands.add_parser(
+            "check", help="validate the docs", formatter_class=CommandParser.HelpFormatter
+        )
         check_parser.add_argument(
             "--staged",
             action="store_true",
             help="also reject staged deletes and renames under docs/",
         )
         check_parser.add_argument(
-            "--code",
-            action="store_true",
-            dest="include_code",
-            help="also check the references in the code: Docs: lines, roles and code: links in docstrings",
+            "--optional-checks",
+            metavar="C,…",
+            type=partial(CommandParser.parse_choices, OptionalCheck),
+            default=frozenset(),
+            help="optional checks to run as well, comma-separated: code (the references in the code: Docs: lines, "
+            "roles and code: links in docstrings)",
         )
         check_parser.set_defaults(handler=run_check_command)
 
         list_parser = commands.add_parser(
-            "list", help="list docs, filtered by front matter", formatter_class=CommandParser.FORMATTER
+            "list", help="list docs, filtered by front matter", formatter_class=CommandParser.HelpFormatter
         )
         for name in ("layer", "status", "component", "tag", "milestone", "priority"):
             list_parser.add_argument(f"--{name}", metavar=name[0].upper())
@@ -76,7 +104,7 @@ class CommandParser:
         list_parser.set_defaults(handler=run_list_command)
 
         backlinks_parser = commands.add_parser(
-            "backlinks", help="list the docs that link to a doc", formatter_class=CommandParser.FORMATTER
+            "backlinks", help="list the docs that link to a doc", formatter_class=CommandParser.HelpFormatter
         )
         backlinks_parser.add_argument(
             "path", help="the doc: docs/x.md (from the repo root), x.md (relative to docs/) or an absolute path"
@@ -85,7 +113,7 @@ class CommandParser:
         backlinks_parser.set_defaults(handler=run_backlinks_command)
 
         build_parser = commands.add_parser(
-            "build", help="render the static site from a ref's history", formatter_class=CommandParser.FORMATTER
+            "build", help="render the static site from a ref's history", formatter_class=CommandParser.HelpFormatter
         )
         build_parser.add_argument("--ref", default="main", help="the git ref to build")
         build_parser.add_argument("--out", default="site", help="output directory, relative to the current directory")
@@ -101,6 +129,7 @@ class CommandParser:
         )
         build_parser.add_argument(
             "--parts",
+            type=partial(CommandParser.parse_choices, Part),
             help="parts to build, comma-separated: docs, code (default: all the repo has)",
         )
         build_parser.set_defaults(handler=run_build_command)
@@ -119,13 +148,14 @@ class CommandParser:
 def run_check_command(args: argparse.Namespace) -> int:
     """Run the ``check`` command and print its problems.
 
-    Returns exit status 1 when problems are found or ``--staged`` is used outside git, else 0.
+    Returns exit status 1 when problems are found or ``staged`` is set outside git, else 0.
 
     Args:
-        args: Parsed ``check`` options; ``repo``, ``staged`` and ``include_code`` are used.
+        args: Parsed ``check`` options; ``repo``, ``staged`` and ``optional_checks`` (the set of
+            :class:`~docspecsite.check.OptionalCheck` to run as well) are used.
     """
     try:
-        problems = Checker(args.repo).run(include_staged=args.staged, include_code=args.include_code)
+        problems = Checker(args.repo).run(include_staged=args.staged, optional_checks=args.optional_checks)
     except GitError as exc:
         print(f"docspecsite check --staged: {exc}", file=sys.stderr)
         return 1
@@ -239,15 +269,10 @@ def run_build_command(args: argparse.Namespace) -> int:
     pages, else 0.
 
     Args:
-        args: Parsed ``build`` options; ``repo``, ``ref``, ``out``, ``include_worktree``, ``strict`` and ``parts`` are
-            used.
+        args: Parsed ``build`` options; ``repo``, ``ref``, ``out``, ``include_worktree``, ``strict`` and ``parts`` (the
+            set of :class:`~docspecsite.parts.Part` to build; None means every part the repo has) are used.
     """
     with WarningPrinter.print_warnings():
-        try:
-            parts = None if args.parts is None else parse_parts(args.parts)
-        except ValueError as exc:
-            print(f"docspecsite build: {exc}", file=sys.stderr)
-            return 1
         try:
             build_result = run_build(
                 args.repo,
@@ -255,7 +280,7 @@ def run_build_command(args: argparse.Namespace) -> int:
                 Path(args.out),
                 include_worktree=args.include_worktree,
                 is_strict=args.strict,
-                parts=parts,
+                parts=args.parts,
             )
         except UnknownRefError:
             print(f"docspecsite build: unknown ref: {args.ref}", file=sys.stderr)

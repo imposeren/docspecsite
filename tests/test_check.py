@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from conftest import edit_text, move_sample_package_to_root, run_git, write_doc, write_roles_module
 
-from docspecsite.check import Checker, CodeLinkCheck, LinkCheck
+from docspecsite.check import Checker, CodeLinkCheck, LinkCheck, OptionalCheck
 from docspecsite.config import ProjectConfig
 from docspecsite.docset import DocSet
 from docspecsite.git import GitError
@@ -236,7 +236,11 @@ def test_run_reports_code_outside_its_package_dir_as_code_problem(code_tree: Pat
     assert checker.codebase is not None
     package = checker.codebase.packages_by_name["sample"]
     checker.codebase.packages_by_name["sample"] = replace(package, package_dir=tmp_path / "elsewhere" / "sample")
-    [bad] = [p for p in checker.run(include_staged=False, include_code=True) if "cannot load code" in p.message]
+    [bad] = [
+        p
+        for p in checker.run(include_staged=False, optional_checks=frozenset({OptionalCheck.CODE}))
+        if "cannot load code" in p.message
+    ]
     assert "outside" in bad.message
     assert "sample" in bad.message
 
@@ -289,7 +293,9 @@ def test_run_reports_a_package_in_two_code_dirs(code_tree: Path) -> None:
     other = code_tree / "tools/other/src/sample"
     other.mkdir(parents=True)
     (other / "__init__.py").write_text('"""Other sample."""\n', encoding="utf-8")
-    messages = [str(p) for p in Checker(code_tree).run(include_staged=False, include_code=True)]
+    messages = [
+        str(p) for p in Checker(code_tree).run(include_staged=False, optional_checks=frozenset({OptionalCheck.CODE}))
+    ]
     assert messages == [
         "(code): cannot load code: package sample is in more than one code directory: tools/other/src, tools/sample/src"
     ]
@@ -369,7 +375,9 @@ def test_check_ignores_docs_lines(code_tree: Path) -> None:
 
 def test_check_code_reports_docs_lines(code_tree: Path) -> None:
     expected = _break_docs_line(code_tree)
-    assert expected in [str(p) for p in Checker(code_tree).run(include_staged=False, include_code=True)]
+    assert expected in [
+        str(p) for p in Checker(code_tree).run(include_staged=False, optional_checks=frozenset({OptionalCheck.CODE}))
+    ]
 
 
 def test_check_code_reports_unknown_references(code_tree: Path) -> None:
@@ -382,7 +390,9 @@ def test_check_code_reports_unknown_references(code_tree: Path) -> None:
         "        Known :meth:`.go`, unknown :meth:`.nope`, and [x](code:sample.gone).\n"
         '        """\n',
     )
-    problems = [str(p) for p in Checker(code_tree).run(include_staged=False, include_code=True)]
+    problems = [
+        str(p) for p in Checker(code_tree).run(include_staged=False, optional_checks=frozenset({OptionalCheck.CODE}))
+    ]
     file = "tools/sample/src/sample/roles.py"
     assert f"{file}:{5}: unknown code element: :meth:`.nope`" in problems
     assert f"{file}:{5}: unknown code element: code:sample.gone" in problems
@@ -422,7 +432,9 @@ def test_run_reports_unlocatable_docs_line(code_tree: Path) -> None:
         mod.read_text(encoding="utf-8") + "\n\ndef f() -> None:\n    'Title.\\n\\nDocs: meta/vocabulary.md'\n",
         encoding="utf-8",
     )
-    problems = [str(p) for p in Checker(code_tree).run(include_staged=False, include_code=True)]
+    problems = [
+        str(p) for p in Checker(code_tree).run(include_staged=False, optional_checks=frozenset({OptionalCheck.CODE}))
+    ]
     assert any(p.startswith("tools/sample/src/sample/mod.py") and "cannot locate Docs: lines" in p for p in problems)
 
 
