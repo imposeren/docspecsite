@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 import warnings
 from pathlib import Path
 
@@ -20,7 +21,8 @@ def test_version_prints_name_and_version(capsys: pytest.CaptureFixture[str]) -> 
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert capsys.readouterr().out.strip() == "docspecsite 0.1.0"
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert capsys.readouterr().out.strip() == f"docspecsite {project['version']}"
 
 
 @pytest.mark.parametrize("command", ["check", "build"])
