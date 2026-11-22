@@ -329,10 +329,10 @@ class SiteBuilder:
 
         Args:
             root: Repository root; git runs in it, and working-tree files are read from it.
-            ref: Revision to build; its history gives the doc versions and, without
-                ``include_worktree``, its ``docspecsite.toml`` the settings.
-            include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read
-                ``docspecsite.toml``, the code and the non-Markdown files under ``docs/`` from the working tree.
+            ref: Revision to build; its history gives the doc versions. The settings always come from the working
+                tree's ``docspecsite.toml``.
+            include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read the code
+                and the non-Markdown files under ``docs/`` from the working tree.
             vendor_dir: Directory of the vendored third-party files the site uses; None means there are none.
             is_strict: Raise on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page instead of recording it.
             parts: The parts of the site to build; None means the docs, and the code too when the settings have
@@ -655,18 +655,16 @@ class SiteBuilder:
         return f"{type(error).__name__}: {message}"
 
     def load_config(self) -> ProjectConfig:
-        """Return the settings from the ref's ``docspecsite.toml``, or the working tree's with ``include_worktree`` set.
+        """Return the settings from the working tree's ``docspecsite.toml``, whatever ref is built.
 
-        Each unknown setting is ignored with a warning.
+        The file is read from disk, never through git, so an older ref is built with today's settings. Each unknown
+        setting is ignored with a warning.
 
         Raises:
             BuildError: The file cannot be read, is not valid TOML, or a setting has an invalid value.
         """
         try:
-            if self.include_worktree:
-                return ProjectConfig.load(self.root).require_valid()
-            blob = self.ref_tree.get(ProjectConfig.CONFIG_FILE)
-            return ProjectConfig.from_bytes(self.git.read_blobs([blob])[blob] if blob else None).require_valid()
+            return ProjectConfig.load(self.root).require_valid()
         except ConfigError as error:
             raise BuildError(error.message, *error.values) from error
 
@@ -1333,11 +1331,11 @@ def run_build(
 
     Args:
         root: Repository root to build from.
-        ref: Revision to build: its first-parent history gives the doc versions, its tree the code and
-            settings.
+        ref: Revision to build: its first-parent history gives the doc versions, its tree the code; the settings
+            always come from the working tree's ``docspecsite.toml``.
         out: Output directory; its files from the previous build that are not rebuilt are deleted.
-        include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read the code,
-            ``docspecsite.toml`` and docs assets from the working tree.
+        include_worktree: Add working-tree docs that differ from ``ref`` as a newest version, and read the code and
+            docs assets from the working tree.
         vendor_dir: Directory of the vendored third-party files the site uses; None reads ``$DOCSPECSITE_VENDOR_DIR``,
             and without either the site is built without them.
         is_strict: Fail on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or warning,
@@ -1351,9 +1349,9 @@ def run_build(
         What was built, with the errors of the pages that failed.
 
     Raises:
-        BuildError: The root ``docspecsite.toml`` cannot be read, is not valid TOML or has an invalid value; with
-            ``is_strict``, also on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal error or
-            warning; also when ``parts`` has the code part and the settings have no ``code-dirs``.
+        BuildError: The working tree's root ``docspecsite.toml`` cannot be read, is not valid TOML or has an invalid
+            value; with ``is_strict``, also on the first :exc:`~docspecsite.errors.DocspecsiteError` of a page, internal
+            error or warning; also when ``parts`` has the code part and the settings have no ``code-dirs``.
     """
     if vendor_dir is None and os.environ.get(VENDOR_ENV):
         vendor_dir = Path(os.environ[VENDOR_ENV])

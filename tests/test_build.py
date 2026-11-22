@@ -1022,20 +1022,21 @@ def test_build_accepts_a_byte_order_mark_in_the_config(
     assert llms.index("PYRF-0001-b") < llms.index("APP-0001-a")
 
 
-def test_build_reads_the_worktree_config_only_with_include_worktree(repo: HistoryRepo, tmp_path: Path) -> None:
+@pytest.mark.parametrize("include_worktree", [False, True])
+def test_build_reads_the_worktree_config(repo: HistoryRepo, tmp_path: Path, *, include_worktree: bool) -> None:
     root, _ = repo
     committed = (root / ProjectConfig.CONFIG_FILE).read_text(encoding="utf-8")
     (root / ProjectConfig.CONFIG_FILE).write_text(f"toc-min-headings = -1\n{committed}", encoding="utf-8")
     with pytest.raises(BuildError, match='"toc-min-headings" must be a whole number of 0 or more'):
-        run_build(root, "main", tmp_path / "site", include_worktree=True)
+        run_build(root, "main", tmp_path / "site", include_worktree=include_worktree)
     (root / ProjectConfig.CONFIG_FILE).write_text(f'adr_prefix = "DSS"\n{committed}', encoding="utf-8")
     with pytest.warns(DocspecsiteWarning) as recorded:
-        run_build(root, "main", tmp_path / "site", include_worktree=True)
+        run_build(root, "main", tmp_path / "site", include_worktree=include_worktree)
     assert 'docspecsite.toml: unknown setting "adr_prefix"' in _get_messages(recorded)
-    with warnings.catch_warnings(record=True) as recorded:
-        warnings.simplefilter("always")
-        run_build(root, "main", tmp_path / "site")
-    assert not [m for m in _get_messages(recorded) if m.startswith(ProjectConfig.CONFIG_FILE)]
+    (root / ProjectConfig.CONFIG_FILE).write_text(committed.replace("o/r", "o/worktree"), encoding="utf-8")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir, include_worktree=include_worktree)
+    assert 'href="https://github.com/o/worktree/blob/' in _read(site_dir, "reference/code/sample.mod.html")
 
 
 def test_build_orders_adrs_by_configured_prefixes(repo: HistoryRepo, tmp_path: Path) -> None:
