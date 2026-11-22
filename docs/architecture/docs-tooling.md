@@ -2,7 +2,7 @@
 title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history from git, renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: implemented
+status: specified
 code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors]
 milestone: first-release
 priority: must
@@ -62,7 +62,7 @@ The generated [code reference](../reference/code/index.md) lists every module an
 ## Configuration
 
 Settings come only from `docspecsite.toml` at the root of the checked repo ([DS-32](../behavior/requirements.md#settings), keys in [behavior/configuration.md](../behavior/configuration.md)).
-`check` reads the working-tree file; `build` reads the file from the built ref, so an old ref is built with the settings it had.
+Every command reads the working-tree file from disk, never through git: reading the settings stays a light step that needs no history, and an old ref is built with today's settings.
 The settings say where the repo's code is (`code-dirs`), so docspecsite does not depend on how a project lays out or builds its code.
 One matcher (`docspecsite.config.ProjectConfig.is_code_dir`) decides which directories are code directories, both for the working tree and for the files of a ref, so `check` and `build` find the same packages; `.` (the repo root) makes `build` extract the whole tree.
 Unknown settings and invalid values are reported, never silently ignored.

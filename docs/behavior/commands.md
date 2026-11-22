@@ -2,7 +2,7 @@
 title: Commands
 summary: The docspecsite command line — `check`, `list`, `backlinks` and `build`, with their options, output and exit codes.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 code: [docspecsite.cli]
@@ -62,8 +62,8 @@ The site is written to `--out` (default `site/`, relative to the current directo
 Files of the previous build that are no longer produced are removed; nothing else in the directory is touched.
 Rendered page bodies are kept in `.docspecsite-cache/` in the checked repo, so a rebuild renders only what changed ([DS-24](requirements.md#running)).
 
-- `--ref` names the branch, tag or commit whose first-parent history gives the versions; its `docspecsite.toml` gives the settings and its code the code reference.
-- `--include-worktree` adds uncommitted doc changes as a "working copy (uncommitted)" version, and reads the settings, the code and the files under `docs/` from the working tree. It is meant for previews while writing, never for CI.
+- `--ref` names the branch, tag or commit whose first-parent history gives the versions; its code gives the code reference. The settings always come from the working tree's `docspecsite.toml` ([configuration.md](configuration.md)).
+- `--include-worktree` adds uncommitted doc changes as a "working copy (uncommitted)" version, and reads the code and the files under `docs/` from the working tree. It is meant for previews while writing, never for CI.
 - `--parts` names the parts to build, separated by commas without spaces: `docs`, `code` ([DS-35](requirements.md#rendering)).
   Without it, every part the repo has is built: `docs`, and `code` when `code-dirs` is set.
   An unknown part, an empty list, or `code` without `code-dirs` stops the build before it starts.

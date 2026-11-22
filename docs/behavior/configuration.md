@@ -2,7 +2,7 @@
 title: Configuration — docspecsite.toml
 summary: The optional `docspecsite.toml` file at the root of a checked repo — the repo's ADR prefix, its web URL, where its Python code is and which components it belongs to, and the Contents-list threshold.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 code: [docspecsite.config]
@@ -22,7 +22,7 @@ A missing key takes its default.
 Without the file, every setting takes its default.
 `check` reports an unknown key (such as a misspelled `adr_prefix`), a value of the wrong kind and a file that is not valid TOML as problems on `docspecsite.toml`: a setting with a wrong value takes its default, and a file that is not valid TOML makes `check` skip the ADR file-name rule, since the repo's prefix is unknown.
 `list` and `build` stop with an error on a file that is not valid TOML or a value of the wrong kind; they warn about an unknown key and ignore it, so a setting from a newer docspecsite release doesn't stop an older one.
-`build` reads the file as it is at the built ref (from the working tree with `--include-worktree`); `check` reads it from the working tree.
+Every command reads the file from the working tree, as it is on disk: `build --ref` builds an older ref with today's settings, not the ones committed with it.
 
 ```toml
 adr-prefix = "APP"
