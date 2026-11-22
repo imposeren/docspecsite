@@ -2,7 +2,7 @@
 title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history through a versioning backend (git by default), renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: specified
+status: [changed, implemented]
 code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices, docspecsite.docs, docspecsite.problems, docspecsite.markdown]
 milestone: first-release
 priority: must
@@ -29,6 +29,8 @@ Its commands are `check`, `list`, `backlinks` and `build` ([behavior/commands.md
 Why a custom tool rather than MkDocs/Sphinx: [DSS-0001](decisions/DSS-0001-custom-per-doc-history-renderer.md) (an [architecture decision record](../meta/glossary.md#adr)).
 
 ## Repository layout
+
+> **Built.**
 
 | Path | Holds |
 | -- | -- |
@@ -71,6 +73,8 @@ Unknown settings and invalid values are reported, never silently ignored.
 
 ## ADR IDs
 
+> **Built.**
+
 An ADR's file name carries its ID: `architecture/decisions/<PREFIX>-NNNN-<slug>.md` ([meta/structure.md](../meta/structure.md#adr-ids)).
 `check` accepts the repo's own `adr-prefix` and the prefixes in `external-adr-prefixes`, and reports any other name under `architecture/decisions/` ([DS-33](../behavior/requirements.md#checks)).
 Each prefix's numbers are zero-padded, so sorting by path orders each prefix's ADRs by number; generated listings additionally put external ADRs first, in the order of `external-adr-prefixes`.
@@ -91,6 +95,8 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
   A working-tree file counts as changed when git hashes it, with its line-ending conversion and clean filters applied, to a blob other than the one in the ref's tree.
 
 ## Statuses and status notes
+
+> **Built.**
 
 A doc's `status` is one value or, for a partly built doc, a list ([behavior/status-notes.md](../behavior/status-notes.md), DS-44 to DS-49).
 The status is parsed once into one type that every reader uses; the section notes are read from the Markdown parser's block structure; and two checks compare them with the rules: the status note check, and the title check that keeps each doc's title in its place (DS-52).
@@ -158,6 +164,8 @@ A build never reuses pages of an earlier build with other parts: a page's links 
 
 ## Page anatomy
 
+> **Built.**
+
 Every page: breadcrumb, title, status badges (one per status, [statuses](#statuses-and-status-notes)), components and tags (linked to indexes), version picker, body, related + backlinks panel; code pages also list their submodules (doc index pages list their children in their own `## Children` section) ([DS-8](../behavior/requirements.md#rendering), [DS-14](../behavior/requirements.md#navigation-and-indexes)).
 
 **Contents:** a doc with at least `toc-min-headings` `##` sections gets a generated "Contents" list of its `##` headings, each with its `###` headings nested, inserted in the body right before the first `##` section, so after the summary paragraph when there is one ([meta/authoring.md](../meta/authoring.md#page-shape)).
@@ -195,11 +203,15 @@ The HTTP API reference is not built yet ([behavior/web-api-reference.md](../beha
 
 ## Problems and hints
 
+> **Built.**
+
 `docspecsite.problems.Problem` holds a problem's location, its message and an optional hint ([DS-51](../behavior/requirements.md#checks)).
 It prints as the problem line, then, when it has a hint, the hint line (`  hint: <hint>`); `check --no-hints` prints the problem line only.
 The message keeps one form per kind of problem, so the problem line is stable for scripts; how to fix the case goes into the hint.
 
 ## Errors and warnings
+
+> **Built.**
 
 Errors in `docspecsite build` stay local to the page they occur in ([behavior/commands.md](../behavior/commands.md#build)).
 An expected failure (a doc version that is not valid UTF-8, a doc at a reserved path) is an error line for that page.
@@ -248,6 +260,8 @@ How releases are named: [versioning.md](versioning.md).
 docspecsite checks its own docs with its own source, not a release: its `.pre-commit-config.yaml` runs `uv run docspecsite check --optional-checks git:staged` ([quality-gate.md](quality-gate.md)).
 
 ## See also
+
+> **Built.**
 
 - [meta/versioning.md](../meta/versioning.md) — the rules this tool implements.
 - [dev-environment.md](dev-environment.md) — working on docspecsite itself.

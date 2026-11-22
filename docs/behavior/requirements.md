@@ -2,7 +2,7 @@
 title: Docs system requirements
 summary: The numbered requirements (DS-n) docspecsite satisfies — source format, per-doc versioning, rendering, navigation and indexes, the generated code reference, checks, settings and how it runs.
 layer: behavior
-status: specified
+status: [implemented, changed]
 milestone: first-release
 priority: must
 components: [docs-system]
@@ -30,6 +30,8 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
 - **DS-3** Markdown is converted by an established Markdown library, not a hand-written parser.
 
 ## Versioning
+
+> **Changed, not built yet.** Git is the only version control, and deletes and renames are rejected by `check --staged`.
 
 - **DS-4** Versions come from the project's [version control](glossary.md), git by default: every [revision](glossary.md) on the [main line of history](glossary.md) that touches a doc is a version of it ([meta/versioning.md](../meta/versioning.md)).
   Where versions come from, and the choice of building without version control, is in [versioning-backends.md](versioning-backends.md) ([DS-40](versioning-backends.md#requirements), [DS-41](versioning-backends.md#requirements)).
@@ -87,6 +89,8 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 ## Checks
 
+> **Changed, not built yet.** The deletes-and-renames check is still `check --staged`, which the `docs-check` hook runs, and every `web-api:` link is reported as a problem: there is no HTTP API reference for it to resolve to.
+
 - **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), every doc is readable UTF-8, every doc has its title in its place ([DS-52](#checks)), and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
   It also checks that a partly built doc's statuses and its status notes agree ([DS-44](status-notes.md#requirements) to [DS-46](status-notes.md#requirements)).
   Doc templates are not docs and are not checked ([meta/structure.md](../meta/structure.md#outside-docs)).
@@ -113,6 +117,8 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 ## Settings
 
+> **Changed, not built yet.** There is no `[versioning]` table: where versions come from is not a setting yet.
+
 - **DS-32** Project settings live in `docspecsite.toml` at the root of the checked repo ([configuration.md](configuration.md)): the repo's ADR prefix, its web URL, where its code is and which components the code belongs to, the Contents-list threshold, and where versions come from ([versioning-backends.md](versioning-backends.md)).
   The file is always read from disk, never through the version control.
   The file is optional; a missing setting takes its default.
@@ -120,6 +126,8 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
   Settings anywhere else, such as `pyproject.toml`, are not read.
 
 ## Running
+
+> **Changed, not built yet.** Git is the only version control, and every build needs it.
 
 - **DS-22** Building and serving docs run through Docker, in an image built from docspecsite's repo at a release tag; the check runs as a prek hook in an environment prek creates.
   Nothing beyond Docker, prek and the project's version control (git by default) is required on the host.

@@ -2,7 +2,7 @@
 title: Components
 summary: The list of docspecsite's components — the allowed values of the `components` front-matter field and the path segments used across layers.
 layer: architecture
-status: specified
+status: [implemented, changed]
 components: []
 tags: [overview, components]
 related:
@@ -18,6 +18,8 @@ Add a component here in the same change that first uses it.
 `docspecsite.toml` maps the package's modules to these components for the code reference ([behavior/configuration.md](../behavior/configuration.md)).
 
 ## Product
+
+> **Changed, not built yet.** There are no versioning backends yet: the build reads history from git directly.
 
 | Component | Meaning |
 | -- | -- |

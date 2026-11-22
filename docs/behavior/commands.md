@@ -2,7 +2,7 @@
 title: Commands
 summary: The docspecsite command line — `check`, `list`, `backlinks` and `build`, with their options, output and exit codes.
 layer: behavior
-status: specified
+status: [implemented, changed]
 milestone: first-release
 priority: must
 code: [docspecsite.cli]
@@ -34,6 +34,8 @@ A command-line error (an unknown option, or an option value that is not valid, s
 | `build [--ref main] [--out site] [--parts P,…] [--include-worktree] [--strict]` | Renders the static site; with version control, from the history of a [ref](glossary.md) ([DS-7](requirements.md#rendering) … [DS-19](requirements.md#generated-reference-layer)). |
 
 ## check
+
+> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`.
 
 Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>: <message>` for a problem outside `docs/` (such as an invalid `docspecsite.toml`, or a `Docs:` line in code found by the `code` check); the line number is left out when the problem concerns the whole file.
 A problem may carry a hint, which says how to fix this particular problem: it is printed on its own line right under the problem, indented by two spaces and starting with `hint: `.
@@ -101,6 +103,8 @@ A doc that cannot be read, or that is not valid UTF-8, stops `backlinks` with an
 Otherwise the exit code is 2 when `<path>` is not a doc, else 0.
 
 ## build
+
+> **Changed, not built yet.** Git is the only version control: there is no `versioning:` line, no `none` backend and no link patterns, and a code-only build links docs under `<source-url>/blob/<commit>/`.
 
 The site is written to `--out` (default `site/`, relative to the current directory).
 Files of the previous build that are no longer produced are removed; nothing else in the directory is touched.

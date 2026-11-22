@@ -2,7 +2,7 @@
 title: Glossary — docspecsite terms
 summary: Plain-language definitions of the terms docspecsite's docs and output use — checked repo, link pattern, main line of history, problem, ref, revision, site, version control, versioning backend, versionless site, code reference, ADR prefix.
 layer: behavior
-status: specified
+status: changed
 components: []
 tags: [glossary]
 related:

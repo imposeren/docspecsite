@@ -2,7 +2,7 @@
 title: Architecture overview
 summary: Technical overview of docspecsite — guiding principles, how the tool is built and shipped, its development environment, quality gate and releases, and the recorded decisions.
 layer: architecture
-status: specified
+status: [changed, implemented]
 components: []
 tags: [overview, architecture]
 related:
@@ -15,6 +15,8 @@ related:
 docspecsite is one Python package that reads a repo's `docs/` and its history through a versioning backend (git by default); it ships to other repos as a Docker image and a prek hook, both taken from this repo at a release tag.
 
 ## Guiding principles
+
+> **Built.**
 
 - **Documentation first.**
   Docs are the spec; code follows ([meta/index.md](../meta/index.md)).
@@ -29,6 +31,8 @@ docspecsite is one Python package that reads a repo's `docs/` and its history th
   Other repos build the image and install the hook straight from this repo's git tags ([docs-tooling.md](docs-tooling.md#how-other-repos-use-docspecsite)).
 
 ## Children
+
+> **Built.**
 
 - [docs-tooling.md](docs-tooling.md) — How docspecsite works: modules, configuration, history model, rendering, code reference, Docker image and prek hook.
 - [versioning-backends.md](versioning-backends.md) — Pluggable versioning backends: the history-level contract, finding a backend, the git and none backends.

@@ -2,7 +2,7 @@
 title: Quality gate
 summary: How changes to docspecsite are checked — review against the spec before commit, prek hooks on commit (Ruff, strict Pyrefly, mdformat, and docspecsite checking its own docs from source), and the full test suite before a release.
 layer: architecture
-status: specified
+status: [implemented, changed]
 milestone: first-release
 priority: must
 components: [quality-gate]
@@ -21,6 +21,8 @@ docspecsite follows the template's quality gate: **review** before a change is c
 CI is not set up for docspecsite yet; until it is, the full checks below run before every release ([versioning.md](versioning.md#releasing)).
 
 ## prek (on commit)
+
+> **Changed, not built yet.** The `docs-check` hook still runs `uv run docspecsite check --staged`.
 
 [prek](https://github.com/j178/prek) reads the standard `.pre-commit-config.yaml`. Hooks:
 

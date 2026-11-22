@@ -2,7 +2,7 @@
 title: What docspecsite does
 summary: Plain-language overview of docspecsite — a tool that checks a repo's docs against the docs-driven method and renders every version of every doc as a static site — and where its requirements, commands and settings are described.
 layer: behavior
-status: specified
+status: [changed, implemented]
 components: [docs-system]
 tags: [overview]
 related:
@@ -24,6 +24,8 @@ It implements the rules of the method's `docs/meta/` layer ([meta/index.md](../m
 Only project settings, such as the repo's ADR prefix, are configuration.
 
 ## Children
+
+> **Built.**
 
 - [requirements.md](requirements.md) — The numbered docs system requirements (`DS-n`) that docspecsite satisfies.
 - [commands.md](commands.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.

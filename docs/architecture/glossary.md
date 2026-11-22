@@ -2,7 +2,7 @@
 title: Glossary — technical terms and tools
 summary: Short definitions of technical terms and tools used in docspecsite's architecture docs (uv, prek, griffe, markdown-it-py, Mermaid, build context, entry point…).
 layer: architecture
-status: specified
+status: changed
 components: []
 tags: [glossary]
 related:
