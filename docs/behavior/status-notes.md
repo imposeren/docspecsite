@@ -2,8 +2,8 @@
 title: Partly built docs
 summary: A doc that is only partly built lists several statuses and gives the sections that differ a status note; docspecsite checks that the list and the status notes agree, finds such a doc under each of its statuses, and shows all of them on the site.
 layer: behavior
-status: specified
-code: [docspecsite.problems.Problem]
+status: implemented
+code: [docspecsite.docs.DocStatus, docspecsite.check.StatusNoteCheck, docspecsite.markdown.MarkdownText.get_section_notes, docspecsite.problems.Problem]
 milestone: later
 priority: should
 components: [checks, queries, site]

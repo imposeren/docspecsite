@@ -5,6 +5,11 @@ import pytest
 
 from docspecsite.config import ConfigError, ProjectConfig, ProjectConfigParser
 from docspecsite.errors import DocspecsiteWarning
+from docspecsite.schema import STATUS_NOTES
+
+_STATUS_NOTE_TEXT_MESSAGE = (
+    '"status-notes" text of "specified" must be non-empty text without leading or trailing spaces'
+)
 
 
 def test_from_bytes_reads_every_setting() -> None:
@@ -17,6 +22,9 @@ toc-min-headings = 3
 
 [code-components]
 docspecsite = ["docs-system"]
+
+[status-notes]
+specified = "Ще не зроблено."
 """
     assert ProjectConfig.from_bytes(text.encode()) == ProjectConfig(
         code_dirs=("src", "services/*/src"),
@@ -25,7 +33,47 @@ docspecsite = ["docs-system"]
         adr_prefix="DSS",
         external_adr_prefixes=("BASE", "PYRF"),
         toc_min_headings=3,
+        status_notes={"Ще не зроблено.": "specified", "Changed, not built yet.": "changed", "Built.": "implemented"},
     )
+
+
+def test_status_notes_replace_the_defaults_they_set() -> None:
+    config = ProjectConfig.from_bytes('[status-notes]\nspecified = "Ще не зроблено."\n'.encode())
+    assert config.status_notes == {
+        "Ще не зроблено.": "specified",
+        "Changed, not built yet.": "changed",
+        "Built.": "implemented",
+    }
+    assert ProjectConfig.from_bytes(None).status_notes == STATUS_NOTES
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('status-notes = "x"', '"status-notes" must be a table of status note texts by status'),
+        ('[status-notes]\ndone = "X."', '"status-notes" has an unknown status: "done"'),
+        ('[status-notes]\nspecified = ""', _STATUS_NOTE_TEXT_MESSAGE),
+        ('[status-notes]\nspecified = " X."', _STATUS_NOTE_TEXT_MESSAGE),
+        ("[status-notes]\nspecified = 5", _STATUS_NOTE_TEXT_MESSAGE),
+        (
+            '[status-notes]\nspecified = "Built."',
+            '"status-notes" gives "implemented" and "specified" the same text: "Built."',
+        ),
+    ],
+)
+def test_invalid_status_notes_keep_the_defaults(text: str, expected: str) -> None:
+    config = ProjectConfig.from_bytes(text.encode())
+    assert config.invalid_values == (expected,)
+    assert config.status_notes == STATUS_NOTES
+
+
+def test_every_invalid_status_note_is_reported_and_valid_texts_next_to_them_are_discarded() -> None:
+    config = ProjectConfig.from_bytes(b'[status-notes]\nspecified = ""\nchanged = "Redo."\ndone = "X."\n')
+    assert config.invalid_values == (
+        _STATUS_NOTE_TEXT_MESSAGE,
+        '"status-notes" has an unknown status: "done"',
+    )
+    assert config.status_notes == STATUS_NOTES
 
 
 def test_from_bytes_defaults() -> None:

@@ -2,7 +2,7 @@
 title: Docs system requirements — scenarios
 summary: Exact cases for the docs check's rules on a doc's title — text before it, a doc without one, a second level-1 heading, docs whose front matter does not load, and the heading a page shows.
 layer: scenarios
-status: specified
+status: implemented
 components: [checks]
 tags: [checks]
 related:

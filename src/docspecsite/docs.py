@@ -3,6 +3,7 @@
 import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Self, TypeGuard
 
 import yaml
@@ -14,6 +15,60 @@ DOCS_DIR = "docs/"
 TEMPLATES_DIR = "meta/templates/"
 DIR_INDEX_NAME = "index.md"
 """File name of a directory's index doc."""
+
+
+@dataclass(frozen=True)
+class DocStatus:
+    """The ``status`` of a doc: one value, or a list of them (for example ``[implemented, specified]``).
+
+    Docs: behavior/status-notes.md#requirements
+    Docs: architecture/docs-tooling.md#statuses-and-status-notes
+    """
+
+    values: tuple[str, ...]
+    """The values as written, in doc order, duplicates kept; empty when the field is missing or of the wrong shape."""
+
+    @classmethod
+    def from_front_matter(cls, front_matter: Mapping[str, object]) -> Self:
+        """Read the status of front matter.
+
+        A string is one value and a list of strings is its items; anything else (a missing field, a number, a
+        mapping, a list with a non-string item) gives no values.
+
+        Args:
+            front_matter: Parsed front matter of a doc; only its ``status`` field is read.
+        """
+        raw = front_matter.get("status")
+        if isinstance(raw, str):
+            return cls((raw,))
+        if is_str_list(raw):
+            return cls(tuple(raw))
+        return cls(())
+
+    @property
+    def is_single(self) -> bool:
+        """Whether the status has exactly one value, written as a string or as a one-value list."""
+        return len(self.values) == 1
+
+    def add_value(self, value: str) -> Self:
+        """Return the status with one more value at the end.
+
+        Args:
+            value: Value to append.
+        """
+        return type(self)((*self.values, value))
+
+    def remove_value(self, value: str) -> Self:
+        """Return the status without any occurrence of a value.
+
+        Args:
+            value: Value to drop.
+        """
+        return type(self)(tuple(kept_value for kept_value in self.values if kept_value != value))
+
+    def remove_duplicates(self) -> Self:
+        """Return the status with each value once, at its first place."""
+        return type(self)(tuple(dict.fromkeys(self.values)))
 
 
 @dataclass(frozen=True)
@@ -36,9 +91,30 @@ class Doc:
     """Why the front matter cannot be read, for the user; None when it is valid."""
 
     @property
+    def front_matter_title(self) -> str | None:
+        """The front matter's ``title`` as text; None when it has none or the front matter did not load."""
+        title = (self.front_matter or {}).get("title")
+        return str(title) if title is not None else None
+
+    @property
     def title(self) -> str:
         """The front matter's ``title``; the path when there is none."""
-        return str((self.front_matter or {}).get("title", self.path))
+        title = self.front_matter_title
+        return title if title is not None else self.path
+
+    def get_file_line_number(self, body_line_number: int) -> int:
+        """Return the 1-based line number in the doc's file of a line of its body.
+
+        Args:
+            body_line_number: 1-based line number within :attr:`body`, such as one that a
+                :class:`~docspecsite.markdown.MarkdownText` of the body gives.
+        """
+        return self.body_line + body_line_number - 1
+
+    @cached_property
+    def status(self) -> DocStatus:
+        """The front matter's ``status``; no values when the front matter did not load."""
+        return DocStatus.from_front_matter(self.front_matter or {})
 
     @property
     def is_redirect(self) -> bool:
@@ -71,14 +147,14 @@ class Doc:
 
 
 def is_redirect(front_matter: Mapping[str, object]) -> bool:
-    """Return whether front matter belongs to a redirect doc (``status: redirect``).
+    """Return whether front matter belongs to a redirect doc (``status: redirect`` or ``[redirect]``).
 
     A redirect doc is kept in place of a doc that moved or went away.
 
     Args:
         front_matter: Parsed front matter of a doc; only its ``status`` field is read.
     """
-    return front_matter.get("status") == "redirect"
+    return DocStatus.from_front_matter(front_matter).values == ("redirect",)
 
 
 def make_string_tuple(value: object, *, strings_only: bool = False) -> tuple[str, ...]:

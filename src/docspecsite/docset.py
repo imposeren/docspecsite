@@ -97,7 +97,7 @@ class DocSet:
             config: Settings whose ADR prefixes order the ADRs.
         """
         return sorted(
-            (d for d in self if d.front_matter is not None and filters.matches(d.front_matter)),
+            (d for d in self if filters.matches(d)),
             key=lambda d: config.make_sort_key(d.path),
         )
 

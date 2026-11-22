@@ -7,8 +7,10 @@ Docs: meta/structure.md#adr-ids
 
 import datetime
 import re
+from collections.abc import Mapping
+from types import MappingProxyType
 
-from .docs import Doc, is_dir_index, is_redirect, is_str_list
+from .docs import Doc, DocStatus, is_dir_index, is_redirect, is_str_list
 from .problems import DocCheck, Problem
 from .vocabulary import Vocabulary
 
@@ -26,8 +28,65 @@ LAYERS = (
     "agents",
     "reference",
 )
-STATUSES = ("draft", "specified", "implemented", "deprecated", "redirect")
+STATUSES = ("draft", "specified", "changed", "implemented", "deprecated", "redirect")
+"""All statuses, in the order of the status board.
+
+Docs: meta/lifecycle.md
+"""
+LIST_STATUSES = ("implemented", "specified", "changed")
+"""Statuses that may be combined in a status list.
+
+Docs: behavior/status-notes.md#requirements
+"""
+STATUS_NOTES: Mapping[str, str] = MappingProxyType(
+    {"Not built yet.": "specified", "Changed, not built yet.": "changed", "Built.": "implemented"}
+)
+"""Status note labels, each with the status it announces.
+
+Docs: behavior/status-notes.md#requirements
+"""
 PRIORITIES = ("must", "should", "could")
+
+
+def is_valid_status(status: DocStatus) -> bool:
+    """Return whether a status is one known value, or a list of two or more distinct values that may be combined.
+
+    The known values are :data:`STATUSES`, those that may be combined :data:`LIST_STATUSES`.
+
+    Docs: behavior/status-notes.md#requirements
+
+    Args:
+        status: Status of a doc to validate.
+    """
+    values = status.values
+    if status.is_single:
+        return values[0] in STATUSES
+    return bool(values) and len(set(values)) == len(values) and all(value in LIST_STATUSES for value in values)
+
+
+def format_status_yaml(status: DocStatus) -> str:
+    """Return the YAML value of a status: ``implemented`` for one value, ``[implemented, specified]`` for more.
+
+    Args:
+        status: Status to write.
+    """
+    if status.is_single:
+        return status.values[0]
+    return f"[{', '.join(status.values)}]"
+
+
+def make_status_edit_hint(edit: str, status: DocStatus) -> str:
+    """Return a hint that changes the ``status`` field, naming the change and the whole field as it then reads.
+
+    For example ``add "changed" to "status" so it reads "status: [implemented, changed]"``.
+
+    Docs: architecture/docs-tooling.md#problems-and-hints
+
+    Args:
+        edit: The change, as the words that come before ``"status"``, such as ``remove "draft" from``.
+        status: Status the doc has after the change.
+    """
+    return f'{edit} "status" so it reads "status: {format_status_yaml(status)}"'
 
 
 def is_adr(path: str) -> bool:
@@ -103,7 +162,7 @@ class FrontMatterValidator(DocCheck):
 
 
 class FrontMatterCheck:
-    """One check of a doc's parsed front matter, holding the messages of the rule violations it found."""
+    """One check of a doc's parsed front matter, holding the problems of the rule violations it found."""
 
     # Required fields
     REQUIRED_LISTS = ("components", "tags", "related")
@@ -138,8 +197,8 @@ class FrontMatterCheck:
     """Values ``redirect_kind`` may have."""
 
     # Found so far
-    messages: list[str]
-    """Messages of the violations found so far, in the order they were found."""
+    problems: list[Problem]
+    """Problems of the violations found so far, in the order they were found."""
 
     # Arguments of __init__
     doc: Doc
@@ -158,7 +217,7 @@ class FrontMatterCheck:
         """
         self.doc = doc
         self.vocab = vocab
-        self.messages = []
+        self.problems = []
 
     @property
     def front_matter(self) -> dict[str, object]:
@@ -193,42 +252,49 @@ class FrontMatterCheck:
         front_matter = self.front_matter
         for field in self.REQUIRED_FIELDS:
             if field not in front_matter:
-                self.messages.append(f'missing required field "{field}"')
+                self.report(f'missing required field "{field}"')
         for field in self.REQUIRED_STRINGS:
             if field in front_matter and not self.is_non_blank_str(front_matter[field]):
-                self.messages.append(f'"{field}" must be a non-empty string')
+                self.report(f'"{field}" must be a non-empty string')
         for field in (*self.REQUIRED_LISTS, "code"):
             if field in front_matter and not is_str_list(front_matter[field]):
-                self.messages.append(f'"{field}" must be a list of strings')
+                self.report(f'"{field}" must be a list of strings')
 
         self.check_enum("layer", LAYERS)
-        self.check_enum("status", STATUSES)
+        self.check_status()
         self.check_enum("priority", PRIORITIES)
 
         layer = front_matter.get("layer")
         expected_layer = self.derive_expected_layer(self.doc.path)
         if layer in LAYERS and layer != expected_layer:
-            self.messages.append(f'layer "{layer}" does not match the directory (expected "{expected_layer}")')
+            self.report(f'layer "{layer}" does not match the directory (expected "{expected_layer}")')
 
         components = front_matter.get("components")
         if is_str_list(components):
             for component in components:
                 if component not in self.vocab.components:
-                    self.messages.append(f'unknown component "{component}" (add it to architecture/components.md)')
+                    self.report(f'unknown component "{component}" (add it to architecture/components.md)')
         tags = front_matter.get("tags")
         if is_str_list(tags):
             for tag in tags:
                 if not self.TAG_PATTERN.match(tag):
-                    self.messages.append(f'tag "{tag}" must be lowercase words separated by "-"')
+                    self.report(f'tag "{tag}" must be lowercase words separated by "-"')
 
         if "milestone" in front_matter and front_matter["milestone"] not in self.vocab.milestones:
-            self.messages.append(
-                f'unknown milestone "{front_matter["milestone"]}" (milestones are listed in roadmap.md)'
-            )
+            self.report(f'unknown milestone "{front_matter["milestone"]}" (milestones are listed in roadmap.md)')
 
         self.check_redirect_rules()
         self.check_adr_rules()
-        return [Problem(self.doc.path, 1, m) for m in self.messages]
+        return self.problems
+
+    def report(self, message: str, hint: str | None = None) -> None:
+        """Record a violation as a problem on line 1 of the doc.
+
+        Args:
+            message: What is wrong, for the user.
+            hint: How to fix this particular case; None for no hint.
+        """
+        self.problems.append(Problem(self.doc.path, 1, message, hint=hint))
 
     def check_enum(self, field: str, allowed: tuple[str, ...]) -> None:
         """Record a violation if the field is present with a value outside the allowed ones.
@@ -238,7 +304,39 @@ class FrontMatterCheck:
             allowed: Values the field may take; the message lists them.
         """
         if field in self.front_matter and self.front_matter[field] not in allowed:
-            self.messages.append(f'"{field}" must be one of: {", ".join(allowed)}')
+            self.report(f'"{field}" must be one of: {", ".join(allowed)}')
+
+    def check_status(self) -> None:
+        """Record the violations of the ``status`` rules, with hints that fix them where a fix is clear.
+
+        A missing ``status`` is left to the required-field rule. A status with no values or a value outside
+        :data:`STATUSES` is one violation without a hint. Otherwise each single-only value combined with other values
+        is one violation, then each value listed more than once, in doc order.
+        """
+        status = self.doc.status
+        if "status" not in self.front_matter or is_valid_status(status):
+            return
+        if not status.values or any(value not in STATUSES for value in status.values):
+            self.report(
+                f'"status" must be one of: {", ".join(STATUSES)}, '
+                f"or a list of distinct values from: {', '.join(LIST_STATUSES)}"
+            )
+            return
+        distinct_status = status.remove_duplicates()
+        if not distinct_status.is_single:
+            for value in distinct_status.values:
+                if value not in LIST_STATUSES:
+                    removal = make_status_edit_hint(f'remove "{value}" from', distinct_status.remove_value(value))
+                    self.report(
+                        f'"{value}" is combined with other statuses in "status"',
+                        hint=f'write "status: {value}", or {removal}',
+                    )
+        for value in distinct_status.values:
+            if status.values.count(value) > 1:
+                self.report(
+                    f'"{value}" is listed twice in "status"',
+                    hint=make_status_edit_hint(f'remove the duplicate "{value}" from', distinct_status),
+                )
 
     def check_redirect_rules(self) -> None:
         """Record any violations of the rules for ``redirect_*`` fields and ``reason``."""
@@ -246,25 +344,25 @@ class FrontMatterCheck:
         if not is_redirect(front_matter):
             for field in ("redirect_kind", "redirect_to"):
                 if field in front_matter:
-                    self.messages.append(f'"{field}" is only allowed with status: redirect')
+                    self.report(f'"{field}" is only allowed with status: redirect')
             return
         kind = front_matter.get("redirect_kind")
         if kind is None:
-            self.messages.append('status: redirect needs "redirect_kind"')
+            self.report('status: redirect needs "redirect_kind"')
         elif kind not in self.REDIRECT_KINDS:
-            self.messages.append(f'"redirect_kind" must be one of: {", ".join(self.REDIRECT_KINDS)}')
+            self.report(f'"redirect_kind" must be one of: {", ".join(self.REDIRECT_KINDS)}')
         if not self.is_non_blank_str(front_matter.get("reason")):
-            self.messages.append('status: redirect needs "reason" (one sentence)')
+            self.report('status: redirect needs "reason" (one sentence)')
         target = front_matter.get("redirect_to")
         if kind == "removed":
             if target is not None:
-                self.messages.append('redirect_kind: removed has no replacement, so no "redirect_to"')
+                self.report('redirect_kind: removed has no replacement, so no "redirect_to"')
         elif target is None:
-            self.messages.append('status: redirect needs "redirect_to"')
+            self.report('status: redirect needs "redirect_to"')
         elif kind == "split" and not (is_str_list(target) and target):
-            self.messages.append('"redirect_to" must be a list of paths for redirect_kind: split')
+            self.report('"redirect_to" must be a list of paths for redirect_kind: split')
         elif not (self.is_non_blank_str(target) or (is_str_list(target) and target)):
-            self.messages.append('"redirect_to" must be a path or a list of paths')
+            self.report('"redirect_to" must be a path or a list of paths')
 
     def check_adr_rules(self) -> None:
         """Record any violations of the ADR rules for ``decision``, ``date`` and ``superseded_by``.
@@ -274,17 +372,17 @@ class FrontMatterCheck:
         front_matter = self.front_matter
         if not is_adr(self.doc.path):
             if "decision" in front_matter:
-                self.messages.append('"decision" is only for ADRs (architecture/decisions/<PREFIX>-NNNN-<slug>.md)')
+                self.report('"decision" is only for ADRs (architecture/decisions/<PREFIX>-NNNN-<slug>.md)')
             return
         decision = front_matter.get("decision")
         if decision is None:
-            self.messages.append('ADR needs "decision"')
+            self.report('ADR needs "decision"')
         elif decision not in self.DECISIONS:
-            self.messages.append(f'"decision" must be one of: {", ".join(self.DECISIONS)}')
+            self.report(f'"decision" must be one of: {", ".join(self.DECISIONS)}')
         date = front_matter.get("date")
         if date is None:
-            self.messages.append('ADR needs "date" (YYYY-MM-DD)')
+            self.report('ADR needs "date" (YYYY-MM-DD)')
         elif not (isinstance(date, datetime.date) or (isinstance(date, str) and self.DATE_PATTERN.match(date))):
-            self.messages.append('"date" must be YYYY-MM-DD')
+            self.report('"date" must be YYYY-MM-DD')
         if decision == "superseded" and not self.is_non_blank_str(front_matter.get("superseded_by")):
-            self.messages.append('decision: superseded needs "superseded_by"')
+            self.report('decision: superseded needs "superseded_by"')

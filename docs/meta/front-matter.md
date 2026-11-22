@@ -2,7 +2,7 @@
 title: Front matter
 summary: The YAML header every doc starts with — required fields, optional fields, allowed values, and an example.
 layer: meta
-status: specified
+status: implemented
 components: [docs-system]
 tags: [meta, front-matter, rules]
 related:

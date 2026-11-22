@@ -84,6 +84,7 @@ h1 { margin: 0.4rem 0; line-height: 1.25; }
 
 .status-draft { background: #6e7781; }
 .status-specified { background: #bf6a02; }
+.status-changed { background: #cf222e; }
 .status-implemented { background: #1a7f37; }
 .status-deprecated { background: #8250df; }
 .status-redirect { background: #0969da; }

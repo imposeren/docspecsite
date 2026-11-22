@@ -2,7 +2,7 @@
 title: Working from specs
 summary: How agents (and people) design new work with the user, turn specified docs into code, write or change specs, and record technical decisions as ADRs.
 layer: agents
-status: specified
+status: implemented
 components: [agents]
 tags: [agents, workflow, adr, project-management]
 related:

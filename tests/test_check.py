@@ -10,6 +10,7 @@ from docspecsite.check import Checker, CodeLinkCheck, LinkCheck, OptionalCheck
 from docspecsite.config import ProjectConfig
 from docspecsite.docset import DocSet
 from docspecsite.git import GitError
+from docspecsite.problems import Problem
 
 ROOT_INDEX_WITH_GUIDES = (
     "## Children\n\n- [roadmap.md](roadmap.md) — M.\n- [meta/index.md](meta/index.md) — R.\n"
@@ -185,12 +186,37 @@ def test_run_clean_tree(docs_tree: Path) -> None:
     assert Checker(docs_tree).run(include_staged=False) == []
 
 
+@pytest.mark.parametrize("hints", [("first", "second"), ("second", "first"), (None, "first")])
+def test_run_keeps_the_first_hint_of_a_repeated_problem(docs_tree: Path, hints: tuple[str | None, str]) -> None:
+    checker = Checker(docs_tree)
+    checker.loading_problems.extend(Problem("meta/x.md", 1, "same", hint=hint) for hint in hints)
+    assert [p.hint for p in checker.run(include_staged=False)] == [hints[0]]
+
+
+def test_run_uses_project_status_note_texts(docs_tree: Path) -> None:
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text(
+        '[status-notes]\nspecified = "Ще не зроблено."\n', encoding="utf-8"
+    )
+    body = "# S\n\n## A\n\n> **Ще не зроблено.**\n\n## B\n\n> **Not built yet.**\n"
+    write_doc(docs_tree, "meta/s.md", body, status=["implemented", "specified"])
+    # The default text alone in a single-status doc: a problem only if the defaults still counted.
+    write_doc(docs_tree, "meta/t.md", "# T\n\n## A\n\n> **Not built yet.**\n", status="implemented")
+    problems = Checker(docs_tree).run(include_staged=False)
+    assert [p for p in problems if p.path in ("meta/s.md", "meta/t.md")] == []
+
+
 def test_run_bad_front_matter_still_checks_links(docs_tree: Path) -> None:
     (docs_tree / "docs" / "meta" / "bad.md").write_text("# Bad\n\n- [x](nope.md) — x\n")
     messages = [str(p) for p in Checker(docs_tree).run(include_staged=False)]
     assert "docs/meta/bad.md: no front matter" in messages
     assert any(m.startswith("docs/meta/bad.md:3: broken link") for m in messages)
     assert messages == sorted(messages)
+
+
+def test_run_uses_default_status_note_texts_without_settings(docs_tree: Path) -> None:
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text("[status-notes\n", encoding="utf-8")
+    write_doc(docs_tree, "meta/s.md", "# S\n\n## A\n\n> **Not built yet.**\n", status=["implemented", "specified"])
+    assert [p for p in Checker(docs_tree).run(include_staged=False) if p.path == "meta/s.md"] == []
 
 
 def test_run_reports_invalid_config(docs_tree: Path) -> None:
@@ -324,9 +350,10 @@ def test_templates_are_not_docs(docs_tree: Path) -> None:
     write_doc(
         docs_tree,
         "meta/index.md",
-        "## Children\n\n- [vocabulary.md](vocabulary.md) — Words.\n- [templates/](templates/index.md) — Templates.\n",
+        "# Meta\n\n## Children\n\n"
+        "- [vocabulary.md](vocabulary.md) — Words.\n- [templates/](templates/index.md) — Templates.\n",
     )
-    write_doc(docs_tree, "meta/templates/index.md", "## Children\n\n- [x.md](x.md) — A template.\n")
+    write_doc(docs_tree, "meta/templates/index.md", "# Templates\n\n## Children\n\n- [x.md](x.md) — A template.\n")
     (docs_tree / "docs" / "meta" / "templates" / "x.md").write_text(
         "---\ntitle: <Name>\nsummary: <One sentence: what.>\nlayer: behavior\n---\n\n[s](<same/path>.md)\n"
     )
@@ -340,7 +367,7 @@ def _list_in_meta_index(root: Path, name: str) -> None:
 
 
 def test_run_resolves_code_links(code_tree: Path) -> None:
-    write_doc(code_tree, "meta/x.md", "See [t](code:sample.mod.Thing).\n", code=["sample.mod"])
+    write_doc(code_tree, "meta/x.md", "# X\n\nSee [t](code:sample.mod.Thing).\n", code=["sample.mod"])
     _list_in_meta_index(code_tree, "x")
     assert [str(p) for p in Checker(code_tree).run(include_staged=False)] == []
 
@@ -400,7 +427,7 @@ def test_check_code_reports_unknown_references(code_tree: Path) -> None:
 
 
 def test_run_reports_unknown_code_link(code_tree: Path) -> None:
-    write_doc(code_tree, "meta/x.md", "See [t](code:sample.nope).\n")
+    write_doc(code_tree, "meta/x.md", "# X\n\nSee [t](code:sample.nope).\n")
     _list_in_meta_index(code_tree, "x")
     [problem] = Checker(code_tree).run(include_staged=False)
     assert str(problem).endswith("code: link to unknown code element: sample.nope")
@@ -492,6 +519,6 @@ def test_run_skips_adr_names_when_config_is_invalid(docs_tree: Path) -> None:
 
 def test_run_finds_code_in_the_repo_root(code_tree: Path) -> None:
     move_sample_package_to_root(code_tree)
-    write_doc(code_tree, "meta/x.md", "See [t](code:sample.mod.Thing).\n", code=["sample.mod"])
+    write_doc(code_tree, "meta/x.md", "# X\n\nSee [t](code:sample.mod.Thing).\n", code=["sample.mod"])
     _list_in_meta_index(code_tree, "x")
     assert [str(p) for p in Checker(code_tree).run(include_staged=False)] == []

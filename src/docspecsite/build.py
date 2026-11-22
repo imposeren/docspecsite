@@ -22,7 +22,7 @@ from .cache import BodyCache
 from .codeindex import CodeTarget
 from .coderef import Codebase, CodeError, CodeReference
 from .config import ConfigError, ProjectConfig
-from .docs import DOCS_DIR, Doc, is_docs_asset, is_redirect, make_string_tuple
+from .docs import DOCS_DIR, Doc, DocStatus, is_docs_asset, is_redirect, make_string_tuple
 from .docset import DocSet
 from .errors import DOCSPECSITE_WARNINGS, DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from .git import Git
@@ -905,14 +905,13 @@ class SiteBuilder:
             url: Site path the page is written to: the doc's page, a ``/v/`` page or a diff page.
         """
         front_matter = self.get_front_matter(version) or {}
-        status = front_matter.get("status")
         old_banner = None
         if not self.history.is_latest(version):
             old_banner = OldBanner(version, make_doc_url(version.path))
         return Page(
             url=url,
             title=str(front_matter.get("title", version.path)),
-            status=str(status) if status is not None else None,
+            statuses=DocStatus.from_front_matter(front_matter).values,
             components=make_string_tuple(front_matter.get("components")),
             tags=make_string_tuple(front_matter.get("tags")),
             body_html="",
@@ -1175,7 +1174,7 @@ class SiteBuilder:
                 url=make_code_url(CodeTarget(m.path, None)),
                 title=m.path,
                 summary="",
-                status="implemented",
+                status=DocStatus(("implemented",)),
                 layer="reference",
                 milestone=None,
                 priority=None,

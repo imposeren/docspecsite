@@ -3,9 +3,9 @@ import datetime
 import pytest
 from conftest import make_doc
 
-from docspecsite.docs import Doc
+from docspecsite.docs import Doc, DocStatus
 from docspecsite.problems import Problem
-from docspecsite.schema import FrontMatterValidator
+from docspecsite.schema import FrontMatterValidator, format_status_yaml, is_valid_status, make_status_edit_hint
 from docspecsite.vocabulary import Vocabulary
 
 VOCAB = Vocabulary(
@@ -17,10 +17,18 @@ ADR = "architecture/decisions/DSS-0001-x.md"
 ADR_PREFIXES = ("BASE", "DSS")
 
 
-def collect_messages(checked: Doc) -> list[str]:
+def collect_problems(checked: Doc) -> list[Problem]:
     problems = FrontMatterValidator(VOCAB, ADR_PREFIXES).check(checked)
     assert all(p.path == checked.path and p.line_number == 1 for p in problems)
-    return [p.message for p in problems]
+    return problems
+
+
+def collect_messages(checked: Doc) -> list[str]:
+    return [p.message for p in collect_problems(checked)]
+
+
+def collect_hints(checked: Doc) -> list[str | None]:
+    return [p.hint for p in collect_problems(checked)]
 
 
 def assert_one(checked: Doc, expected: str) -> None:
@@ -220,3 +228,87 @@ def test_adr_name_rule_runs_without_front_matter() -> None:
 def test_adr_name_rule_skipped_without_prefixes() -> None:
     adr = make_doc("architecture/decisions/APP-0001-x.md", decision="accepted", date="2026-11-18")
     assert FrontMatterValidator(VOCAB, None).check(adr) == []
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        (("changed",), True),
+        (("draft",), True),
+        (("implemented", "specified", "changed"), True),
+        (("draft", "specified"), False),
+        (("specified", "specified"), False),
+        (("done",), False),
+        ((), False),
+    ],
+)
+def test_is_valid_status(values: tuple[str, ...], expected: bool) -> None:
+    assert is_valid_status(DocStatus(values)) is expected
+
+
+def test_one_value_list_is_valid() -> None:
+    assert collect_messages(make_doc(status=["specified"])) == []
+    assert collect_messages(make_doc(status=["draft"])) == []
+
+
+def test_status_values_are_valid() -> None:
+    for status in ("changed", ["implemented", "specified", "changed"]):
+        assert collect_messages(make_doc(status=status)) == []
+
+
+def test_single_only_status_in_a_list() -> None:
+    checked = make_doc(status=["draft", "specified"])
+    assert collect_messages(checked) == ['"draft" is combined with other statuses in "status"']
+    assert collect_hints(checked) == [
+        'write "status: draft", or remove "draft" from "status" so it reads "status: specified"'
+    ]
+
+
+def test_status_listed_twice() -> None:
+    checked = make_doc(status=["implemented", "specified", "specified"])
+    assert collect_messages(checked) == ['"specified" is listed twice in "status"']
+    assert collect_hints(checked) == [
+        'remove the duplicate "specified" from "status" so it reads "status: [implemented, specified]"'
+    ]
+
+
+def test_single_only_status_listed_twice() -> None:
+    """A hint never keeps a duplicate."""
+    checked = make_doc(status=["draft", "draft"])
+    assert collect_messages(checked) == ['"draft" is listed twice in "status"']
+    assert collect_hints(checked) == ['remove the duplicate "draft" from "status" so it reads "status: draft"']
+    checked = make_doc(status=["draft", "specified", "specified"])
+    assert collect_messages(checked) == [
+        '"draft" is combined with other statuses in "status"',
+        '"specified" is listed twice in "status"',
+    ]
+    assert collect_hints(checked) == [
+        'write "status: draft", or remove "draft" from "status" so it reads "status: specified"',
+        'remove the duplicate "specified" from "status" so it reads "status: [draft, specified]"',
+    ]
+
+
+def test_make_status_edit_hint() -> None:
+    assert (
+        make_status_edit_hint('add "changed" to', DocStatus(("implemented", "changed")))
+        == 'add "changed" to "status" so it reads "status: [implemented, changed]"'
+    )
+
+
+def test_one_value_redirect_list_passes() -> None:
+    assert collect_messages(make_doc(status=["redirect"], redirect_kind="moved", redirect_to="a.md", reason="R.")) == []
+
+
+@pytest.mark.parametrize("status", [5, [], ["implemented", "done"], {"a": 1}])
+def test_status_of_wrong_shape(status: object) -> None:
+    checked = make_doc(status=status)
+    assert_one(
+        checked,
+        '"status" must be one of: draft, specified, changed, implemented, deprecated, redirect, or a list',
+    )
+    assert collect_hints(checked) == [None]
+
+
+def test_format_status_yaml() -> None:
+    assert format_status_yaml(DocStatus(("implemented",))) == "implemented"
+    assert format_status_yaml(DocStatus(("implemented", "specified"))) == "[implemented, specified]"

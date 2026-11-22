@@ -2,7 +2,7 @@
 title: Working with AI agents
 summary: Entry point for AI agents (and people using them) — the hard rules, how to read docs economically, how to turn specs into work, and Claude Code setup.
 layer: agents
-status: specified
+status: implemented
 components: [agents]
 tags: [overview, agents, claude]
 related:

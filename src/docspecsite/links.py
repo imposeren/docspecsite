@@ -149,7 +149,7 @@ class DocLinks:
         Each link is classified as :func:`parse_body_ref` does.
         """
         return [
-            parse_body_ref(self.doc.path, link.target, self.doc.body_line + link.line_number - 1)
+            parse_body_ref(self.doc.path, link.target, self.doc.get_file_line_number(link.line_number))
             for link in MarkdownText(self.doc.body).extract_links()
         ]
 

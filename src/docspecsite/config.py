@@ -14,7 +14,7 @@ from typing import ClassVar
 
 from .docs import is_str_list, make_string_tuple
 from .errors import DocspecsiteError, DocspecsiteWarning
-from .schema import ADR_DIR, ADR_NAME_PATTERN
+from .schema import ADR_DIR, ADR_NAME_PATTERN, LIST_STATUSES, STATUS_NOTES
 from .text import decode_text
 
 
@@ -52,6 +52,13 @@ class ProjectConfig:
 
     toc_min_headings: int = DEFAULT_TOC_MIN
     """Number of ``##`` sections from which a doc gets a Contents list; 0 turns it off (``toc-min-headings``)."""
+
+    status_notes: Mapping[str, str] = STATUS_NOTES
+    """Status note labels, each with the status it announces (``[status-notes]``): the defaults, with the project's
+    texts replacing those of the statuses it sets.
+
+    Docs: behavior/configuration.md
+    """
 
     # Problems found while reading
     unknown_settings: tuple[str, ...] = ()
@@ -198,6 +205,7 @@ class ProjectConfigParser:
         "code-dirs",
         "code-components",
         "toc-min-headings",
+        "status-notes",
     )
     """Names of the settings docspecsite knows; any other key is an unknown setting."""
 
@@ -260,6 +268,7 @@ class ProjectConfigParser:
         code_components = (
             self.parse_code_components(settings["code-components"]) if "code-components" in settings else {}
         )
+        status_notes = self.parse_status_notes(settings["status-notes"]) if "status-notes" in settings else STATUS_NOTES
         return ProjectConfig(
             code_dirs=code_dirs,
             source_url=source_url.rstrip("/"),
@@ -267,6 +276,7 @@ class ProjectConfigParser:
             adr_prefix=str(adr_prefix),
             external_adr_prefixes=external_adr_prefixes,
             toc_min_headings=toc_min_headings,
+            status_notes=status_notes,
             unknown_settings=tuple(self.unknown_settings),
             invalid_values=tuple(self.invalid_values),
         )
@@ -343,3 +353,43 @@ class ProjectConfigParser:
             return {str(prefix): tuple(components) for prefix, components in value.items()}
         self.invalid_values.append('"code-components" must be a table of lists of strings')
         return {}
+
+    def parse_status_notes(self, value: object) -> Mapping[str, str]:
+        """Return the effective status notes, or the defaults, recording every problem, when an entry is invalid.
+
+        The effective notes are the default ones with the texts of the statuses the table sets in place of theirs.
+
+        Docs: behavior/configuration.md
+
+        Args:
+            value: The ``status-notes`` value from the parsed TOML, of any type; valid when it is a table of texts by
+                status, each text non-empty without leading or trailing whitespace, and no two statuses share a text.
+        """
+        if not isinstance(value, dict):
+            self.invalid_values.append('"status-notes" must be a table of status note texts by status')
+            return STATUS_NOTES
+        problems_before = len(self.invalid_values)
+        texts_by_status = {status: label for label, status in STATUS_NOTES.items()}
+        for status, text in value.items():
+            if status not in LIST_STATUSES:
+                self.invalid_values.append(f'"status-notes" has an unknown status: "{status}"')
+            elif not (isinstance(text, str) and text and text == text.strip()):
+                self.invalid_values.append(
+                    f'"status-notes" text of "{status}" must be non-empty text without leading or trailing spaces'
+                )
+            else:
+                texts_by_status[status] = text
+        if len(self.invalid_values) > problems_before:
+            return STATUS_NOTES
+        statuses_by_text: dict[str, str] = {}
+        for status in LIST_STATUSES:
+            text = texts_by_status[status]
+            if text in statuses_by_text:
+                self.invalid_values.append(
+                    f'"status-notes" gives "{statuses_by_text[text]}" and "{status}" the same text: "{text}"'
+                )
+            else:
+                statuses_by_text[text] = status
+        if len(self.invalid_values) > problems_before:
+            return STATUS_NOTES
+        return {text: status for status, text in texts_by_status.items()}

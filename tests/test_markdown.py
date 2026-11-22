@@ -1,6 +1,13 @@
 import pytest
 
-from docspecsite.markdown import Entry, HtmlRenderer, Link, MarkdownText, RenderedLink
+from docspecsite.markdown import Entry, Heading, HtmlRenderer, Link, MarkdownText, RenderedLink
+
+_NOTES_TEXT = (
+    "# Import\n\n> **Not built yet.**\n\n"  # line 3: under the title
+    "## Export\n\n> **Experimental.** May change.\n> **Built.** Mostly.\n\n"  # lines 7, 8: one paragraph
+    "### Backend checks\n\n> **Not built yet.**\n\nText.\n\n> **Built.**\n\n"  # line 12; line 16 after content
+    "## Code\n\n```\n> **Built.**\n```\n\n## Plain\n\n> no label\n"
+)
 
 VOCABULARY = """# Vocabulary
 
@@ -32,6 +39,10 @@ def test_extract_links_inline_reference_and_autolink() -> None:
         Link("../y.md", 2),
         Link("https://e.org", 4),
     ]
+
+
+def test_extract_links_line_after_a_code_span_over_two_lines() -> None:
+    assert MarkdownText("a `x\ny` b\n[c](d)\n").extract_links() == [Link("d", 3)]
 
 
 def test_extract_links_decodes_percent() -> None:
@@ -124,3 +135,74 @@ def test_role_rule_leaves_code_alone(text: str) -> None:
         return RenderedLink(href)
 
     assert HtmlRenderer(keep, use_roles=True).render(text) == HtmlRenderer(keep).render(text)
+
+
+def test_get_section_notes_each_note_line() -> None:
+    notes = MarkdownText(_NOTES_TEXT).get_section_notes()
+    assert [(n.label, n.heading.first_line, n.line_number) for n in notes] == [
+        ("Not built yet.", "# Import", 3),
+        ("Experimental.", "## Export", 7),
+        ("Built.", "## Export", 8),
+        ("Not built yet.", "### Backend checks", 12),
+    ]
+
+
+@pytest.mark.parametrize(("title", "quoted"), [("# Import", "# Import"), ("Import\n===", "Import")])
+def test_get_section_notes_only_first_level_one_heading_is_title(title: str, quoted: str) -> None:
+    text = f"## Intro\n\n> **Built.**\n\n{title}\n\n> **Built.**\n\n# Export\n\n> **Built.**\n"
+    notes = MarkdownText(text).get_section_notes()
+    assert [(n.heading.first_line, n.is_title) for n in notes] == [
+        ("## Intro", False),
+        (quoted, True),
+        ("# Export", False),
+    ]
+
+
+def test_get_section_notes_skips_code_blocks() -> None:
+    notes = MarkdownText(_NOTES_TEXT).get_section_notes()
+    assert notes and all(n.heading.first_line != "## Code" for n in notes)
+
+
+def test_get_section_notes_only_right_after_heading() -> None:
+    notes = MarkdownText(_NOTES_TEXT).get_section_notes()
+    assert [(n.label, n.line_number) for n in notes] == [
+        ("Not built yet.", 3),
+        ("Experimental.", 7),
+        ("Built.", 8),
+        ("Not built yet.", 12),
+    ]  # not the "Built." on line 16, after the paragraph
+
+
+def test_get_section_notes_block_quotes_split_by_blank_lines() -> None:
+    notes = MarkdownText("## A\n\n> **Experimental.**\n\n> **Built.**\n").get_section_notes()
+    assert [n.line_number for n in notes] == [3, 5]
+
+
+def test_get_section_notes_quotes_setext_heading_by_first_line() -> None:  # DS-46
+    [note] = MarkdownText("# T\n\nExport\n------\n\n> **Built.**\n").get_section_notes()
+    assert (note.heading, note.is_title, note.line_number) == (Heading("Export", "Export", 3), False, 6)
+
+
+def test_get_section_notes_headings_in_quotes_and_lists_are_not_sections() -> None:
+    text = "## A\n\nText.\n\n> ## Quoted\n>\n> > **Not built yet.**\n\n- ## Item\n\n  > **Not built yet.**\n"
+    assert MarkdownText(text).get_section_notes() == []
+
+
+def test_get_section_notes_only_direct_paragraphs_of_the_quote() -> None:
+    assert MarkdownText("## A\n\n> - **Built.**\n>\n> > **Built.**\n").get_section_notes() == []
+    text = "## A\n\n> **Built.**\n>\n> - x\n>\n> **Changed.**\n"
+    assert [n.line_number for n in MarkdownText(text).get_section_notes()] == [3, 7]
+
+
+def test_get_section_notes_lines_after_a_code_span_over_two_lines() -> None:
+    notes = MarkdownText("## A\n\n> **Built.** a `x\ny` z\n> **Changed.**\n").get_section_notes()
+    assert [(n.label, n.line_number) for n in notes] == [("Built.", 3), ("Changed.", 5)]
+
+
+def test_get_section_notes_only_asterisk_bold() -> None:
+    assert MarkdownText("## A\n\n> __Not built yet.__\n").get_section_notes() == []
+
+
+def test_get_section_notes_skips_lazy_continuation_lines() -> None:
+    notes = MarkdownText("## A\n\n> intro\n**Not built yet.**\n> **Built.**\n").get_section_notes()
+    assert [(n.label, n.line_number) for n in notes] == [("Built.", 5)]

@@ -2,7 +2,7 @@
 title: Writing docs
 summary: How to write a doc that works for both humans and AI agents — page shape, style per layer, size limits, and the templates to start from.
 layer: meta
-status: specified
+status: implemented
 components: [docs-system]
 tags: [meta, writing, style, templates]
 related:

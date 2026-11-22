@@ -93,6 +93,12 @@ class CommandParser:
             help="optional checks to run as well, comma-separated: code (the references in the code: Docs: lines, "
             "roles and code: links in docstrings)",
         )
+        check_parser.add_argument(
+            "--no-hints",
+            dest="show_hints",
+            action="store_false",
+            help="leave out the hint lines under the problems",
+        )
         check_parser.set_defaults(handler=run_check_command)
 
         list_parser = commands.add_parser(
@@ -151,8 +157,9 @@ def run_check_command(args: argparse.Namespace) -> int:
     Returns exit status 1 when problems are found or ``staged`` is set outside git, else 0.
 
     Args:
-        args: Parsed ``check`` options; ``repo``, ``staged`` and ``optional_checks`` (the set of
-            :class:`~docspecsite.check.OptionalCheck` to run as well) are used.
+        args: Parsed ``check`` options; ``repo``, ``staged``, ``optional_checks`` (the set of
+            :class:`~docspecsite.check.OptionalCheck` to run as well) and ``show_hints`` (whether to print the hint
+            lines under the problems) are used.
     """
     try:
         problems = Checker(args.repo).run(include_staged=args.staged, optional_checks=args.optional_checks)
@@ -160,7 +167,7 @@ def run_check_command(args: argparse.Namespace) -> int:
         print(f"docspecsite check --staged: {exc}", file=sys.stderr)
         return 1
     for problem in problems:
-        print(problem)
+        print(problem.format_report(show_hint=args.show_hints))
     if problems:
         print(f"{len(problems)} problem(s)", file=sys.stderr)
         return 1

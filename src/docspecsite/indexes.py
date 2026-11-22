@@ -10,8 +10,9 @@ from html import escape
 from typing import Self
 
 from .config import ProjectConfig
-from .docs import make_string_tuple
+from .docs import DocStatus, make_string_tuple
 from .pages import Page, PageLink
+from .query import format_text_field, make_status_json_value
 from .schema import LAYERS, PRIORITIES, STATUSES
 from .text import collapse_to_one_line
 from .urls import STATUS_PAGE, is_usable_tag, make_component_url, make_relative_url, make_tag_url
@@ -34,9 +35,9 @@ class IndexEntry:
     summary: str
     """One-line summary shown in the listings; empty when the doc has none."""
 
-    status: str
-    """Status from :data:`~docspecsite.schema.STATUSES`, or another value the status board leaves out; empty when the
-    doc has none."""
+    status: DocStatus
+    """Status of the doc; the status board lists the entry under each of its values from
+    :data:`~docspecsite.schema.STATUSES` and leaves out other values."""
 
     layer: str
     """Layer from :data:`~docspecsite.schema.LAYERS`, or another value ``llms.txt`` leaves out; empty when the doc has
@@ -71,7 +72,7 @@ class IndexEntry:
             url=url,
             title=str(front_matter.get("title", path)),
             summary=str(front_matter.get("summary", "")),
-            status=str(front_matter.get("status", "")),
+            status=DocStatus.from_front_matter(front_matter),
             layer=str(front_matter.get("layer", "")),
             milestone=None if milestone is None else str(milestone),
             priority=None if priority is None else str(priority),
@@ -135,18 +136,18 @@ class IndexRenderer:
 
     @staticmethod
     def render_item(entry: IndexEntry, page_url: str) -> str:
-        """Return the list item HTML of an entry: link, status marker and summary.
+        """Return the list item HTML of an entry: link, a status marker per status value, and summary.
 
         Args:
-            entry: Doc or code module to list; its title, status and summary are shown.
+            entry: Doc or code module to list; its title, status values and summary are shown.
             page_url: Site path of the index page holding the item; the entry's link is made relative to it.
         """
         title = escape(entry.title)
         summary = escape(entry.summary)
-        status = escape(entry.status)
         href = escape(make_relative_url(entry.url, page_url), quote=True)
-        marker = f' <span class="status status-{status}">{status}</span>' if status else ""
-        return f'<li><a href="{href}">{title}</a>{marker}: {summary}</li>'
+        escaped_statuses = (escape(status) for status in entry.status.values)
+        markers = "".join(f' <span class="status status-{status}">{status}</span>' for status in escaped_statuses)
+        return f'<li><a href="{href}">{title}</a>{markers}: {summary}</li>'
 
     def render_listing(self, listed_entries: list[IndexEntry], page_url: str) -> str:
         """Return the HTML list of entries, sorted by path with ADRs ordered by prefix, with links relative to a page.
@@ -200,16 +201,16 @@ class IndexRenderer:
     def render_status_body(self) -> str:
         """Return the body HTML of the status board: docs by status, then milestone (roadmap order), then priority.
 
-        Docs whose status is outside :data:`~docspecsite.schema.STATUSES` are left out. Milestones used by docs but not
-        in the roadmap follow the roadmap's alphabetically, then docs without one. The entry links are relative to
-        :data:`~docspecsite.urls.STATUS_PAGE`.
+        A doc is listed under each of its status values; values outside :data:`~docspecsite.schema.STATUSES` are left
+        out. Milestones used by docs but not in the roadmap follow the roadmap's alphabetically, then docs without one.
+        The entry links are relative to :data:`~docspecsite.urls.STATUS_PAGE`.
         """
         parts: list[str] = []
         used_milestones = {self.find_milestone_group(e) for e in self.entries}
         extra_milestones = sorted(used_milestones - set(self.vocabulary.milestones) - {self.NO_MILESTONE})
         milestone_order = dict.fromkeys((*self.vocabulary.milestones, *extra_milestones, self.NO_MILESTONE))
         for status in STATUSES:
-            status_entries = [e for e in self.entries if e.status == status]
+            status_entries = [e for e in self.entries if status in e.status.values]
             if not status_entries:
                 continue
             parts.append(f"<h2>{escape(status)}</h2>")
@@ -234,7 +235,7 @@ class IndexRenderer:
         home_breadcrumb = (PageLink(self.site_title, "index.html"),)
 
         def make_page_maker(url: str, title: str, render_body: Callable[[], str]) -> Callable[[], Page]:
-            return lambda: Page(url, title, None, (), (), render_body(), breadcrumb=home_breadcrumb)
+            return lambda: Page(url, title, (), (), (), render_body(), breadcrumb=home_breadcrumb)
 
         makers: dict[str, Callable[[], Page]] = {}
         for tag, tag_entries in sorted(self.group_entries(self.entries, lambda e: e.tags).items()):
@@ -269,8 +270,9 @@ class IndexRenderer:
             llms_lines += ["", f"## {layer}", ""]
             for entry in layer_entries:
                 components_text = ", ".join(entry.components) or "none"
+                status_text = format_text_field(make_status_json_value(entry.status))
                 llms_lines.append(
                     f"- [{collapse_to_one_line(entry.title)}]({entry.url}): {collapse_to_one_line(entry.summary)} "
-                    f"(status: {entry.status}; components: {components_text}; source: docs/{entry.path})"
+                    f"(status: {status_text}; components: {components_text}; source: docs/{entry.path})"
                 )
         return "\n".join(llms_lines) + "\n"

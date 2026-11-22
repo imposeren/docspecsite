@@ -18,7 +18,7 @@ from docspecsite.pages import (
     make_picker_label,
 )
 
-_PAGE = Page("meta/a.html", "A", "specified", ("core",), ("x",), "<p>Body</p>")
+_PAGE = Page("meta/a.html", "A", ("specified",), ("core",), ("x",), "<p>Body</p>")
 
 
 def _render(page: Page) -> str:
@@ -184,6 +184,13 @@ def test_index_links_only_to_produced_indexes() -> None:
     assert "status.html" in Templates().render(_PAGE, "Docs", indexes={"status.html"})
     linked = _render(_PAGE)
     assert 'href="../components/core.html"' in linked
+
+
+def test_page_shows_a_badge_per_status() -> None:
+    html = _render(replace(_PAGE, statuses=("implemented", "changed")))
+    implemented_index = html.index('<span class="status status-implemented">implemented</span>')
+    assert implemented_index < html.index('<span class="status status-changed">changed</span>')
+    assert 'class="status' not in _render(replace(_PAGE, statuses=()))
 
 
 def test_index_links_are_encoded() -> None:

@@ -2,7 +2,7 @@
 title: Reading strategy for agents
 summary: How an agent should find relevant docs and read only as deep as the task needs — summaries first, mirrored paths, related links, and the list command.
 layer: agents
-status: specified
+status: implemented
 components: [agents]
 tags: [agents, navigation, context]
 related:

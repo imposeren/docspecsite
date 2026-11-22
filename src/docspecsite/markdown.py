@@ -1,5 +1,6 @@
 """The single Markdown parser of docspecsite, with what is read from its tokens."""
 
+import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import cached_property
@@ -9,6 +10,7 @@ from urllib.parse import quote, unquote
 from markdown_it import MarkdownIt
 from markdown_it.common.utils import escapeHtml
 from markdown_it.renderer import RendererHTML
+from markdown_it.rules_inline import StateInline, escape, newline
 from markdown_it.token import Token
 from markdown_it.utils import EnvType, OptionsDict
 from mdit_py_plugins.anchors import anchors_plugin
@@ -17,9 +19,84 @@ from mdit_py_plugins.front_matter import front_matter_plugin
 from .roles import RoleRule
 
 
+class BreakLineRule:
+    """Parser rules that mark each line break token with the source line it ends.
+
+    Markdown keeps no line breaks inside some inline elements, such as a code span over two lines, so the line of a
+    token cannot be found by counting the break tokens before it.
+
+    Docs: architecture/docs-tooling.md#statuses-and-status-notes
+    """
+
+    # Constants
+    ENV_KEY = "break_line_count"
+    """Key of the parse environment holding the last count of line breaks: the inline state it was made in, the
+    position in its source counted up to, and the count."""
+
+    META_KEY = "line_offset"
+    """Key of a break token's ``meta`` holding the line it ends: the number of line breaks before it in the source of
+    its inline token."""
+
+    @staticmethod
+    def install(md: MarkdownIt) -> None:
+        """Replace the inline rules of a parser that make line breaks with ones that also mark them.
+
+        Args:
+            md: Parser to change; its ``newline`` and ``escape`` rules (the latter makes ``\\`` breaks) are wrapped.
+        """
+        md.inline.ruler.at("newline", BreakLineRule.wrap(newline))
+        md.inline.ruler.at("escape", BreakLineRule.wrap(escape))
+
+    @staticmethod
+    def wrap(rule: Callable[[StateInline, bool], bool]) -> Callable[[StateInline, bool], bool]:
+        """Return an inline rule that runs a rule and marks the break tokens it pushes with the line they end.
+
+        The line is kept under :attr:`META_KEY`.
+
+        Args:
+            rule: Inline rule of markdown-it that may push a ``softbreak`` or ``hardbreak`` token at the line break
+                where it starts.
+        """
+
+        def mark_breaks(state: StateInline, silent: bool) -> bool:
+            start, token_count = state.pos, len(state.tokens)
+            if not rule(state, silent):
+                return False
+            for token in state.tokens[token_count:]:
+                if token.type in MarkdownText.BREAK_TOKEN_TYPES:
+                    token.meta[BreakLineRule.META_KEY] = BreakLineRule.count_line_breaks(state, start)
+            return True
+
+        return mark_breaks
+
+    @staticmethod
+    def count_line_breaks(state: StateInline, position: int) -> int:
+        """Return the number of line breaks before a position in the source of an inline state.
+
+        The count goes on from the position the previous call for the same state asked about, when it lies before,
+        so marking every break of a paragraph reads its source once.
+
+        Args:
+            state: Inline state whose ``src`` is counted; its parse environment keeps the last position and count.
+            position: Index in the source to count up to.
+        """
+        last_state, last_position, last_count = state.env.get(BreakLineRule.ENV_KEY, (None, 0, 0))
+        if last_state is not state or last_position > position:
+            last_position, last_count = 0, 0
+        count = last_count + state.src.count("\n", last_position, position)
+        state.env[BreakLineRule.ENV_KEY] = (state, position, count)
+        return count
+
+
 def _create_parser() -> MarkdownIt:
-    """Return a new Markdown parser: CommonMark with tables, front matter and heading anchors."""
-    return MarkdownIt("commonmark").enable("table").use(front_matter_plugin).use(anchors_plugin, max_level=6)
+    """Return a new Markdown parser: CommonMark with tables, front matter, heading anchors and marked line breaks."""
+    return (
+        MarkdownIt("commonmark")
+        .enable("table")
+        .use(front_matter_plugin)
+        .use(anchors_plugin, max_level=6)
+        .use(BreakLineRule.install)
+    )
 
 
 _md = _create_parser()
@@ -63,6 +140,46 @@ class Entry:
     """Line where the item starts in the text, from 1."""
 
 
+@dataclass(frozen=True)
+class Heading:
+    """Heading of any level at the top level of a text, not inside a block quote or a list.
+
+    Docs: architecture/docs-tooling.md#statuses-and-status-notes
+    """
+
+    first_line: str
+    """First source line of the heading, stripped, ``#`` marks included, such as ``# Import``; for a heading
+    underlined with ``===`` or ``---``, its first text line."""
+
+    content: str
+    """Markdown of the heading without its ``#`` marks or underline, its lines joined by spaces, such as
+    ``Import``."""
+
+    line_number: int
+    """Line where the heading starts in the text, from 1."""
+
+
+@dataclass(frozen=True)
+class SectionNote:
+    """Note line with a bold label in the block quote right after a heading, such as ``> **Built.**``.
+
+    Docs: architecture/docs-tooling.md#statuses-and-status-notes
+    """
+
+    label: str
+    """The bold text that opens the note line, such as ``Built.``."""
+
+    heading: Heading
+    """The heading the block quote follows."""
+
+    is_title: bool
+    """Whether the heading is the doc's title, which opens no section: its first level-1 heading at the top level, in
+    either style (``# Import``, or ``Import`` underlined with ``===``), as :meth:`MarkdownText.get_title` finds it."""
+
+    line_number: int
+    """Line of the note in the text, from 1."""
+
+
 class MarkdownText:
     """Markdown text parsed once, with what is read from its tokens."""
 
@@ -93,6 +210,12 @@ class MarkdownText:
         """The markdown-it tokens of the text, parsed on first use."""
         return _select_parser(use_roles=self.use_roles).parse(self.text)
 
+    @cached_property
+    def source_lines(self) -> list[str]:
+        """The lines of the text as written, split at the line breaks Markdown knows (``\\n``, ``\\r\\n`` and
+        ``\\r``), so that line ``n`` of a token's ``map`` is item ``n``."""
+        return re.split(r"\r\n?|\n", self.text)
+
     def split_front_matter(self) -> tuple[str | None, int]:
         """Split the text, a whole doc file, into its YAML front matter and the line where the body starts.
 
@@ -105,17 +228,37 @@ class MarkdownText:
         return None, 1
 
     @staticmethod
+    def get_inline_line_number(inline: Token, line_break: Token | None = None) -> int:
+        """Return the 1-based line number in the text where an inline token, or the part after a break, starts.
+
+        The token's first line is its ``map[0]`` plus one. The part after a break starts the number of lines further
+        on that the break's ``meta`` holds under :attr:`BreakLineRule.META_KEY` (the line breaks before it in the
+        token's source), plus one.
+
+        Docs: architecture/docs-tooling.md#statuses-and-status-notes
+
+        Args:
+            inline: Inline token of one block; its ``map`` gives its first line.
+            line_break: One of the token's ``softbreak`` or ``hardbreak`` children, marked by :class:`BreakLineRule`;
+                None gives the token's first line.
+        """
+        first_line_number = (inline.map[0] if inline.map else 0) + 1
+        if line_break is None:
+            return first_line_number
+        return first_line_number + line_break.meta[BreakLineRule.META_KEY] + 1
+
+    @staticmethod
     def iter_inline_links(inline: Token) -> Iterator[Link]:
         """Return the links and images of an inline token, with their lines.
 
         Args:
-            inline: Inline token of one block; its ``map`` gives the first line, and line breaks inside count on from
-                it, including those inside a role's written text.
+            inline: Inline token of one block; its ``map`` and its break tokens give the lines, and line breaks inside a
+                role's written text count on from them.
         """
-        line_number = (inline.map[0] if inline.map else 0) + 1
+        line_number = MarkdownText.get_inline_line_number(inline)
         for child in inline.children or []:
             if child.type in MarkdownText.BREAK_TOKEN_TYPES:
-                line_number += 1
+                line_number = MarkdownText.get_inline_line_number(inline, child)
             elif child.type == "link_open":
                 role_source: str | None = child.meta.get("role_source")
                 yield Link(unquote(str(child.attrGet("href") or "")), line_number, role_source)
@@ -248,6 +391,129 @@ class MarkdownText:
                 text = " ".join(part.strip() for part in text_parts if part.strip())
                 entries.append(Entry(targets, text, token.map[0] + 1))
         return entries
+
+    def make_heading(self, token_index: int) -> Heading:
+        """Return the heading that a ``heading_open`` token opens.
+
+        Args:
+            token_index: Index in :attr:`tokens` of a ``heading_open`` token with a ``map``; its ``inline`` token
+                follows it.
+        """
+        heading_open = self.tokens[token_index]
+        first_line_index = heading_open.map[0] if heading_open.map else 0
+        content = " ".join(line.strip() for line in self.tokens[token_index + 1].content.splitlines())
+        return Heading(self.source_lines[first_line_index].strip(), content, first_line_index + 1)
+
+    def get_level_one_headings(self) -> list[Heading]:
+        """Return the level-1 headings at the top level of the text, in document order.
+
+        Both styles count, ``# Import`` and ``Import`` underlined with ``===``; headings inside a block quote or a list
+        do not. The first is the doc's title (:meth:`get_title`).
+
+        Docs: behavior/requirements.md#checks
+        """
+        return [
+            self.make_heading(token_index)
+            for token_index, token in enumerate(self.tokens)
+            if token.type == "heading_open" and token.tag == "h1" and token.level == 0 and token.map
+        ]
+
+    def get_title(self) -> Heading | None:
+        """Return the doc's title heading, its first level-1 heading at the top level, or None when it has none.
+
+        The title is this heading wherever it is in the text; whether only blank lines come before it is for the
+        title check to say.
+
+        Docs: behavior/requirements.md#checks
+        """
+        headings = self.get_level_one_headings()
+        return headings[0] if headings else None
+
+    def get_section_notes(self) -> list[SectionNote]:
+        """Return the note lines with a bold label in the block quotes right after each heading, in document order.
+
+        Only headings at nesting level 0 count: headings inside block quotes or lists open no section. A heading's
+        notes are read from the block quote paragraphs that follow its ``heading_close`` token, up to the first token
+        outside a block quote; paragraphs in a list or a block quote inside them do not count, and code blocks hold no
+        notes. Consecutive ``>`` lines form one paragraph, which is split into its lines at its break tokens; each
+        line that starts with ``>`` and then ``**`` bold text is a note, whatever the label.
+
+        Docs: architecture/docs-tooling.md#statuses-and-status-notes
+        """
+        title = self.get_title()
+        notes: list[SectionNote] = []
+        for token_index, token in enumerate(self.tokens):
+            if token.type != "heading_open" or token.level != 0 or not token.map:
+                continue
+            heading = self.make_heading(token_index)
+            is_title = heading == title
+            # The heading's tokens are heading_open, inline and heading_close.
+            for inline in self.iter_quote_paragraphs(token_index + 3):
+                for line_number, line_children in self.split_inline_lines(inline):
+                    if self.is_note_line(self.source_lines[line_number - 1], line_children):
+                        notes.append(SectionNote(line_children[1].content, heading, is_title, line_number))
+        return notes
+
+    @staticmethod
+    def is_note_line(source_line: str, line_children: Sequence[Token]) -> bool:
+        """Return whether a line of a block quote paragraph is a note: it starts with ``>``, then ``**`` bold text.
+
+        A lazy continuation line, without the ``>``, and ``__`` bold text are no notes.
+
+        Args:
+            source_line: The line as written in the text.
+            line_children: Child tokens of the line, without breaks and empty ``text`` tokens.
+        """
+        return (
+            source_line.lstrip().startswith(">")
+            and [child.type for child in line_children[:3]] == ["strong_open", "text", "strong_close"]
+            and line_children[0].markup == "**"
+        )
+
+    def iter_quote_paragraphs(self, start_token_index: int) -> Iterator[Token]:
+        """Return the inline tokens of the paragraphs in the block quotes that follow one another from a position.
+
+        Only paragraphs directly in those block quotes count, not those in a list or a block quote inside them.
+
+        Args:
+            start_token_index: Index in :attr:`tokens` where the block quotes may start, such as the token after a
+                heading; no block quote there gives nothing.
+        """
+        tokens = self.tokens
+        quote_depth = 0
+        paragraph_level = 0  # Nesting level of a paragraph directly in the outer block quote.
+        for token_index in range(start_token_index, len(tokens)):
+            token = tokens[token_index]
+            if token.type == "blockquote_open":
+                if quote_depth == 0:
+                    paragraph_level = token.level + 1
+                quote_depth += 1
+            elif token.type == "blockquote_close":
+                quote_depth -= 1
+            elif quote_depth == 0:
+                return
+            elif token.type == "paragraph_open" and token.level == paragraph_level:
+                yield tokens[token_index + 1]
+
+    @staticmethod
+    def split_inline_lines(inline: Token) -> Iterator[tuple[int, list[Token]]]:
+        """Return the ``(line number, child tokens)`` of each source line of an inline token.
+
+        The breaks are left out, and so are the empty ``text`` tokens that markdown-it puts around emphasis.
+
+        Args:
+            inline: Inline token of one paragraph; its ``map`` and its break tokens give the lines.
+        """
+        line_number = MarkdownText.get_inline_line_number(inline)
+        line_children: list[Token] = []
+        for child in inline.children or []:
+            if child.type in MarkdownText.BREAK_TOKEN_TYPES:
+                yield line_number, line_children
+                line_number = MarkdownText.get_inline_line_number(inline, child)
+                line_children = []
+            elif child.type != "text" or child.content:
+                line_children.append(child)
+        yield line_number, line_children
 
 
 class Marker(NamedTuple):

@@ -159,7 +159,7 @@ def test_code_pages_list(code_tree: Path) -> None:
     ]
     mod = pages["reference/code/sample.mod.html"]
     assert mod.components == ("core",)
-    assert mod.status == "implemented"
+    assert mod.statuses == ("implemented",)
     assert [link.url for link in mod.breadcrumb] == [
         "index.html",
         "reference/index.html",

@@ -1,10 +1,14 @@
-"""The checks of a repository's docs: front matter, links, code links, indexes, names, reserved paths, staged deletes.
+"""The checks of a repository's docs.
+
+They cover front matter, links, code links, status notes, titles, indexes, names, reserved paths and staged deletes.
 
 Docs: behavior/requirements.md#checks
 Docs: architecture/docs-tooling.md
 """
 
 import posixpath
+from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import nonmember
 from functools import cached_property
 from pathlib import Path
@@ -18,10 +22,16 @@ from .docs import DOCS_DIR, Doc, is_dir_index, make_dir_index_path
 from .docset import DocSet
 from .git import Git
 from .links import DocLinks
-from .markdown import MarkdownText
+from .markdown import MarkdownText, SectionNote
 from .problems import DocCheck, Problem
-from .schema import FrontMatterValidator
-from .text import UnreadableTextError, read_text
+from .schema import (
+    STATUS_NOTES,
+    FrontMatterValidator,
+    format_status_yaml,
+    is_valid_status,
+    make_status_edit_hint,
+)
+from .text import UnreadableTextError, collapse_to_one_line, read_text
 from .urls import RESERVED_PATH_MESSAGE, map_reserved_owners
 from .vocabulary import Vocabulary
 
@@ -136,6 +146,276 @@ class CodeLinkCheck(DocCheck):
         return problems
 
 
+@dataclass(frozen=True)
+class StatusNote:
+    """The kind of section note that gives its section a status, such as ``> **Not built yet.**``.
+
+    Docs: behavior/status-notes.md#requirements
+    """
+
+    label: str
+    """The bold text that opens the note, such as ``Not built yet.``."""
+
+    status: str
+    """The status the note gives its section, such as ``specified``."""
+
+    @property
+    def markdown(self) -> str:
+        """The note line as written in a doc, such as ``> **Not built yet.**``."""
+        return f"> **{self.label}**"
+
+
+# A kind of section note, by what its bold label means.
+type SectionNoteKind = StatusNote
+
+
+class StatusNoteCheck(DocCheck):
+    """The check that a doc's ``status`` and the status notes of its sections agree.
+
+    Docs: behavior/status-notes.md#requirements
+    """
+
+    # Registries
+    note_kinds_by_label: dict[str, SectionNoteKind]
+    """The known kinds of section notes, by label; a note with another label is ordinary text."""
+
+    status_note_kinds_by_status: dict[str, StatusNote]
+    """The status note kinds, by the status they give."""
+
+    def __init__(self, status_by_label: Mapping[str, str]) -> None:
+        """Prepare the check of status notes.
+
+        Args:
+            status_by_label: The project's status note labels, each with the status it gives a section.
+        """
+        kinds = [StatusNote(label, status) for label, status in status_by_label.items()]
+        self.note_kinds_by_label = {kind.label: kind for kind in kinds}
+        self.status_note_kinds_by_status = {kind.status: kind for kind in kinds}
+
+    def check(self, doc: Doc) -> list[Problem]:
+        """Check that a doc's status notes agree with its ``status`` and return the problems found.
+
+        A doc whose ``status`` the front-matter check rejects is not checked. Every heading but the title, the doc's
+        first level-1 heading (``#`` or underlined with ``===``), opens a section of its own, up to the next heading
+        of any level. A status note under the title is a problem and gives no status. Each section may have one status
+        note, the first by line; each later one is a problem whose status still counts as given. A section status note
+        is a problem in a doc with a single status, when its status is not listed, or when it gives the doc's first
+        status. Each listed value after the first must be given by a status note. The full rules are the project's
+        requirement DS-46.
+
+        Docs: behavior/status-notes.md#requirements
+
+        Args:
+            doc: Parsed doc whose ``status`` and body are compared; problems are located in its file.
+        """
+        if not is_valid_status(doc.status):
+            return []
+        return DocStatusNotes(doc, self).find_problems()
+
+
+class DocStatusNotes:
+    """The status notes of one doc with a valid ``status``, holding the problems of the rules they break."""
+
+    # Found so far
+    given_statuses: set[str]
+    """The statuses the section status notes found so far give, later notes of a section included."""
+
+    problems: list[Problem]
+    """Problems found so far, in the order they were found."""
+
+    status_kind_by_heading_line: dict[int, StatusNote]
+    """The kind of the status note of each section found so far that has one, by the line of the section's
+    heading."""
+
+    # Arguments of __init__
+    doc: Doc
+    """See :meth:`__init__`."""
+
+    note_check: StatusNoteCheck
+    """See :meth:`__init__`."""
+
+    def __init__(self, doc: Doc, note_check: StatusNoteCheck) -> None:
+        """Prepare the check of a doc's status notes.
+
+        Args:
+            doc: Doc with a valid ``status`` whose body holds the notes; problems are located in its file.
+            note_check: The run's check whose registries tell the kinds of notes.
+        """
+        self.doc = doc
+        self.note_check = note_check
+        self.given_statuses = set()
+        self.problems = []
+        self.status_kind_by_heading_line = {}
+
+    def find_problems(self) -> list[Problem]:
+        """Return the problems of the doc's status notes, as described in :meth:`StatusNoteCheck.check`.
+
+        A check covers one doc once: call this a single time per :class:`DocStatusNotes`.
+        """
+        for note in MarkdownText(self.doc.body).get_section_notes():
+            kind = self.note_check.note_kinds_by_label.get(note.label)
+            if isinstance(kind, StatusNote):
+                self.check_status_note(note, kind)
+        self.check_listed_statuses()
+        return self.problems
+
+    def check_status_note(self, note: SectionNote, kind: StatusNote) -> None:
+        """Record the status a status note gives and a problem when it breaks a rule.
+
+        A status note under the title gives no status. A later status note of a section gives only the problem of a
+        second status note, but its status still counts as given.
+
+        Args:
+            note: The status note, in document order.
+            kind: The status note kind of the note's label.
+        """
+        if note.is_title:
+            message = f'{self.describe_note(kind)} right under the doc\'s title "{note.heading.first_line}"'
+            self.report(message, 'set the doc\'s "status" instead', note)
+            return
+        self.given_statuses.add(kind.status)
+        # Notes are grouped into sections by their heading's line. The first note of a section by line is its status
+        # note; a later one is a problem of its own, but its status still counts as given (above).
+        section_kind = self.status_kind_by_heading_line.get(note.heading.line_number)
+        if section_kind is not None:
+            message = (
+                f'{self.describe_note(kind)} in the section "{note.heading.first_line}", '
+                f"which already has the {self.describe_note(section_kind)}"
+            )
+            self.report(message, f'keep one status note in the section "{note.heading.first_line}"', note)
+            return
+        self.status_kind_by_heading_line[note.heading.line_number] = kind
+        self.check_section_status(note, kind)
+
+    def check_section_status(self, note: SectionNote, kind: StatusNote) -> None:
+        """Record a problem unless a section's status note gives a listed status other than the doc's first one.
+
+        Args:
+            note: The section's status note.
+            kind: The status note kind of the note's label.
+        """
+        status = self.doc.status
+        removal_hint = f'remove the status note from the section "{note.heading.first_line}"'
+        added_status = status.add_value(kind.status)
+        addition_hint = make_status_edit_hint(f'add "{kind.status}" to', added_status)
+        if status.is_single:
+            message = f'{self.describe_note(kind)} in a doc with the single status "{status.values[0]}"'
+            hint = f"{addition_hint}, or {removal_hint}" if is_valid_status(added_status) else removal_hint
+            self.report(message, hint, note)
+            return
+        if kind.status not in status.values:
+            message = f'{self.describe_note(kind)} in a doc whose "status" is "{format_status_yaml(status)}"'
+            self.report(message, f"{addition_hint}, or {removal_hint}", note)
+            return
+        if kind.status != status.values[0]:
+            return
+        message = (
+            f'{self.describe_note(kind)} gives the status the section "{note.heading.first_line}" already has '
+            f'from "status: {format_status_yaml(status)}"'
+        )
+        self.report(
+            message, f'remove the "{kind.label}" status note from the section "{note.heading.first_line}"', note
+        )
+
+    def check_listed_statuses(self) -> None:
+        """Record a problem for each value of a status list after the first that no section status note gives."""
+        status = self.doc.status
+        for value in status.values[1:]:
+            if value in self.given_statuses:
+                continue
+            kind = self.note_check.status_note_kinds_by_status[value]
+            message = f'"{value}" is in "status", but no section has a "{kind.label}" status note'
+            addition_hint = f'add a "{kind.markdown}" status note to a section'
+            removal_hint = make_status_edit_hint(f'remove "{value}" from', status.remove_value(value))
+            self.report(message, f"{addition_hint}, or {removal_hint}")
+
+    def report(self, message: str, hint: str, note: SectionNote | None = None) -> None:
+        """Record a problem of the doc.
+
+        Args:
+            message: What is wrong, for the user.
+            hint: How to fix this particular case.
+            note: Section note the problem is about, whose line in the doc's file it is reported on; None for line 1.
+        """
+        line_number = self.doc.get_file_line_number(note.line_number) if note is not None else 1
+        self.problems.append(Problem(self.doc.path, line_number, message, hint=hint))
+
+    @staticmethod
+    def describe_note(kind: StatusNote) -> str:
+        """Return how problems name a status note: its label and the status it gives.
+
+        Args:
+            kind: The status note kind to name.
+        """
+        return f'status note "{kind.label}" ("{kind.status}")'
+
+
+class TitleCheck(DocCheck):
+    """The check that a doc starts with its title and has no other level-1 heading.
+
+    Docs: behavior/requirements.md#checks
+    Docs: architecture/docs-tooling.md#statuses-and-status-notes
+    """
+
+    # Constants
+    NOT_TITLE_MESSAGE = "the doc does not start with its title heading"
+
+    def check(self, doc: Doc) -> list[Problem]:
+        """Check a doc's title and return the problems found.
+
+        The title is the doc's first level-1 heading in either style. Only blank lines may come between the front
+        matter and the title: any other line before it (also an HTML comment or a link reference definition) is a
+        problem on the line where that text starts; a doc without a title is a problem on that line too, or on the
+        doc's first line when the body is blank. Each later level-1 heading is a problem on its line. A doc whose
+        front matter is missing or does not load is not checked: it already has a problem. The full rules are the
+        project's requirement DS-52.
+
+        Docs: behavior/requirements.md#checks
+
+        Args:
+            doc: Parsed doc whose body is checked; problems are located in its file, and its front matter's
+                ``title`` is offered as the heading of a doc without one.
+        """
+        if doc.front_matter is None:
+            return []
+        text = MarkdownText(doc.body)
+        title = text.get_title()
+        problems: list[Problem] = []
+        # Lines, not tokens: markdown-it makes no token of a link reference definition. A blank line has only spaces
+        # and tabs, as in CommonMark; other Unicode spaces are text.
+        text_line_number = next(
+            (number for number, line in enumerate(text.source_lines, start=1) if line.strip(" \t")), None
+        )
+        if title is None:
+            line_number = doc.get_file_line_number(text_line_number) if text_line_number is not None else 1
+            problems.append(Problem(doc.path, line_number, self.NOT_TITLE_MESSAGE, hint=self.make_add_hint(doc)))
+        elif text_line_number is not None and text_line_number != title.line_number:
+            hint = f'move this text below "{title.first_line}", or remove it'
+            line_number = doc.get_file_line_number(text_line_number)
+            problems.append(Problem(doc.path, line_number, self.NOT_TITLE_MESSAGE, hint=hint))
+        for heading in text.get_level_one_headings():
+            if heading == title:
+                continue
+            message = f'"{heading.first_line}" is a second level-1 heading; a doc has one, its title'
+            hint = f'write it as "## {heading.content}"' if heading.content else 'make it a "##" heading or remove it'
+            problems.append(Problem(doc.path, doc.get_file_line_number(heading.line_number), message, hint=hint))
+        return problems
+
+    @staticmethod
+    def make_add_hint(doc: Doc) -> str:
+        """Return the hint for a doc without a title: add one, with the front matter's ``title`` when it has one.
+
+        The ``title`` is put on one line, its whitespace runs collapsed to single spaces.
+
+        Args:
+            doc: Doc with loaded front matter and no title heading.
+        """
+        title = collapse_to_one_line(doc.front_matter_title)
+        if title:
+            return f'add the title "# {title}" right after the front matter'
+        return 'add a "#" title heading right after the front matter'
+
+
 class OptionalCheck(Choice):
     """A check that runs only when asked for by name."""
 
@@ -248,6 +528,11 @@ class Checker:
         return LinkCheck(self.root)
 
     @cached_property
+    def status_note_check(self) -> StatusNoteCheck:
+        """The check of the docs' status notes, with the project's status note texts; the defaults without settings."""
+        return StatusNoteCheck(self.config.status_notes if self.config is not None else STATUS_NOTES)
+
+    @cached_property
     def codebase(self) -> Codebase | None:
         """The project code; None when the settings or the code failed to load. A code failure is recorded."""
         if self.config is None:
@@ -272,9 +557,15 @@ class Checker:
     def make_doc_checks(self) -> list[DocCheck]:
         """Return the checks of single docs available for the loaded settings and code.
 
-        The front matter and the links are always checked; the code links only when the code is loaded.
+        The front matter, the links, the status notes and the titles are always checked; the code links only when the
+        code is loaded.
         """
-        doc_checks: list[DocCheck] = [self.front_matter_validator, self.link_check]
+        doc_checks: list[DocCheck] = [
+            self.front_matter_validator,
+            self.link_check,
+            self.status_note_check,
+            TitleCheck(),
+        ]
         if self.codebase is not None:
             doc_checks.append(CodeLinkCheck(self.codebase))
         return doc_checks
@@ -282,10 +573,12 @@ class Checker:
     def run(self, include_staged: bool, optional_checks: frozenset[OptionalCheck] = frozenset()) -> list[Problem]:
         """Run all checks of the docs and return the problems found, sorted and without duplicates.
 
-        The checks cover front matter, links and their heading anchors, directory indexes, file names, reserved paths,
-        links from the code, and the settings; the full list is the project's requirement DS-20. The references in the
-        docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when ``optional_checks`` has
-        :attr:`OptionalCheck.CODE`, by :meth:`check_code_references`.
+        Of problems that differ only in their hints, the first found is kept.
+
+        The checks cover front matter, links and their heading anchors, status notes, titles, directory indexes, file
+        names, reserved paths, links from the code, and the settings; the full list is the project's requirement DS-20.
+        The references in the docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when
+        ``optional_checks`` has :attr:`OptionalCheck.CODE`, by :meth:`check_code_references`.
 
         Docs: behavior/requirements.md#checks
 
@@ -313,7 +606,7 @@ class Checker:
             problems.extend(self.find_staged_deletes_renames())
         # Read last: the checks above load the settings and the code, which records their problems.
         problems.extend(self.loading_problems)
-        return sorted(set(problems), key=lambda p: (p.path, p.line_number or 0, p.message))
+        return sorted(dict.fromkeys(problems), key=lambda p: (p.path, p.line_number or 0, p.message))
 
     def check_code_references(self) -> list[Problem]:
         """Check the references in the docstrings of the code; return the problems.
@@ -391,7 +684,7 @@ class Checker:
                     has_text = bool(entry.text)
                     is_described_by_path[listed_path] = is_described_by_path.get(listed_path, False) or has_text
                     if not has_text:
-                        line_number = index_doc.body_line + entry.line_number - 1
+                        line_number = index_doc.get_file_line_number(entry.line_number)
                         first_bare_line_number_by_path.setdefault(listed_path, line_number)
             children = sorted([*((name, True) for name in dir_names), *((name, False) for name in file_names)])
             for name, is_dir in children:

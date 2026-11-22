@@ -117,8 +117,8 @@ class Page:
     title: str
     """Title of the page."""
 
-    status: str | None
-    """Status shown as a badge, e.g. ``implemented``; None for no badge."""
+    statuses: tuple[str, ...]
+    """Statuses shown as badges, one each in this order, e.g. ``("implemented", "changed")``; empty for no badge."""
 
     components: tuple[str, ...]
     """Components shown as badges."""

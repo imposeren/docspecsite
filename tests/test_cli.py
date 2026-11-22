@@ -17,6 +17,18 @@ from docspecsite.errors import DocspecsiteWarning, InternalErrorWarning
 from docspecsite.git import Git, GitError
 
 
+def _extract_doc_output(out: str, path: str) -> str:
+    """Return the problem lines of ``path`` in ``check`` output, each with the hint lines under it."""
+    kept: list[str] = []
+    is_doc_problem = False
+    for line in out.splitlines(keepends=True):
+        if not line.startswith("  hint: "):
+            is_doc_problem = line.startswith(f"{path}:")
+        if is_doc_problem:
+            kept.append(line)
+    return "".join(kept)
+
+
 def test_version_prints_name_and_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
@@ -55,6 +67,41 @@ def test_cli_check_exit_codes(docs_tree: Path, capsys: pytest.CaptureFixture[str
     assert "problem" in captured.err
 
 
+def test_cli_check_no_hints(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_doc(docs_tree, "meta/a.md", "# A\n", status=["draft", "specified"])
+    assert main(["--repo", str(docs_tree), "check"]) == 1
+    assert '  hint: write "status: draft"' in capsys.readouterr().out
+    file = write_doc(docs_tree, "import.md", "# Import\n\n## Import\n\n> **Not built yet.**\n", status="implemented")
+    line = file.read_text(encoding="utf-8").splitlines().index("> **Not built yet.**") + 1
+    assert main(["--repo", str(docs_tree), "check", "--no-hints"]) == 1
+    out = capsys.readouterr().out
+    assert "hint:" not in out
+    assert _extract_doc_output(out, "docs/import.md") == (
+        f'docs/import.md:{line}: status note "Not built yet." ("specified") '
+        'in a doc with the single status "implemented"\n'
+    )
+
+
+def test_cli_check_prints_status_note_hints(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    body = "# Import\n\n## Import\n\n> **Not built yet.**\n"
+    file = write_doc(docs_tree, "import.md", body, status="implemented")
+    line = file.read_text(encoding="utf-8").splitlines().index("> **Not built yet.**") + 1
+    assert main(["--repo", str(docs_tree), "check"]) == 1
+    assert _extract_doc_output(capsys.readouterr().out, "docs/import.md") == (
+        f'docs/import.md:{line}: status note "Not built yet." ("specified") '
+        'in a doc with the single status "implemented"\n'
+        '  hint: add "specified" to "status" so it reads "status: [implemented, specified]", '
+        'or remove the status note from the section "## Import"\n'
+    )
+    write_doc(docs_tree, "import.md", body, status=["implemented", "specified", "changed"])
+    assert main(["--repo", str(docs_tree), "check"]) == 1
+    assert _extract_doc_output(capsys.readouterr().out, "docs/import.md") == (
+        'docs/import.md:1: "changed" is in "status", but no section has a "Changed, not built yet." status note\n'
+        '  hint: add a "> **Changed, not built yet.**" status note to a section, '
+        'or remove "changed" from "status" so it reads "status: [implemented, specified]"\n'
+    )
+
+
 def test_cli_check_staged_outside_git(
     docs_tree: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -88,6 +135,13 @@ def test_cli_list(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
     [item] = json.loads(capsys.readouterr().out)
     assert item["path"] == "meta/a.md"
     assert item["tags"] == ["x"]
+
+
+def test_cli_list_status_list(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_doc(docs_tree, "meta/p.md", status=["implemented", "specified"])
+    assert main(["--repo", str(docs_tree), "list", "--status", "specified", "--format", "json"]) == 0
+    items = json.loads(capsys.readouterr().out)
+    assert [i["status"] for i in items if i["path"] == "meta/p.md"] == [["implemented", "specified"]]
 
 
 def test_cli_list_orders_adrs_by_configured_prefixes(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:

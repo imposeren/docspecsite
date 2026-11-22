@@ -5,13 +5,15 @@ import pytest
 from conftest import make_doc
 
 from docspecsite.config import ProjectConfig
-from docspecsite.docs import Doc
+from docspecsite.docs import Doc, DocStatus
 from docspecsite.docset import DocSet
 from docspecsite.query import (
     Backlink,
     Filters,
     format_backlinks,
     format_list,
+    format_text_field,
+    make_status_json_value,
     resolve_doc_path,
 )
 
@@ -21,6 +23,8 @@ DOCS = [
     make_doc("meta/b.md", status="implemented", components=["docs-system"], tags=["rules"]),
     make_doc("architecture/a.md", components=["core", "docs-system"], milestone="foundation", priority="must"),
     make_doc("architecture/c.md", tags=["rules", "adr"], milestone="foundation", priority="should"),
+    make_doc("guides/p.md", status=["implemented", "specified"]),
+    make_doc("guides/q.md", status=["specified"]),
     Doc("meta/broken.md", None, "", 1, "no front matter"),
 ]
 
@@ -32,9 +36,10 @@ def select_paths(filters: Filters) -> list[str]:
 @pytest.mark.parametrize(
     ("filters", "expected"),
     [
-        (Filters(), ["architecture/a.md", "architecture/c.md", "meta/b.md"]),
+        (Filters(), ["architecture/a.md", "architecture/c.md", "guides/p.md", "guides/q.md", "meta/b.md"]),
         (Filters(layer="meta"), ["meta/b.md"]),
-        (Filters(status="specified"), ["architecture/a.md", "architecture/c.md"]),
+        (Filters(status="specified"), ["architecture/a.md", "architecture/c.md", "guides/p.md", "guides/q.md"]),
+        (Filters(status="implemented"), ["guides/p.md", "meta/b.md"]),
         (Filters(component="docs-system"), ["architecture/a.md", "meta/b.md"]),
         (Filters(component="docs"), []),
         (Filters(tag="rules"), ["architecture/c.md", "meta/b.md"]),
@@ -63,7 +68,13 @@ def test_format_list_text_empty() -> None:
 
 def test_format_list_json_roundtrip() -> None:
     items = json.loads(format_list(DocSet(DOCS).select(Filters(), _NO_CONFIG), "json"))
-    assert [i["path"] for i in items] == ["architecture/a.md", "architecture/c.md", "meta/b.md"]
+    assert [i["path"] for i in items] == [
+        "architecture/a.md",
+        "architecture/c.md",
+        "guides/p.md",
+        "guides/q.md",
+        "meta/b.md",
+    ]
     assert set(items[0]) == {
         "path",
         "title",
@@ -77,6 +88,46 @@ def test_format_list_json_roundtrip() -> None:
     }
     assert items[0]["components"] == ["core", "docs-system"]
     assert items[2]["milestone"] is None
+
+
+def test_format_list_text_status_list() -> None:
+    line = format_list([make_doc("guides/p.md", status=["implemented", "specified"])], "text")
+    assert line.split("\t")[1] == "implemented,specified"
+
+
+def test_format_list_text_status_with_tab_or_newline_stays_one_column() -> None:
+    line = format_list([make_doc("guides/p.md", status=["imple\tmented", "speci\nfied"])], "text")
+    assert line.count("\n") == 1
+    assert line.split("\t")[1] == "imple mented,speci fied"
+
+
+def test_format_list_text_status_of_wrong_shape_is_empty() -> None:
+    assert format_list([make_doc("guides/d.md", status=5)], "text").split("\t")[1] == ""
+
+
+def test_format_list_json_status_shapes() -> None:
+    docs = [
+        make_doc("a.md", status=["implemented", "specified"]),
+        make_doc("b.md", status="implemented"),
+        make_doc("c.md", status=["specified"]),
+        make_doc("d.md", status=5),
+    ]
+    assert [i["status"] for i in json.loads(format_list(docs, "json"))] == [
+        ["implemented", "specified"],
+        "implemented",
+        "specified",
+        None,
+    ]
+
+
+def test_status_text_and_json_forms() -> None:
+    one, two, none = DocStatus(("implemented",)), DocStatus(("implemented", "specified")), DocStatus(())
+    assert [format_text_field(make_status_json_value(s)) for s in (one, two, none)] == [
+        "implemented",
+        "implemented,specified",
+        "",
+    ]
+    assert [make_status_json_value(s) for s in (one, two, none)] == ["implemented", ["implemented", "specified"], None]
 
 
 def test_backlinks_kinds() -> None:

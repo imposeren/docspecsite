@@ -2,7 +2,7 @@
 title: Doc lifecycle and docs as a task list
 summary: The status values a doc moves through, what each means, how a partly built doc lists several statuses and marks its sections, how ADR decisions fit in, and how statuses turn the docs into the project's task list.
 layer: meta
-status: specified
+status: implemented
 components: [docs-system]
 tags: [meta, status, lifecycle, project-management, rules]
 related:

@@ -2,7 +2,7 @@
 title: Glossary — documentation terms
 summary: Definitions of the terms and abbreviations used by the documentation system itself (layer, depth, ADR, status, redirect doc…), and where the other glossaries live.
 layer: meta
-status: specified
+status: implemented
 components: [docs-system]
 tags: [meta, glossary]
 related:

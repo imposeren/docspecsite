@@ -900,7 +900,7 @@ class CodePage:
         return Page(
             url=self.url,
             title=self.module.path,
-            status="implemented",
+            statuses=("implemented",),
             components=self.reference.config.find_components(self.module.path),
             tags=(),
             body_html=self.render_body(),

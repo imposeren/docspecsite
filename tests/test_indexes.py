@@ -99,16 +99,33 @@ def test_status_board_null_and_literal_no_milestone() -> None:
         assert page.body_html.count(f'href="{path}"') == 1, path
 
 
+def test_status_board_lists_doc_under_each_status() -> None:
+    entries = [_make_entry("a.md", status=["implemented", "changed"], milestone="later", priority="should")]
+    page = next(p for p in _build_index_pages(entries, [], ("later",), site_title="Docs") if p.url == "status.html")
+    headings = re.findall(r"<h[234]>(.*?)</h[234]>", page.body_html)
+    assert headings == ["changed", "later", "should", "implemented", "later", "should"]
+    assert page.body_html.count('href="a.html"') == 2
+    assert 'status-implemented">implemented</span> <span class="status status-changed">changed</span>' in page.body_html
+
+
+def test_entries_with_unusable_status() -> None:
+    entries = [_make_entry("a.md", status=5, tags=["x"])]
+    page = next(p for p in _build_index_pages(entries, [], (), site_title="D") if p.url == "tags/x.html")
+    assert 'class="status' not in page.body_html
+
+
 def test_llms_txt() -> None:
     entries = [
         _make_entry("meta/a.md", title="A", summary="Sum.\n  More <b>", components=["core"], layer="meta"),
         _make_entry("index.md", title="Home", layer="root"),
+        _make_entry("meta/b.md", title="B", status=["implemented", "specified"], layer="meta"),
     ]
     assert IndexRenderer(entries, [], _NO_CONFIG, "Docs", _NO_VOCABULARY).render_llms_txt("All.") == (
         "# Docs\n\n> All.\n\n## root\n\n"
         "- [Home](index.html): S (status: specified; components: none; source: docs/index.md)\n\n"
         "## meta\n\n"
         "- [A](meta/a.html): Sum. More <b> (status: specified; components: core; source: docs/meta/a.md)\n"
+        "- [B](meta/b.html): S (status: implemented,specified; components: none; source: docs/meta/b.md)\n"
     )
 
 

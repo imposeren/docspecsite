@@ -274,6 +274,29 @@ def test_build_one_h1_and_status_reachable(repo: HistoryRepo, tmp_path: Path) ->
     _assert_local_links_resolve(site_dir)
 
 
+def test_build_partly_built_doc(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    write_doc(
+        root,
+        "meta/p.md",
+        "# P\n\n## Export\n\n> **Changed, not built yet.** Old name.\n",
+        status=["implemented", "changed"],
+    )
+    make_commit(root, "add p", "2026-11-07T12:00:00+00:00")
+    run_build(root, "main", tmp_path / "site")
+    html = _read(tmp_path / "site", "meta/p.html")
+    assert html.index("status-implemented") < html.index("status-changed")
+    assert "<blockquote>\n<p><strong>Changed, not built yet.</strong> Old name.</p>" in html
+
+
+def test_build_page_without_usable_status(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    write_doc(root, "meta/n.md", "# N\n", status=5)
+    make_commit(root, "add n", "2026-11-07T12:00:00+00:00")
+    run_build(root, "main", tmp_path / "site")
+    assert 'class="status status-' not in _read(tmp_path / "site", "meta/n.html")
+
+
 def test_write_site_ignores_manifest_entries_outside_out(tmp_path: Path) -> None:
     site_dir = tmp_path / "out"
     outside = tmp_path / "outside.txt"
