@@ -64,8 +64,6 @@ Status: check, list, backlinks, build, the code reference, the Docker image and 
 
 ## Agents and skills
 
-- `spec-writer` agent — behavior, scenarios and ui docs (no code, no architecture).
-
-- `architect` agent — architecture docs, `proposed` ADRs, external platform facts (no code).
+- `spec-writer` agent — the spec in every layer: behavior, scenarios, ui and architecture docs, `proposed` ADRs, external platform facts (no code).
 
 - `/new-doc` — scaffold a doc at the right mirrored path with valid front matter.

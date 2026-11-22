@@ -30,8 +30,7 @@ related:
 | -- | -- |
 | `CLAUDE.md` | Always-loaded entry point: project, hard rules, commands, pointers. |
 | `.claude/skills/new-doc/SKILL.md` | The `/new-doc` skill. |
-| `.claude/agents/spec-writer.md` | Subagent for the product-facing spec: behavior, scenarios and ui docs; doesn't touch code or architecture. |
-| `.claude/agents/architect.md` | Subagent for architecture docs, `proposed` ADRs (architecture decision records) and external platform facts; doesn't touch code. |
+| `.claude/agents/spec-writer.md` | Subagent for the spec in every layer: behavior, scenarios, ui and architecture docs, `proposed` ADRs (architecture decision records) and external platform facts; doesn't touch code. |
 | `.claude/settings.local.json` | Personal settings (gitignored). |
 
 Guides are written by whoever builds the thing they describe ([working-from-specs.md](working-from-specs.md)), not by a dedicated agent.

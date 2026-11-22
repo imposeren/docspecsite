@@ -25,6 +25,7 @@ related:
    - new code (a new function, class or module) also gets its tests first, but don't run them while they can only fail on a missing import or attribute; run them once the code exists.
 
    Add `Docs: <path>` lines to docstrings of the main code elements, and `code:` entries to the doc.
+   If the project validates the references in its code (`Docs:` lines, and references to other code in docstrings), run the code check once the implementation is done (`docker compose run --rm docs check --code`).
 
 4. Set the doc's `status: implemented` (and its parents' if all their children are done).
 
@@ -47,11 +48,12 @@ New design work (a feature, a component, a cross-cutting change) is first worked
 In Claude Code this is the superpowers `brainstorming` skill, then `writing-plans`; the rules below replace those skills' default locations and steps.
 
 1. **Design note:** `notes/design/YYYY-MM-DD-<topic>-design.md`.
-   One design may cover several specs; it ends with the list of docs to create or change (path, layer, written by the `spec-writer` or `architect` agent).
+   One design may cover several specs; it ends with the list of docs to create or change (path and layer; the `spec-writer` agent writes them).
    It is a disposable working note: `notes/` is not in git, and nothing under `docs/` links to it.
 2. **Specs:** once the user approves the design, the listed docs are written as usual (the [meta rules](../meta/index.md), the agents' own rules), with the note as input, not as the spec.
    They stand on their own and don't copy the note's structure; technical choices become `proposed` ADRs ([below](#decision-records-adrs)).
    Where the note conflicts with existing docs or ADRs, the conflict goes to the user instead of the note winning.
+   Then a fresh subagent that has not seen the design or the code reads the behavior, scenario and ui docs the `spec-writer` lists in its report, and rewrites what a non-developer user would not understand.
 3. **Plan:** only once those docs are `specified`, an implementation plan in `notes/plans/YYYY-MM-DD-<topic>.md` that cites them as its spec; then [implementing](#implementing-a-specified-doc) as above.
 
 ## Writing a new doc
