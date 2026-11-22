@@ -2,7 +2,7 @@
 title: Docs system requirements
 summary: The numbered requirements (DS-n) docspecsite satisfies — source format, per-doc versioning, rendering, navigation and indexes, the generated code reference, checks, settings and how it runs.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 components: [docs-system]
@@ -84,7 +84,7 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 ## Checks
 
-- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no deletes/renames under `docs/`, no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)).
+- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no deletes/renames under `docs/`, no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), every doc is readable UTF-8, and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
   Doc templates are not docs and are not checked ([meta/structure.md](../meta/structure.md#outside-docs)).
   The code is not checked: specs may change before it does ([meta/linking.md](../meta/linking.md#code-links)).
 - **DS-36** A **code check**, run on demand once an implementation is done, validates the code's references: `Docs:` docstring lines point at existing docs (and headings, with an anchor), and Sphinx roles ([DS-34](#rendering)) and `code:` links in docstrings point at code the code reference shows.

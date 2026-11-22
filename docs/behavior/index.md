@@ -28,4 +28,7 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 - [commands.md](commands.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.
 - [configuration.md](configuration.md) — The `docspecsite.toml` settings file at the root of a checked repo.
 - [web-api-reference.md](web-api-reference.md) — The planned HTTP API reference rendered from a committed web API schema.
+- [repo-subdirectory.md](repo-subdirectory.md) — Planned support for a docs project in a subdirectory of a git repo.
+- [tag-versions.md](tag-versions.md) — A planned setting that keeps only the doc versions current at the repo's tags.
+- [doc-symlinks.md](doc-symlinks.md) — Planned support for symlinks inside `docs/` that are read as their target.
 - [glossary.md](glossary.md) — docspecsite's terms in plain language.

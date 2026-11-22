@@ -2,7 +2,7 @@
 title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history from git, renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: implemented
+status: specified
 code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors]
 milestone: first-release
 priority: must
@@ -78,10 +78,12 @@ The hand-written `architecture/decisions/index.md` lists ADRs grouped by prefix,
 
 - Ordered version list: `git rev-list --first-parent <ref>` (linear, newest first).
 - Versions of a doc: commits from that list that touch its path (`git log --first-parent --format=%H%x00%cI%x00%s <ref> -- <path>`) ([DS-4](../behavior/requirements.md#versioning), [DS-5](../behavior/requirements.md#versioning)).
-- Content of a version: `git show <commit>:<path>`.
+- Content of a version: `git show <commit>:<path>`, decoded as UTF-8 with a leading byte order mark dropped, as `check` reads the working tree.
+- git runs at the top level of the checked repo, and its `log` output is read with `--no-show-signature`, so a user's `log.showSignature` cannot put gpg output into it.
 - Version-aware link resolution ([DS-11](../behavior/requirements.md#rendering)): in doc A at commit X, a link to B resolves to B's newest version whose position in the first-parent list is at or after X's position (i.e. not newer than X).
   If B has none, link to B's latest and add a "newer doc" marker.
 - Uncommitted working-tree changes are rendered as an extra "working copy (uncommitted)" version only when `--include-worktree` is given (useful while writing; never in CI).
+  A working-tree file counts as changed when git hashes it, with its line-ending conversion and clean filters applied, to a blob other than the one in the ref's tree.
 
 ## Output layout
 
@@ -96,6 +98,9 @@ site/
   llms.txt                         machine listing (DS-16)
   assets/                          one CSS file, minimal JS for the version picker, the Mermaid bundle
 ```
+
+Some doc paths are **reserved**, because their page would take the URL of a generated page: `status.md`, every doc under `tags/` and `components/`, every doc under `reference/code/` other than `index.md`, and every doc under `<path>/v/` when `<path>.md` is a doc (where that doc's version and diff pages go).
+`check` reports a doc at a reserved path ([DS-20](../behavior/requirements.md#checks)); the build keeps the generated page and reports the doc's page as an error.
 
 `site/.docspecsite-manifest` lists the files of the last build, so the next build removes only files it wrote itself.
 
@@ -148,7 +153,8 @@ The HTTP API reference is not built yet ([behavior/web-api-reference.md](../beha
 ## Errors and warnings
 
 Errors in `docspecsite build` stay local to the page they occur in ([behavior/commands.md](../behavior/commands.md#build)).
-An expected failure (a doc version that is not valid UTF-8, code that cannot be loaded) is an error line for that page.
+An expected failure (a doc version that is not valid UTF-8, a doc at a reserved path) is an error line for that page.
+Code that cannot be loaded is a warning instead, since it affects no single page: the code reference is built without modules, and `code:` links get the "no longer exists" marker.
 Any other exception is a bug in docspecsite: it is reported as a Python warning of category `docspecsite.InternalErrorWarning`, raised while the exception is being handled, so the warning carries the original traceback.
 docspecsite's own warnings (such as unresolvable links) are Python warnings of category `docspecsite.DocspecsiteWarning`.
 Both go through Python's warning filters, so `PYTHONWARNINGS` can turn them into errors. Python reads it before docspecsite can be imported, so a filter names the built-in base category and the module that issues the warning: `PYTHONWARNINGS=error::RuntimeWarning:docspecsite.build` stops the build at the first internal error, with its traceback (useful while working on docspecsite).
@@ -158,6 +164,7 @@ With `--strict`, the build sets `error` filters for both warning categories.
 
 A cache in `.docspecsite-cache/` (gitignored; inside the checked repo, so it persists between container runs) keys rendered HTML by (blob sha, hash of the resolved link targets, docspecsite version).
 Only changed versions and pages whose link targets moved are re-rendered ([DS-24](../behavior/requirements.md#running)).
+A diff page's body is kept by the blob shas of its two versions, so an unchanged pair is not diffed again.
 The cache has one root per docspecsite version and set of built parts, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
 
 ## Docker image
