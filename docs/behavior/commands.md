@@ -2,7 +2,7 @@
 title: Commands
 summary: The docspecsite command line — `check`, `list`, `backlinks` and `build`, with their options, output and exit codes.
 layer: behavior
-status: implemented
+status: specified
 milestone: first-release
 priority: must
 code: [docspecsite.cli]
@@ -18,22 +18,24 @@ related:
 `docspecsite [--repo DIR] <command> [options]` works on the docs of one git repo: the current directory, or `DIR` given with `--repo` (the checked repo).
 It must be the top level of the git repo: a subdirectory of one stops every command with an error and exit code 1 (support for a docs project in a subdirectory is planned: [repo-subdirectory.md](repo-subdirectory.md)).
 `docspecsite --version` prints the installed version.
+A command-line error (an unknown option, or an option value that is not valid, such as an unknown name in `--parts` or `--optional-checks`) stops the command before it starts, with a usage message on stderr and exit code 2.
 
 | Command | Does |
 | -- | -- |
-| `check [--staged] [--code]` | Runs every check ([DS-20](requirements.md#checks), [DS-33](requirements.md#checks)) on the working tree. `--staged` also rejects docs staged as deleted or renamed in git ([DS-6](requirements.md#versioning)); `--code` adds the code check ([DS-36](requirements.md#checks)). |
+| `check [--staged] [--optional-checks C,…]` | Runs every check ([DS-20](requirements.md#checks), [DS-33](requirements.md#checks)) on the working tree. `--staged` also rejects docs staged as deleted or renamed in git ([DS-6](requirements.md#versioning)); `--optional-checks` adds the optional checks it names: `code`, the code check ([DS-36](requirements.md#checks)). |
 | `list [--layer L] [--status S] [--component C] [--tag T] [--milestone M] [--priority P] [--format text\|json]` | Prints the docs whose front matter matches every given filter, from the working tree ([DS-17](requirements.md#navigation-and-indexes)). |
 | `backlinks <path> [--format text\|json]` | Prints the docs that link to `<path>` through body links, `related`, `redirect_to` or `superseded_by`, from the working tree ([DS-28](requirements.md#navigation-and-indexes)). |
 | `build [--ref main] [--out site] [--parts P,…] [--include-worktree] [--strict]` | Renders the static site for a git ref ([DS-7](requirements.md#rendering) … [DS-19](requirements.md#generated-reference-layer)). |
 
 ## check
 
-Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>: <message>` for a problem outside `docs/` (such as an invalid `docspecsite.toml`, or a `Docs:` line in code found by `--code`); the line number is left out when the problem concerns the whole file.
+Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>: <message>` for a problem outside `docs/` (such as an invalid `docspecsite.toml`, or a `Docs:` line in code found by the `code` check); the line number is left out when the problem concerns the whole file.
 A doc that cannot be read, or that is not valid UTF-8, is a problem on that doc, and the other docs are still checked.
 A doc whose page would take the URL of a generated page is a problem too ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
 A count of the problems follows on stderr.
 
-`--code` also checks the code in the settings' `code-dirs`, from the working tree: each `Docs:` line, Sphinx role and `code:` link in a docstring is a problem on its code file when its target is not found.
+`--optional-checks` names the optional checks to run, separated by commas without spaces; an unknown name, or an empty list, is a command-line error whose message lists the optional checks there are.
+The `code` check (`--optional-checks code`) checks the code in the settings' `code-dirs`, from the working tree: each `Docs:` line, Sphinx role and `code:` link in a docstring is a problem on its code file when its target is not found.
 A package name found in more than one code directory is a problem naming the package and its directories, and the code is then not checked.
 Without `code-dirs` it adds nothing.
 
@@ -66,7 +68,7 @@ Rendered page bodies are kept in `.docspecsite-cache/` in the checked repo, so a
 - `--include-worktree` adds uncommitted doc changes as a "working copy (uncommitted)" version, and reads the code and the files under `docs/` from the working tree. It is meant for previews while writing, never for CI.
 - `--parts` names the parts to build, separated by commas without spaces: `docs`, `code` ([DS-35](requirements.md#rendering)).
   Without it, every part the repo has is built: `docs`, and `code` when `code-dirs` is set.
-  An unknown part, an empty list, or `code` without `code-dirs` stops the build before it starts.
+  An unknown part, or an empty list, is a command-line error; `code` without `code-dirs` stops the build before it starts.
 - `--strict` stops at the first page error without writing anything, and turns every warning into an error. It is meant for CI.
   Warnings come only from the parts being built, so `--parts docs --strict` does not fail on docstrings.
 

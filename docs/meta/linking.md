@@ -42,8 +42,10 @@ Every doc should let a reader move **up** (more general), **down** (more detaile
 - **`code:<dotted.path>`** in a Markdown link target refers to the code reference page of a module, class or function.
   In raw form the dotted path tells a reader exactly where the code lives.
 - **`code:`** in front matter lists what the doc describes as a whole.
+- A reference from a doc to code that does not exist is an error (the code may be *specified* but not yet written — in that case keep the reference in prose without the `code:` scheme until the code exists).
 - **In docstrings**, a line `Docs: <path relative to docs/>` (one or more) links the code back to hand-written docs.
-- A reference to code that does not exist is an error (the code may be *specified* but not yet written — in that case keep the reference in prose without the `code:` scheme until the code exists).
+- `Docs:` lines belong to the code, not to the docs: one may be stale for any reason, and that is not an error of the docs.
+  Whoever works on the code can find stale ones with the code check (`docspecsite check --optional-checks code`, [agents/working-from-specs.md](../agents/working-from-specs.md#implementing-a-specified-doc)).
 - **`web-api:<operationId>`** in a Markdown link target refers to one endpoint of the web API, by its operation id in the committed HTTP API schema.
   An unknown operation id is an error, with the same "specified but not written yet" exception as `code:` links.
 

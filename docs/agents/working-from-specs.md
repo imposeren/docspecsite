@@ -25,7 +25,7 @@ related:
    - new code (a new function, class or module) also gets its tests first, but don't run them while they can only fail on a missing import or attribute; run them once the code exists.
 
    Add `Docs: <path>` lines to docstrings of the main code elements, and `code:` entries to the doc.
-   If the project validates the references in its code (`Docs:` lines, and references to other code in docstrings), run the code check once the implementation is done (`docker compose run --rm docs check --code`).
+   If the project validates the references in its code (`Docs:` lines, and references to other code in docstrings), run the code check once the implementation is done (`docker compose run --rm docs check --optional-checks code`).
 
 4. Set the doc's `status: implemented` (and its parents' if all their children are done).
 
