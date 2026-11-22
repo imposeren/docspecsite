@@ -56,6 +56,17 @@ In Claude Code this is the superpowers `brainstorming` skill, then `writing-plan
    Then a fresh subagent that has not seen the design or the code reads the behavior, scenario and ui docs the `spec-writer` lists in its report, and rewrites what a non-developer user would not understand.
 3. **Plan:** only once those docs are `specified`, an implementation plan in `notes/plans/YYYY-MM-DD-<topic>.md` that cites them as its spec; then [implementing](#implementing-a-specified-doc) as above.
 
+### Thinking ahead
+
+Every design, in a design note or written straight into specs, questions each assumption it would fix in place:
+
+- **Future readiness.** Where the design depends on one tool, provider, format or service (a version control system, a database, a host, a file format), ask whether a second one is plausible.
+  If it is, design the seam: a small interface the rest talks to, with today's choice as one implementation, and the way another one is added (built in, or registered by a separate package).
+  If the seam is not worth building yet, the design must not block it, and a later-milestone doc proposes it.
+- **Personal preference.** A value that another reasonable project could choose differently (a directory name, a file name, a naming pattern, a limit, a default behavior) is a setting with a sensible default, not a constant.
+  Leave a value fixed only when changing it would break the method or other projects; the doc says why.
+- Group settings by what they belong to: options of one part go in its own section (for example `[versioning.git]` for the git backend), and an option that only applies with another one goes under it.
+
 ## Writing a new doc
 
 Use the `/new-doc` skill (Claude Code) or copy a [template](../meta/templates/index.md); place it at the mirrored path; list it in the parent `index.md` with a one-line description; add `related:` links both ways.
