@@ -21,8 +21,9 @@ related:
 ## Daily use
 
 - Hand Claude a doc as the task: "implement docs/behavior/<area>/<capability>.md".
+  For work that touches two or more docs in one layer, or sections of a partly built doc, the `task-collector` agent first writes a task brief ([working-from-specs.md](working-from-specs.md#preparing-a-task-brief)).
 - `/new-doc`: scaffold a new doc at the right path with correct front matter.
-- Use the specialized agents below for spec and design work, so each runs with a focused context and limited edit rights.
+- Use the specialized agents below for spec, design and task-brief work, so each runs with a focused context and limited edit rights.
 
 ## Project Claude files
 
@@ -30,7 +31,8 @@ related:
 | -- | -- |
 | `CLAUDE.md` | Always-loaded entry point: project, hard rules, commands, pointers. |
 | `.claude/skills/new-doc/SKILL.md` | The `/new-doc` skill. |
-| `.claude/agents/spec-writer.md` | Subagent for the spec in every layer: behavior, scenarios, ui and architecture docs, `proposed` ADRs (architecture decision records) and external platform facts; doesn't touch code. |
+| `.claude/agents/spec-writer.md` | Subagent for the spec in every layer: behavior, scenarios, ui and architecture docs, `proposed` ADRs (architecture decision records) and external platform facts; doesn't touch code. Its model and effort come from the project's Copier answers `spec_writer_model` and `spec_writer_effort` (empty: the session's). |
+| `.claude/agents/task-collector.md` | Subagent for the task brief that starts a plan: the docs and sections to build, acceptance criteria, ADRs, open questions and a reading list; reads only the docs. |
 | `.claude/settings.local.json` | Personal settings (gitignored). |
 
 Guides are written by whoever builds the thing they describe ([working-from-specs.md](working-from-specs.md)), not by a dedicated agent.

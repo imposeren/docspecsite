@@ -1,8 +1,8 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
-_commit: v0.2.2
+_commit: v0.2.4
 _src_path: https://github.com/imposeren/docs-driven-template.git
 adr_prefix: DSS
-docspecsite_version: v0.1.0
+docspecsite_version: v0.2.0
 languages:
 - python
 other_languages: ''
@@ -11,3 +11,5 @@ project_description: docspecsite checks a repo's docs and renders every version 
 project_name: docspecsite
 python_language_server: pyrefly
 repo_url: https://github.com/imposeren/docspecsite
+spec_writer_effort: ''
+spec_writer_model: ''

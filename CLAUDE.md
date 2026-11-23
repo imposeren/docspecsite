@@ -40,6 +40,7 @@ docspecsite checks a repo's docs against the docs-driven method and renders ever
 ## Design and planning (superpowers skills)
 
 Design → specs → plan, as in `docs/agents/working-from-specs.md#designing-before-specifying`; it overrides the skills' defaults.
+A plan for work that touches two or more docs in one layer, or sections of a partly built doc starts with a task brief from the `task-collector` agent (`docs/agents/working-from-specs.md#preparing-a-task-brief`).
 Design notes and plans go to `notes/design/` and `notes/plans/` (not committed), never `docs/superpowers/`.
 
 ## Commands (via docker compose; see docs/architecture/dev-environment.md)
@@ -66,5 +67,7 @@ Status: check, list, backlinks, build, the code reference, the Docker image and 
 ## Agents and skills
 
 - `spec-writer` agent — the spec in every layer: behavior, scenarios, ui and architecture docs, `proposed` ADRs, external platform facts (no code).
+
+- `task-collector` agent — the task brief that starts a plan: the docs to build, acceptance criteria, ADRs, open questions and a reading list (docs only, no code).
 
 - `/new-doc` — scaffold a doc at the right mirrored path with valid front matter.

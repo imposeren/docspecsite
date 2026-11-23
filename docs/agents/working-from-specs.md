@@ -1,6 +1,6 @@
 ---
 title: Working from specs
-summary: How agents (and people) design new work with the user, turn specified docs into code, write or change specs, and record technical decisions as ADRs.
+summary: How agents (and people) design new work with the user, prepare a task brief from the specs, turn specified docs into code, write or change specs, and record technical decisions as ADRs.
 layer: agents
 status: implemented
 components: [agents]
@@ -12,9 +12,29 @@ related:
 
 # Working from specs
 
+## Preparing a task brief
+
+Work that touches two or more docs in one layer, or sections of a partly built doc first gets a **task brief**: an index into the specs that says what to build and where its rules are.
+A doc together with its [mirrored](../meta/structure.md#mirrored-paths) counterparts in other layers counts as one doc: work on one whole doc and its mirrors goes straight to the plan.
+
+1. A fresh agent that works only over the docs (in Claude Code, the `task-collector` agent) writes the brief as the first section of the plan file, `notes/plans/YYYY-MM-DD-<topic>.md`.
+   It does not read the code: where the change goes in the code is for the planner and the implementer to find.
+2. The brief points to the docs instead of retelling them, and adds no requirement of its own.
+   It has five parts:
+   - **Scope:** each doc and section to build, with its status (`specified`, `changed`, or the status notes of a partly built doc) and, for `changed` docs, the commit that changed them.
+   - **Acceptance criteria:** links to the scenario sections that decide whether the work is done; a rule is quoted word for word only where one exact value or message decides the outcome.
+   - **Decisions:** the ADRs that apply, and each decision the task needs that no ADR covers.
+   - **Open questions:** each place in the docs where a builder would have to guess — a missing rule, two docs that disagree, a needed decision without an ADR.
+   - **Reading list:** each doc to read, with one line on what the implementer needs from it.
+3. Each open question is settled by its kind:
+   a missing rule is fixed in the spec (a `spec:` commit, as in [changing what the system does](#changing-what-the-system-does)); two docs that disagree go to the user, then to a spec fix; a needed decision becomes a `proposed` ADR that the user decides ([below](#decision-records-adrs)).
+   Then the brief is updated, and the user reviews it.
+4. Only then is the rest of the plan written, citing the brief and the docs; each plan task names the docs from the brief that it needs, so an implementer starts from those links.
+   The final review checks the code against the docs in the brief's scope ([step 6 below](#implementing-a-specified-doc)).
+
 ## Implementing a `specified` doc
 
-1. Read it and its counterparts ([reading-strategy.md](reading-strategy.md)).
+1. Read the task brief, if there is one, and the docs it lists; otherwise read the doc and its counterparts ([reading-strategy.md](reading-strategy.md)).
    Scenarios are the acceptance criteria.
 
 2. If anything needed to build it is ambiguous or missing, **fix the spec first** (or ask) — don't encode a guess only in code.
@@ -58,7 +78,7 @@ In Claude Code this is the superpowers `brainstorming` skill, then `writing-plan
    Its rewrite is checked for meaning: another fresh subagent compares the text before and after it and lists every rule, case, condition, default or message that was lost, added or changed; each one is fixed or goes to the user.
    Then a builder check on the specs: a fresh subagent that can read the code, and look up its symbols and their uses with the language server where the project has one, reads the new and changed specs as the planner of their implementation would, and lists every place where it would have to guess: a missing message or rule, a case two requirements answer differently, a planned code location that does not fit the code; each one is fixed in the spec or goes to the user.
    The user reviews the specs after these steps, so they read the text once, in its final form; each step is its own commit on the spec branch, so its changes show as a plain diff.
-3. **Plan:** only once those docs are `specified`, an implementation plan in `notes/plans/YYYY-MM-DD-<topic>.md` that cites them as its spec; then [implementing](#implementing-a-specified-doc) as above.
+3. **Plan:** only once those docs are `specified`, an implementation plan in `notes/plans/YYYY-MM-DD-<topic>.md` that cites them as its spec, starting with a [task brief](#preparing-a-task-brief) for work that touches two or more docs in one layer, or sections of a partly built doc; then [implementing](#implementing-a-specified-doc) as above.
 
 ### Thinking ahead
 

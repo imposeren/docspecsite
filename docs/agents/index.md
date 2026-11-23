@@ -34,6 +34,6 @@ Agents should read this page fully, then only the deeper docs their task needs.
 ## Children
 
 - [reading-strategy.md](reading-strategy.md) — How to find and read only the docs you need.
-- [working-from-specs.md](working-from-specs.md) — Turning `specified` docs into code; writing new specs and ADRs.
+- [working-from-specs.md](working-from-specs.md) — Preparing task briefs and turning `specified` docs into code; writing new specs and ADRs.
 - [code-lookup.md](code-lookup.md) — Looking up code through the project's language server, and the default server per language.
 - [claude-code-setup.md](claude-code-setup.md) — Setting up and using Claude Code in this repo: project files, skills, agents.

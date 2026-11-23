@@ -25,6 +25,8 @@ __pycache__/
 
 # Claude Code local settings
 .claude/settings.local.json
+# Personal where-to-look note for the design-rules-review skill
+.claude/design-rules/where.md
 
 # Planning notes (not part of the spec)
 /notes/
