@@ -1,8 +1,8 @@
 ---
 title: Docs system requirements — scenarios
-summary: Exact cases for the docs check's rules on a doc's title — text before it, a doc without one, a second level-1 heading, docs whose front matter does not load, and the heading a page shows.
+summary: Exact cases for the docs check's rules on a doc's title — text before it, a doc without one, a second level-1 heading, docs whose front matter does not load, and the heading a page shows — and on characters that file names may not contain.
 layer: scenarios
-status: implemented
+status: [implemented, changed]
 components: [checks]
 tags: [checks]
 related:
@@ -14,6 +14,7 @@ related:
 # Docs system requirements — scenarios
 
 These scenarios pin down the rule on a doc's title in [Docs system requirements](../behavior/requirements.md#checks) (DS-52): the title is the doc's first level-1 heading, written as `# Import` or as a line underlined with `===`; it comes right after the front matter, with only blank lines between them; and a doc has exactly one level-1 heading.
+They also pin down which characters file and directory names under `docs/` may not contain ([DS-20](../behavior/requirements.md#checks)).
 The exact problem lines and hints are in [commands.md](../behavior/commands.md#check).
 The other requirements are pinned down by [commands.md](../behavior/commands.md) and the tests.
 
@@ -122,8 +123,40 @@ Feature: Checking a doc's title
     Then the doc's page shows "Import" as its heading
 ```
 
+## File and directory names
+
+> **Changed, not built yet.** Names with `#` and `%` are reported, with the message `name contains "#" or "%", which break links to the rendered page`; names with `?` are not reported.
+
+The check reports a name under `docs/` that contains `#`, `%` or `?`, since these characters have a meaning in web addresses and break links to the rendered page ([DS-20](../behavior/requirements.md#checks)).
+
+```gherkin
+Feature: Checking file and directory names
+  As a docs author
+  I want docspecsite to report names that cannot be linked to
+  So that every doc can be reached from other docs and on the site
+
+  Scenario Outline: A name with a character that breaks links
+    Given a doc "docs/guides/<name>" listed in "docs/guides/index.md"
+    When I run the check
+    Then the output includes:
+      """
+      docs/guides/<name>: name contains "#", "%" or "?", which break links to the rendered page
+      """
+
+    Examples:
+      | name     |
+      | c#.md    |
+      | 50%.md   |
+      | faq?.md  |
+
+  Scenario: A directory name with a question mark
+    Given a directory "docs/what?" with an index.md
+    When I run the check
+    Then the check reports a problem on "docs/what?" saying that its name contains "#", "%" or "?"
+```
+
 ## See also
 
-- [behavior/requirements.md](../behavior/requirements.md#checks) — DS-52, the rule on a doc's title.
+- [behavior/requirements.md](../behavior/requirements.md#checks) — DS-52, the rule on a doc's title, and DS-20, the rule on names.
 - [behavior/commands.md](../behavior/commands.md#check) — the problem lines and hints of the check.
 - [scenarios/status-notes.md](status-notes.md) — how the title and the sections below it get their status.

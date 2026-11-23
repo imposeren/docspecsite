@@ -18,6 +18,8 @@ related:
   - architecture/quality-gate.md
   - architecture/versioning-backends.md
   - behavior/status-notes.md
+  - scenarios/commands.md
+  - behavior/doc-symlinks.md
 ---
 
 # How docspecsite works
@@ -45,7 +47,7 @@ Why a custom tool rather than MkDocs/Sphinx: [DSS-0001](decisions/DSS-0001-custo
 ## Dependencies
 
 - Python: the version pinned in `.python-version`, installed by uv ([DSS-0002](decisions/DSS-0002-single-python-toolchain.md)).
-- `markdown-it-py` + `mdit-py-plugins` (front matter, heading anchors, tables, task lists) — Markdown → HTML ([DS-3](../behavior/requirements.md#source)).
+- `markdown-it-py` + `mdit-py-plugins` (front matter, heading anchors, tables) — Markdown → HTML ([DS-3](../behavior/requirements.md#source)).
 - `pyyaml` — front matter.
 - `jinja2` — page templates (auto-escaping, loops and template inheritance without hand-written templating).
 - **Mermaid** — renders `mermaid` code blocks as diagrams in the browser; its bundle is downloaded at a pinned version with a sha256 check when the image is built, kept in the image outside `/repo`, and copied by docspecsite into `site/assets/`, so the site works offline.
@@ -91,8 +93,40 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
 - git runs at the top level of the checked repo, and its `log` output is read with `--no-show-signature`, so a user's `log.showSignature` cannot put gpg output into it.
 - Version-aware link resolution ([DS-11](../behavior/requirements.md#rendering)), in core and for every backend: in doc A's version X, a link to B resolves to B's newest version whose position in the backend's linear order is at or after X's position (i.e. not newer than X); with git commits mode the position is the commit's place in the first-parent list.
   If B has none, link to B's latest and add a "newer doc" marker.
+  A body link to a target that is not found is text with the "not found" marker, whatever kind of file it names (one marker, since the build cannot tell a deleted doc from a typo or a missing image); `related` and `redirect_to` entries and `Docs:` lines in code do not use this marker.
+  [behavior/commands.md](../behavior/commands.md#build) defines which targets are found.
+  `SiteBuilder` puts the found repo file paths together and gives them to the `Resolver` (`docspecsite.urls`): the files of the built revision's tree (`Git.read_tree`) and, with `--include-worktree`, the non-Markdown files under `docs/` that git sees in the working tree (`Git.list_worktree_files`).
+  The paths of the symlinks that lead to a doc and of the symlinks left out of the site are not among them; the files that a followed symlinked directory gives are, at their paths below the symlink ([Output layout](#output-layout)).
+  The marker is shown in every version; the warning is given only for the latest version of the linking doc.
 - Uncommitted working-tree changes are rendered as an extra "working copy (uncommitted)" version only when `--include-worktree` is given (useful while writing; never in CI).
   A working-tree file counts as changed when git hashes it, with its line-ending conversion and clean filters applied, to a blob other than the one in the ref's tree.
+  The `build` command in `docspecsite.cli` decides which revision is built when `--ref` is not given: `HEAD`, the checked-out commit, with or without `--include-worktree` ([behavior/commands.md](../behavior/commands.md#build)); `History.load` and `SiteBuilder` always get a ref.
+- A symlink is never a doc, whatever it leads to ([DS-39](../behavior/doc-symlinks.md#on-the-site)), and `History.load` never returns one.
+  `Git` says of each path whether it is a symlink where it is read: in the built revision's tree (`Git.read_tree`, by the tree entry's mode, `120000`), in each change of the history (`Git.list_changes`) and in the working tree (`Git.list_worktree_files`).
+  From that, `History.load` leaves out a version in which the path is a symlink; a path that is a symlink at the built revision is no doc of the site, with no pages in any version; a path that is a regular file at the built revision keeps the versions in which it was one.
+  With `--include-worktree`, a path that is a symlink at the built revision but a regular doc in the working tree is a new uncommitted doc: it gets a working-copy version, its only version.
+  A path that is a regular doc at the built revision but a symlink in the working tree has no working-copy version, and its committed versions keep their pages.
+- One "is a doc" rule in `docspecsite.docs` says what a doc is: a `.md` path under `docs/`, outside the doc templates, that is a regular file with no symlinked directory between it and `docs/`.
+  Every part that decides whether a path is a doc asks that one rule, and gives it what it knows about the path (the file on disk, or an entry of a tree):
+  - `History.load`, for the docs of the built revision, of each change and of the working tree (through `History.is_doc`);
+  - `DocSet.load`, for the docs that `check`, `list` and `backlinks` read;
+  - the check's link check (`LinkCheck`), for whether a link's target is a doc, and its index check (`Checker.check_indexes`), for the children an index lists;
+  - `SiteBuilder`'s copying of the docs files and the `Resolver`'s found files, where a file under `docs/` that is not a doc or a doc template is a file to copy;
+  - `docspecsite.query.resolve_doc_path`, the path lookup of `backlinks`.
+- `resolve_doc_path` takes the path as written, relative to `docs/`, and follows no link: `..` is worked out on the path's text, and a path that leaves `docs/` that way is no doc.
+  A `docs/` directory that is itself a symlink is outside this design.
+- One rule says what a symlink under `docs/` leads to, for `check` (whether the symlink is a problem, and its hint) and for the docs files `SiteBuilder` copies; [behavior/doc-symlinks.md](../behavior/doc-symlinks.md#how-a-symlink-is-followed) defines it and shows it as a diagram.
+  The rule gives one of five kinds (out of the repo, nothing, a doc, a directory, another file) from the end of the symlink's chain alone, never from the symlink's own name.
+  A chain of symlinks is followed while every step stays inside the repo: a target that is absolute or outside the repo gives "out of the repo", and one that does not exist, or a path already passed on the way from `docs/`, gives "nothing", so no loop of symlinks makes the check or the build run forever ([DS-39](../behavior/doc-symlinks.md#symlink-loops)).
+  The symlinks inside a directory that a symlink leads to are followed by the same rule, with the paths already passed carried along; from them and the `.md` files there, the rule also says whether the directory has a doc inside.
+  The target is looked up where the part reads its other files: on disk for `check`, and for `SiteBuilder` where it copies the docs files from ([Output layout](#output-layout)).
+- `check` reports each symlink that leads out of the repo, to nothing, to a doc or to a directory with a doc inside once, with its target read from the link, and skips the symlinks inside `docs/meta/templates/`, as it skips templates in every check.
+  It never reads outside the repo, and takes its kinds and the hint from the rule for following a symlink (the bullet above).
+  A reported directory is one problem; inside a directory that is not reported, a symlink that leads out of the repo or to nothing is reported at its path below the directory's symlink.
+  The index check takes no symlink as a directory that needs an `index.md` or as a child to list, and the link check gives a link to a symlink that leads to a doc, to a reported directory or to a `.md` file inside a symlinked directory its own message ([behavior/commands.md](../behavior/commands.md#check)).
+  The staged check (`Checker.find_staged_deletes_renames`) passes over a path that is a symlink in the tree of `HEAD`.
+- The rules on symlinks, found targets, the default revision and changed code files ([Code reference](#code-reference)) are stated here for the parts that hold them today.
+  The backend contract keeps the same rules in its rows, for the git parts of `History.load` and `Git` as the git backend ([versioning-backends.md](versioning-backends.md#contract)).
 
 ## Statuses and status notes
 
@@ -151,12 +185,18 @@ site/
 Some doc paths are **reserved**, because their page would take the URL of a generated page: `status.md`, every doc under `tags/` and `components/`, every doc under `reference/code/` other than `index.md`, and every doc under `<path>/v/` when `<path>.md` is a doc (where that doc's version and diff pages go).
 `check` reports a doc at a reserved path ([DS-20](../behavior/requirements.md#checks)); the build keeps the generated page and reports the doc's page as an error.
 
+`SiteBuilder` copies the non-Markdown files under `docs/` (images and the like; doc templates are left out) into the site at their own path: from the tree of the built revision, or with `--include-worktree` from the working tree, where only the files git sees count (`Git.list_worktree_files`).
+A symlink there counts by what it leads to, whatever its name, which the builder finds by the rule for following a symlink ([History model](#history-model)).
+One that leads to another file arrives as that file, never as its link text, and one that leads to a directory as the non-Markdown files inside it, at their paths below the symlink, with the symlinks inside followed by the same rule ([DS-39](../behavior/doc-symlinks.md#other-files-under-docs)).
+A symlink that leads to a doc is left out without a word, since `check` reports it; one that leads out of the repo or to nothing is left out with a warning ([behavior/commands.md](../behavior/commands.md#build)).
+The paths copied this way are the docs files the `Resolver` takes as found ([History model](#history-model)).
+
 `site/.docspecsite-manifest` lists the files of the last build, so the next build removes only files it wrote itself.
 
 ### Parts
 
 The site is built in parts ([DS-35](../behavior/requirements.md#rendering)): `docs` is everything above except `reference/code/`, and `code` is `reference/code/` (module pages and the entry page `reference/code/index.html`).
-The build carries the set of parts it builds, and every link that crosses parts asks whether its target's part is in that set: the docs' resolver for `code:` links and the index and `llms.txt` entries of code modules, the code pages for `Docs:` lines, "described in" lists, links to docs and the page chrome (breadcrumb, components, status badge).
+The build carries the set of parts it builds, and every link that crosses parts asks whether its target's part is in that set: the docs' resolver for `code:` links and the index entries of code modules (`llms.txt` lists docs only, [DS-16](../behavior/requirements.md#navigation-and-indexes)), the code pages for `Docs:` lines, "described in" lists, links to docs and the page chrome (breadcrumb, components, status badge).
 A link into a part that is not built becomes text, or, from the code reference to a doc, a link to the doc's Markdown file through the backend's `file-link` pattern (with git by default `<source-url>/blob/<commit>/docs/…`).
 A code-only build also writes the entry page as `index.html`, with its links relative to the root.
 Since the entry page has no old versions, a link to it from an old version of a doc leads to its latest page with the "current code" marker, like an old version's `code:` link.
@@ -185,7 +225,7 @@ Each module gets one page, built from the code's structure as well as its docstr
 - for each class: base classes (linked), the class docstring, then **members** — methods, properties, attributes and class variables — each with full **signature, type annotations and defaults**, decorators (e.g. `@property`, `@classmethod`), and its docstring; inherited members listed separately with a link to where they are defined;
 - parameters, return values and raised exceptions from docstring sections (Google style), merged with the annotations;
 - every type in a signature linked to its own reference entry when it is project code;
-- every member with its own anchor and a link to its source at the built revision (through the backend's `file-link` pattern);
+- every member with its own anchor and a link to its source at the built revision (through the backend's `file-link` pattern); with `--include-worktree`, the pages of a file that is new or changed in the working tree have no source links, since that revision does not hold the code they show: `SiteBuilder` finds those files as `History.load` finds changed docs (git's hash of the working-tree file against the blob in the built revision's tree) and passes them to `CodeReference`;
 - member sections collapsible and a per-page member index, so large classes stay navigable.
 
 Each page gets synthesized front matter (`layer: reference`, `components` from `code-components`) and goes through the same pipeline as other docs.

@@ -13,6 +13,7 @@ related:
   - architecture/docs-tooling.md
   - behavior/commands.md
   - behavior/status-notes.md
+  - behavior/doc-symlinks.md
 ---
 
 # Docs system requirements
@@ -31,13 +32,14 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
 
 ## Versioning
 
-> **Changed, not built yet.** Git is the only version control, and deletes and renames are rejected by `check --staged`.
+> **Changed, not built yet.** Git is the only version control, and deletes and renames are rejected by `check --staged`, which also rejects the removal of a symlink.
 
 - **DS-4** Versions come from the project's [version control](glossary.md), git by default: every [revision](glossary.md) on the [main line of history](glossary.md) that touches a doc is a version of it ([meta/versioning.md](../meta/versioning.md)).
   Where versions come from, and the choice of building without version control, is in [versioning-backends.md](versioning-backends.md) ([DS-40](versioning-backends.md#requirements), [DS-41](versioning-backends.md#requirements)).
 - **DS-5** History is **per doc**: each doc has its own list of versions.
 - **DS-6** Files under `docs/` cannot be deleted or renamed; where the version control can tell, an optional check of its [versioning backend](glossary.md) rejects such commits (with git: `git:staged`, [DS-43](versioning-backends.md#requirements)).
   Redirect docs replace them.
+  A [symlink](glossary.md) under `docs/` is no such file: whatever it leads to, it never was a doc, so it may be removed or renamed, and the check passes over a path that was a symlink in the last commit ([DS-39](doc-symlinks.md#requirements)).
 
 ## Rendering
 
@@ -89,9 +91,9 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 ## Checks
 
-> **Changed, not built yet.** The deletes-and-renames check is still `check --staged`, which the `docs-check` hook runs, and every `web-api:` link is reported as a problem: there is no HTTP API reference for it to resolve to.
+> **Changed, not built yet.** The deletes-and-renames check is still `check --staged`, which the `docs-check` hook runs. Every `web-api:` link is reported as a problem: there is no HTTP API reference for it to resolve to. Two things are not reported: names with `?`, and the [symlinks](doc-symlinks.md) that are a problem. A symlinked directory still needs an `index.md`, and a symlinked directory or doc an entry in its parent's `index.md`.
 
-- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#` or `%` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), every doc is readable UTF-8, every doc has its title in its place ([DS-52](#checks)), and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
+- **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), where a symlink is neither a directory that needs an `index.md` nor a child that an index lists ([DS-39](doc-symlinks.md#requirements)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#`, `%` or `?` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)), no symlink under `docs/` that leads out of the repo, to nothing, to a doc or to a directory with a doc inside, whatever the symlink's own name ([DS-39](doc-symlinks.md#requirements)), every doc is readable UTF-8, every doc has its title in its place ([DS-52](#checks)), and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
   It also checks that a partly built doc's statuses and its status notes agree ([DS-44](status-notes.md#requirements) to [DS-46](status-notes.md#requirements)).
   Doc templates are not docs and are not checked ([meta/structure.md](../meta/structure.md#outside-docs)).
   The code is not checked: specs may change before it does ([meta/linking.md](../meta/linking.md#code-links)).

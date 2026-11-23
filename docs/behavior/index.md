@@ -34,6 +34,6 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 - [repo-subdirectory.md](repo-subdirectory.md) — Support for a docs project in a subdirectory of a git repo.
 - [versioning-backends.md](versioning-backends.md) — The choice of where versions come from: git, no version control, or another version control from a separate package; versions from tags only.
 - [tag-versions.md](tag-versions.md) — Merged into versioning-backends.md.
-- [doc-symlinks.md](doc-symlinks.md) — Support for symlinks inside `docs/` that are read as their target.
+- [doc-symlinks.md](doc-symlinks.md) — A symlink (a file that only points to another file or directory) under `docs/` is judged by what it leads to, never by its name: one that leads to a doc, to a directory with a doc inside, out of the repo or to nothing is a check problem, with a hint that depends on where it leads. Listings and the site leave such docs out; symlinked images reach the site as the file they point to.
 - [status-notes.md](status-notes.md) — Partly built docs: a list of statuses with status notes, checked, listed and shown on the site.
 - [glossary.md](glossary.md) — docspecsite's terms in plain language.

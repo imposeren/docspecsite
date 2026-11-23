@@ -1,6 +1,6 @@
 ---
 title: Glossary — docspecsite terms
-summary: Plain-language definitions of the terms docspecsite's docs and output use — checked repo, link pattern, main line of history, problem, ref, revision, site, version control, versioning backend, versionless site, code reference, ADR prefix.
+summary: Plain-language definitions of the terms docspecsite's docs and output use — checked repo, link pattern, main line of history, problem, ref, revision, site, symlink, version control, versioning backend, versionless site, code reference, ADR prefix.
 layer: behavior
 status: changed
 components: []
@@ -25,6 +25,7 @@ Documentation terms (layer, status, redirect doc, version of a doc…) are in [m
 | **ref** | The name of a revision: with git, a branch, tag or commit. `docspecsite build` renders the history of one ref; without version control there is none. |
 | **revision** | One saved state of the project in its version control: a commit, with git. |
 | **site** | The static HTML files `docspecsite build` writes: one page per doc version, diffs, index pages and a machine listing. |
+| **symlink** | A file that only points to another file or directory. Under `docs/`, a symlink is judged by what it leads to: no doc is reached through one, while other files, such as images, may be ([doc-symlinks.md](doc-symlinks.md)). |
 | **version control** | The system that records a project's history, such as git or Mercurial. Without one, docspecsite builds a versionless site. |
 | **versioning backend** | The part of docspecsite that reads the history of one kind of version control (`git`), or that works without one (`none`); chosen with the `backend` setting ([versioning-backends.md](versioning-backends.md)). |
 | **versionless site** | A site built without version control: each doc has only its current version, with no older versions, version picker or diffs. |

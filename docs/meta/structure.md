@@ -2,7 +2,7 @@
 title: Directory structure and depth
 summary: How docs are laid out on disk — one directory per layer, an index.md in every directory, depth derived from the path, and mirrored paths across layers.
 layer: meta
-status: implemented
+status: [implemented, changed]
 components: [docs-system]
 tags: [meta, structure, depth, rules]
 related:
@@ -84,8 +84,10 @@ Step 3 follows from the no-delete/no-rename rule ([versioning.md](versioning.md#
 
 ## Naming
 
+> **Changed, not built yet.** `docspecsite check` reports `#` and `%` in names, not yet `?`.
+
 - lowercase, words separated by `-`: `order-sync.md`;
-- no `#` or `%` in file or directory names: they have a meaning in URLs and break links to the rendered page;
+- no `#`, `%` or `?` in file or directory names: they have a meaning in URLs and break links to the rendered page;
 - name the *thing*, not an action: `checkout.md`, not `add-checkout.md`;
 - ADRs ([architecture decision records](glossary.md#adr)): `architecture/decisions/<PREFIX>-NNNN-<slug>.md`, see [ADR IDs](#adr-ids).
 

@@ -28,4 +28,6 @@ Scenarios use these actor phrasings consistently:
 
 - [versioning-backends.md](versioning-backends.md) — Choosing where versions come from, building without version control, versions from tags only, link patterns and versioning backend checks.
 - [status-notes.md](status-notes.md) — Partly built docs: status lists and status notes in the check, `list` and on the site.
-- [requirements.md](requirements.md) — The docs check's rules on a doc's title, and the heading a page without one shows.
+- [requirements.md](requirements.md) — The docs check's rules on a doc's title, the heading a page without one shows, and the characters that file names may not contain.
+- [doc-symlinks.md](doc-symlinks.md) — Symlinks (files that only point to another file or directory) under `docs/`, judged by what they lead to: the check problem and its hints, how listings and the site leave symlinked docs out, and symlinked images on the site.
+- [commands.md](commands.md) — The revision a build shows by default, which code pages of a preview of the working tree link to their source, body links whose target is found or not found, and the backlinks of a doc template.
