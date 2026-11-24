@@ -59,7 +59,7 @@ flowchart LR
 
 ### Start of every command
 
-1. Read `docspecsite.toml` from disk (unchanged: `ProjectConfig.load`); the `[versioning]` table's `backend` key is parsed with the other top-level keys by `ProjectConfigParser`.
+1. Read `docspecsite.toml` from disk (unchanged, by `ProjectConfig`); the `[versioning]` table's `backend` key is parsed with the other top-level keys by `ProjectConfigParser`.
 2. Select the backend ([Finding a backend](#finding-a-backend)) and let it parse its own table, with the existing parser's messages, so its problems join the other settings problems: `check` reports them, `list` and `build` stop on a wrong value and warn about an unknown key ([DSR-32](../behavior/configuration.md#requirements)).
 3. Validate the options that depend on the backend: the names in `--optional-checks`, `--ref` (rejected when the backend takes no revision) and `--include-worktree` (ignored when the backend has no working-copy version).
    An invalid one is a command-line error, exit code 2, through the argument parser's usage error, as for `--parts`.
@@ -99,19 +99,19 @@ Whether it is a protocol or an abstract base class is the builder's call too.
 | link patterns | Default `file-link` and `dir-link` patterns and the `{revision}` value of the built revision. |
 | optional checks | Its checks by name; each runs on the checked repo and returns problems in `check`'s form. |
 
-Each **version** carries: an id (full revision id; for git the commit SHA), a short id (used in `/v/<short-id>.html` URLs and labels), a date, a message (shown in the picker, its `spec:`/`docs:` prefix stripped by core as today), an optional label (git tags mode: the tag name), a position in one linear order (0 for the built revision, higher for older ones; core resolves [DSR-11](../behavior/site.md#rendering) links with it, as `History.find_contemporary` does today with `commit_index`), and a content key (today's blob SHA; any stable hash of the text) that names cache entries.
+Each **version** carries: an id (full revision id; for git the commit SHA), a short id (used in `/v/<short-id>.html` URLs and labels), a date, a message (shown in the picker, its `spec:`/`docs:` prefix stripped by core as today), an optional label (git tags mode: the tag name), a position in one linear order (0 for the built revision, higher for older ones; core resolves [DSR-11](../behavior/site.md#rendering) links with it, as `History` does today with each commit's position), and a content key (today's blob SHA; any stable hash of the text) that names cache entries.
 The working-copy version keeps today's form (short id `worktree`, position -1).
 
-Today's `docspecsite.history.History` and `Version` become the core side of this: `Version` loses its git `Commit` in favour of the fields above, and `History.load`'s git calls move into the git backend.
+Today's `docspecsite.history.History` and `Version` become the core side of this: `Version` loses its git `Commit` in favour of the fields above, and the git calls with which `History` loads the versions move into the git backend.
 
 ### Optional checks
 
-Core's optional checks keep their plain names (`OptionalCheck.CODE`, `code`); a backend's are offered under `<name>:<check>`.
+Core's optional checks keep their plain names (`code`); a backend's are offered under `<name>:<check>`.
 The available set is one decision, made in one place: core's checks plus the selected backend's.
-`Choice.parse_list` stays the parser of comma-separated names; for the dynamic part, the parser takes the available names instead of only a `Choice` subclass's members, so its "no … given" and "available: …" messages stay the same.
+`Choice` keeps the parser of comma-separated names; for the dynamic part, the parser takes the available names instead of only a `Choice` subclass's members, so its "no … given" and "available: …" messages stay the same.
 How a backend hands its checks to core (a mapping from name to a callable, or check objects) is the builder's call.
 
-The git backend's `staged` check is today's `Checker` staged-changes rule (`Git.list_staged_changes`, [DSR-6](../behavior/versioning-backends.md#versions-of-a-doc)); `check --staged` is removed without an alias, and the prek hook's entry becomes `docspecsite check --optional-checks git:staged` in the same release.
+The git backend's `staged` check is today's `Checker` staged-changes rule (on the staged changes `Git` lists, [DSR-6](../behavior/versioning-backends.md#versions-of-a-doc)); `check --staged` is removed without an alias, and the prek hook's entry becomes `docspecsite check --optional-checks git:staged` in the same release.
 That is an incompatible change of the public interface ([versioning.md](versioning.md#public-interface)).
 
 ### git backend
