@@ -2,7 +2,7 @@
 title: How the site is built — the build front and its site renderers
 summary: The design of `docspecsite build` around a renderer seam — one build front that prepares the input and writes the output, the temporary `internal` renderer, and the `sphinx` renderer that drives Sphinx in-process with MyST-Parser, sphinx-autoapi, furo and docspecsite's own Sphinx extension.
 layer: architecture
-status: specified
+status: [specified, implemented]
 components: [site, code-reference]
 tags: [rendering, tooling]
 related:
@@ -14,7 +14,7 @@ related:
   - scenarios/commands/build.md
   - architecture/docs-tooling.md
   - architecture/decisions/DSS-0008-sphinx-site-renderer.md
-code: [docspecsite.build]
+code: [docspecsite.build, docspecsite.renderers, docspecsite.internal_renderer]
 ---
 
 # How the site is built — the build front and its site renderers
@@ -41,29 +41,29 @@ flowchart LR
   input --> choice{"renderer"}
   choice -- internal --> internal["internal renderer"]
   choice -- sphinx --> sphinx["sphinx renderer<br/>(docspecsite.sphinx)"]
-  internal --> out["RenderedSite:<br/>file list + page errors + counts"]
+  internal --> out["RenderedSite:<br/>file list + counts"]
   sphinx --> out
   out --> writer["SiteWriter + manifest → --out"]
 ```
 
 The front is `SiteBuilder` in `docspecsite.build`.
 It reads the settings, picks the versioning backend, resolves the ref, loads the docs, the history, the code at the ref (with the symlink rules and the "cannot load code" and package-name warnings of docspecsite's code layer) and the parts, follows the symlinks under `docs/` and in the code directories, leaves out doc versions that are not valid UTF-8, gathers the non-Markdown files under `docs/` to copy, and passes all of it to the renderer as one prepared input.
-It keeps an error local to its page, and with `--strict` turns every build warning into an error, for both renderers.
-The renderer returns a `RenderedSite`: the list of the site's files, each an output path with the staged file that holds it, the per-page errors and the counts.
+It keeps an error local to its page, and with `--strict` turns every build warning into an error, for both renderers: the renderer makes each page through the front's page guard, which records the per-page errors and the failed pages.
+The renderer returns a `RenderedSite`: the list of the site's files, each an output path with the staged file that holds it, which of them are pages, and the counts.
 The front copies exactly that list to `--out` through `SiteWriter` and `.docspecsite-manifest`, so leftovers of an earlier build (also of the other renderer) are removed, a `--strict` build with an error writes nothing, and a build that stops in the middle leaves `--out` as it was.
 It prints the summary line from the counts the renderer returns.
 
 ### The renderer seam
 
 The seam is a small module, `docspecsite.renderers`.
-It defines the renderer name type, `SiteRenderer`, the prepared input and `RenderedSite`, and imports only the doc model:
+It defines the renderer name type, `SiteRenderer`, the prepared input and `RenderedSite`, and imports only the doc model and the shared modules whose objects the prepared input carries:
 
 - `RendererName`, the closed choice `internal` / `sphinx`, read from the `renderer` key of the `[site]` section by `ProjectConfig` and from `build --renderer` by `docspecsite.cli`: the option wins, then the setting, then the default `sphinx`.
   A wrong value of the `renderer` key, an unknown key in `[site]` and a `site` key that is not a table are reported as [behavior/configuration.md](../behavior/configuration.md#site) says; any other value of the option is a command-line error.
 - `SiteRenderer`, the interface: one call that takes the prepared input and returns a `RenderedSite`.
 - the two implementations, picked by name from a fixed mapping of names to import paths, which the front resolves at build time; no entry points.
 
-The interface carries nothing only the `internal` renderer uses: its build cache stays inside it, and a `RenderedSite` gives its page counts as an ordered list of labelled counts that the front prints as they come, plus the failed pages.
+The interface carries nothing only the `internal` renderer uses: its build cache stays inside it, and a `RenderedSite` gives its page counts as an ordered list of labelled counts that the front prints as they come; the failed pages are those the front's page guard recorded.
 Each renderer gives the counts labelled `rendered` and `from cache`; the `sphinx` renderer gives the `from cache` count as `0`, since it keeps no pages between builds ([behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)).
 The `sphinx` renderer counts the doc, version, diff, index and code pages, never search, the general index or Sphinx's own files; its failed pages are those left out by a page-local error ([Errors and warnings](#errors-and-warnings)).
 
@@ -82,6 +82,8 @@ What both need is decided once, in modules of the front or of the doc model, and
 Only the `sphinx` renderer and its extension import Sphinx, MyST-Parser, sphinx-autoapi, astroid and furo; the front, the seam and the modules that `check`, `list` and `backlinks` use never do, so those commands do not load them.
 
 ### The `internal` renderer
+
+> **Built.**
 
 `InternalRenderer` (`docspecsite.internal_renderer`) makes the doc, version and diff pages, the code pages and the index pages, with markdown-it-py and Jinja, and keeps the body cache in `.docspecsite-cache/`.
 It maps a link target to `<path>.html` hrefs and flat code page URLs (`reference/code/<dotted.path>.html`), and marks up the diff text as its own diff HTML.

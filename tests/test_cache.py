@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from docspecsite import cache
+from docspecsite import diskcache
 from docspecsite.cache import BodyCache
+from docspecsite.diskcache import FrontMatterCache
 from docspecsite.markdown import FrontMatterSplit, Marker, RenderedLink
 
 FP = "a" * 64
@@ -147,7 +148,7 @@ def test_fingerprint_includes_rendering_dependency_versions(monkeypatch: pytest.
             raise PackageNotFoundError(name)
         return "99.0"
 
-    monkeypatch.setattr(cache, "version", fake_installed_version)
+    monkeypatch.setattr(diskcache, "version", fake_installed_version)
     assert BodyCache.compute_fingerprint() != before
     assert seen == ["markdown-it-py", "mdit-py-plugins", "jinja2", "griffelib"]
 
@@ -193,14 +194,14 @@ def test_front_matter_split_cached_across_instances(tmp_path: Path, split: Front
         calls.append(1)
         return split
 
-    assert BodyCache(tmp_path, FP, "docs").get_front_matter_split("blob1", compute) == split
-    assert BodyCache(tmp_path, FP, "docs").get_front_matter_split("blob1", compute) == split
+    assert FrontMatterCache(tmp_path, FP).get_front_matter_split("blob1", compute) == split
+    assert FrontMatterCache(tmp_path, FP).get_front_matter_split("blob1", compute) == split
     assert len(calls) == 1
 
 
 @pytest.mark.parametrize("content", ["not json", "[1, 2]", '["a", 0]', '["a", true]', '["a"]', '{"a": 1}'])
 def test_front_matter_split_wrong_entry_is_recomputed(tmp_path: Path, content: str) -> None:
-    cache = BodyCache(tmp_path, FP, "docs")
+    cache = FrontMatterCache(tmp_path, FP)
     entry = cache.root / "front-matter" / "blob1.json"
     entry.parent.mkdir(parents=True)
     entry.write_text(content, encoding="utf-8")
@@ -209,10 +210,10 @@ def test_front_matter_split_wrong_entry_is_recomputed(tmp_path: Path, content: s
 
 
 def test_prune_removes_unused_front_matter_entries(tmp_path: Path) -> None:
-    old_cache = BodyCache(tmp_path, FP, "docs")
+    old_cache = FrontMatterCache(tmp_path, FP)
     old_cache.get_front_matter_split("old", lambda: FrontMatterSplit(None, 1))
     old_cache.get_front_matter_split("kept", lambda: FrontMatterSplit(None, 1))
-    new_cache = BodyCache(tmp_path, FP, "docs")
+    new_cache = FrontMatterCache(tmp_path, FP)
     new_cache.get_front_matter_split("kept", lambda: FrontMatterSplit(None, 1))
     new_cache.prune()
     assert not (new_cache.root / "front-matter" / "old.json").exists()

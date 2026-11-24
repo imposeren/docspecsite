@@ -1,5 +1,6 @@
 """Text helpers shared by several modules."""
 
+import difflib
 from pathlib import Path
 
 from .errors import DocspecsiteError
@@ -79,3 +80,17 @@ def collapse_to_one_line(value: object) -> str:
             non-strings are converted with ``str``.
     """
     return " ".join(str(value).split()) if value is not None else ""
+
+
+def make_unified_diff(old: str, new: str) -> list[str]:
+    """Return the lines of the unified diff between two texts, with 3 lines of context and without its file headers.
+
+    It is the diff text of a version's diff page, which every site renderer shows.
+
+    Docs: architecture/site.md#the-renderer-seam
+
+    Args:
+        old: Text of the previous version, the ``-`` side of the diff.
+        new: Text of the version the diff page is for, the ``+`` side.
+    """
+    return list(difflib.unified_diff(old.splitlines(), new.splitlines(), n=3, lineterm=""))[2:]

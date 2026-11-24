@@ -380,7 +380,7 @@ def test_cli_build_shows_docspecsite_warnings_in_own_format(
         warnings.warn(DocspecsiteWarning("%s: unresolvable link: gone.md", "docs/a.md"), stacklevel=1)
         warnings.warn(InternalErrorWarning("%s: internal error: KeyError: 'x'", "docs/b.md"), stacklevel=1)
         warnings.warn("from a library", UserWarning, stacklevel=1)
-        return BuildResult(page_count=0, rendered_count=0, cached_count=0, errors=(), failed_count=0)
+        return BuildResult(page_count=0, counts=(), errors=(), failed_count=0)
 
     monkeypatch.setattr("docspecsite.cli.run_build", warn_and_return)
     with pytest.warns(UserWarning, match="from a library"):
@@ -393,11 +393,11 @@ def test_cli_build_shows_docspecsite_warnings_in_own_format(
 def test_cli_build_pythonwarnings_error_shows_internal_error_traceback(git_repo: Path, tmp_path: Path) -> None:
     script = (
         "import sys\n"
-        "from docspecsite import build\n"
+        "from docspecsite import internal_renderer\n"
         "from docspecsite.cli import main\n"
         "def build_broken_page(*args, **kwargs):\n"
         "    raise RuntimeError('injected bug')\n"
-        "build.SiteBuilder.build_doc_page = build_broken_page\n"
+        "internal_renderer.InternalSite.build_doc_page = build_broken_page\n"
         "sys.exit(main(sys.argv[1:]))\n"
     )
     completed = subprocess.run(

@@ -25,10 +25,12 @@ from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from docspecsite.git import Git, UnknownRefError
 from docspecsite.history import Version
-from docspecsite.indexes import IndexRenderer
+from docspecsite.indexes import SiteIndex
+from docspecsite.internal_renderer import InternalSite
 from docspecsite.markdown import FrontMatterSplit, MarkdownText
 from docspecsite.pages import Page, PageLink, Templates
 from docspecsite.parts import Part
+from docspecsite.renderers import PageCountLabel
 from docspecsite.urls import make_version_url
 
 _LINK = re.compile(r'(?:href|src)="([^"]*)"')
@@ -68,6 +70,10 @@ def _get_messages(recorded: Iterable[warnings.WarningMessage]) -> list[str]:
 
 def _shorten_sha(sha: str) -> str:
     return sha[:12]
+
+
+def _count(build_result: BuildResult, label: PageCountLabel) -> int:
+    return next(page_count.count for page_count in build_result.counts if page_count.label is label)
 
 
 def test_build_layout(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -132,24 +138,33 @@ def test_build_is_incremental(repo: HistoryRepo, tmp_path: Path, monkeypatch: py
     root, _ = repo
     site_dir = tmp_path / "site"
     first_build = run_build(root, "main", site_dir)
-    assert first_build.rendered_count > 0
+    assert _count(first_build, PageCountLabel.RENDERED) > 0
+    assert [page_count.label for page_count in first_build.counts] == [
+        PageCountLabel.RENDERED,
+        PageCountLabel.FROM_CACHE,
+    ]
     diff_calls: list[int] = []
-    render_diff_html = SiteBuilder.render_diff_html
+    render_diff_html = InternalSite.render_diff_html
 
     def count_diff(old: str, new: str) -> str:
         diff_calls.append(1)
         return render_diff_html(old, new)
 
-    monkeypatch.setattr(SiteBuilder, "render_diff_html", staticmethod(count_diff))
+    monkeypatch.setattr(InternalSite, "render_diff_html", staticmethod(count_diff))
     second_build = run_build(root, "main", site_dir)
     assert not diff_calls
-    assert second_build.rendered_count == 0
-    assert second_build.cached_count == first_build.rendered_count + first_build.cached_count
+    assert _count(second_build, PageCountLabel.RENDERED) == 0
+    assert _count(second_build, PageCountLabel.FROM_CACHE) == _count(first_build, PageCountLabel.RENDERED) + _count(
+        first_build, PageCountLabel.FROM_CACHE
+    )
     write_doc(root, "meta/b.md", "No links. Changed once more.\n")
     make_commit(root, "spec: change b again", "2026-11-07T12:00:00+00:00")
     third_build = run_build(root, "main", site_dir)
-    assert third_build.rendered_count == 2  # the new version's body and its diff
-    assert third_build.rendered_count + third_build.cached_count == second_build.cached_count + 2
+    assert _count(third_build, PageCountLabel.RENDERED) == 2  # the new version's body and its diff
+    assert (
+        _count(third_build, PageCountLabel.RENDERED) + _count(third_build, PageCountLabel.FROM_CACHE)
+        == _count(second_build, PageCountLabel.FROM_CACHE) + 2
+    )
     assert diff_calls == [1]  # pruning kept the other diffs, so only the new one is diffed
 
 
@@ -199,7 +214,7 @@ def test_build_keeps_foreign_files(repo: HistoryRepo, tmp_path: Path) -> None:
 
 
 def test_diff_html() -> None:
-    html = SiteBuilder.render_diff_html("a\nb <i>\n", "a\nc\n")
+    html = InternalSite.render_diff_html("a\nb <i>\n", "a\nc\n")
     assert html.startswith('<pre class="diff">')
     assert '<span class="del">-b &lt;i&gt;</span>' in html
     assert '<span class="add">+c</span>' in html
@@ -833,14 +848,14 @@ def _break_doc(monkeypatch: pytest.MonkeyPatch, path: str, error: BaseException)
         path: Doc path relative to ``docs/`` whose pages fail.
         error: Exception raised for each of its pages.
     """
-    original = SiteBuilder.build_doc_page
+    original = InternalSite.build_doc_page
 
-    def raise_in_doc_page(self: SiteBuilder, v: Version, *args: Any, **kwargs: Any) -> Page:
+    def raise_in_doc_page(self: InternalSite, v: Version, *args: Any, **kwargs: Any) -> Page:
         if v.path == path:
             raise error
         return original(self, v, *args, **kwargs)
 
-    monkeypatch.setattr(SiteBuilder, "build_doc_page", raise_in_doc_page)
+    monkeypatch.setattr(InternalSite, "build_doc_page", raise_in_doc_page)
 
 
 def test_build_page_error_is_local(repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -931,7 +946,7 @@ def test_build_render_and_index_errors_are_local(
         raise DocspecsiteError("no llms")
 
     monkeypatch.setattr(Templates, "render", render)
-    monkeypatch.setattr(IndexRenderer, "render_llms_txt", render_no_llms)
+    monkeypatch.setattr(SiteIndex, "make_llms_txt", render_no_llms)
     site_dir = tmp_path / "site"
     build_result = run_build(root, "main", site_dir)
     assert (site_dir / "meta/a.html").is_file()
@@ -967,15 +982,15 @@ def test_build_failed_counts_pages_not_lines(
     repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, shas = repo
-    original_diff = SiteBuilder.build_diff_page
+    original_diff = InternalSite.build_diff_page
 
-    def raise_in_diff_page(self: SiteBuilder, v: Version, previous: Version) -> Page:
+    def raise_in_diff_page(self: InternalSite, v: Version, previous: Version) -> Page:
         if v.path == "meta/b.md":
             raise DocspecsiteError("diff")
         return original_diff(self, v, previous)
 
     _break_doc(monkeypatch, "meta/b.md", DocspecsiteError("page"))
-    monkeypatch.setattr(SiteBuilder, "build_diff_page", raise_in_diff_page)
+    monkeypatch.setattr(InternalSite, "build_diff_page", raise_in_diff_page)
     build_result = run_build(root, "main", tmp_path / "site")
     c4 = _shorten_sha(shas["c4"])
     assert f"docs/meta/b.md@{c4}: DocspecsiteError: page" in build_result.errors
@@ -1088,12 +1103,12 @@ def test_build_contents_list_and_cache_follows_threshold(repo: HistoryRepo, tmp_
     assert '<a href="#sub3">Sub3</a>' in page_html
     assert "<h2>Contents</h2>" not in page_html
     assert 'class="toc"' not in _read(site_dir, "meta/a.html")
-    assert run_build(root, "main", site_dir).rendered_count == 0
+    assert _count(run_build(root, "main", site_dir), PageCountLabel.RENDERED) == 0
 
     _set_toc_min(root, 6)
     make_commit(root, "config: raise toc threshold", "2026-11-08T12:00:00+00:00")
     build_result = run_build(root, "main", site_dir)
-    assert build_result.rendered_count > 0
+    assert _count(build_result, PageCountLabel.RENDERED) > 0
     assert 'class="toc"' not in _read(site_dir, "meta/long.html")
 
 
@@ -1179,12 +1194,10 @@ def test_build_default_parts(repo: HistoryRepo) -> None:
         root, "main", include_worktree=False, vendor_dir=None, is_strict=False, parts=None
     )
     assert code_and_docs_builder.parts == {Part.DOCS, Part.CODE}
-    assert code_and_docs_builder.parts_label == "code+docs"
     (root / ProjectConfig.CONFIG_FILE).write_text("", encoding="utf-8")
     make_commit(root, "drop code-dirs", "2026-11-07T12:00:00+00:00")
     docs_only_builder = SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, is_strict=False, parts=None)
     assert docs_only_builder.parts == {Part.DOCS}
-    assert docs_only_builder.parts_label == "docs"
 
 
 def test_build_code_part_needs_code_dirs(history_repo: HistoryRepo, tmp_path: Path) -> None:
@@ -1251,7 +1264,7 @@ def test_build_alternating_parts_reuses_cache(repo: HistoryRepo, tmp_path: Path)
     run_build(root, "main", site_dir, parts=frozenset({Part.DOCS}))
     assert not [path for path in (site_dir / "reference/code").rglob("*") if path.is_file()]
     third_build = run_build(root, "main", site_dir)
-    assert third_build.rendered_count == 0
+    assert _count(third_build, PageCountLabel.RENDERED) == 0
 
 
 def test_build_docs_only_ignores_broken_code(
@@ -1566,7 +1579,7 @@ def test_cached_rebuild_does_not_parse_markdown(
 
     monkeypatch.setattr(MarkdownText, "split_front_matter", refuse)
     second_build = run_build(root, "main", site_dir)
-    assert second_build.rendered_count == 0
+    assert _count(second_build, PageCountLabel.RENDERED) == 0
 
 
 def _find_site_files(site_dir: Path, path: str) -> list[str]:

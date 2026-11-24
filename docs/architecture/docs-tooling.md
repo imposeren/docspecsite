@@ -3,7 +3,7 @@ title: How docspecsite works
 summary: docspecsite's design — a Python package that checks docs, reads per-doc history through a versioning backend (git by default), renders every version to static HTML with version pickers, diffs and version-aware links through a site renderer (Sphinx by default), generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
 status: [changed, implemented, specified]
-code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.symlinks, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices, docspecsite.docs, docspecsite.problems, docspecsite.markdown]
+code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.symlinks, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.index_pages, docspecsite.cache, docspecsite.diskcache, docspecsite.renderers, docspecsite.internal_renderer, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices, docspecsite.docs, docspecsite.problems, docspecsite.markdown]
 milestone: first-release
 priority: must
 components: [docs-system, cli, checks, queries, site, code-reference, distribution]
@@ -90,8 +90,9 @@ The generated [code reference](../reference/code/index.md) lists every module an
 
 The build is split at a renderer seam ([site.md](site.md#the-renderer-seam)).
 The build front is `SiteBuilder` in `docspecsite.build`, writing through `SiteWriter`; its duties are in [site.md](site.md#build-front).
-`docspecsite.renderers` holds the renderer name type `RendererName`, the `SiteRenderer` interface, the prepared input and `RenderedSite`, and imports only the doc model.
-The `internal` renderer is `InternalRenderer` in `docspecsite.internal_renderer`, with the modules only it uses (`pages`, `cache`, the HTML part of `indexes`, its templates and static files); the `sphinx` renderer with its Sphinx extension is the `docspecsite.sphinx` package.
+`docspecsite.renderers` holds the renderer name type `RendererName`, the `SiteRenderer` interface, the prepared input (`PreparedSite`, with the build's docs in `SiteDocs`) and `RenderedSite`, and imports only the doc model and the shared modules whose objects the prepared input carries.
+The index entries, their grouping and the `llms.txt` text are `SiteIndex` in `docspecsite.indexes`; the cache roots and the front's cache of front matter splits are in `docspecsite.diskcache`.
+The `internal` renderer is `InternalRenderer` in `docspecsite.internal_renderer`, with the modules only it uses (`pages`, `cache`, the index pages' HTML part `index_pages`, its templates and static files); the `sphinx` renderer with its Sphinx extension is the `docspecsite.sphinx` package.
 A renderer imports the seam and the shared modules listed in [site.md](site.md#the-renderer-seam), never `docspecsite.build` and never the other renderer.
 
 ## Configuration
@@ -346,13 +347,13 @@ The CLI entry point (`docspecsite.cli`) catches a closed pipe on stdout (`Broken
 
 ## Incremental builds
 
-Only the `internal` renderer builds incrementally; the `sphinx` renderer renders the whole site afresh in a new Sphinx build directory of its own under `.docspecsite-cache/sphinx/` on every build ([DSR-24](../behavior/site.md#building), [site.md](site.md#the-sphinx-renderer)), and leaves the cache roots below alone.
+Only the `internal` renderer builds incrementally; the `sphinx` renderer renders the whole site afresh in a new Sphinx build directory of its own under `.docspecsite-cache/sphinx/` on every build ([DSR-24](../behavior/site.md#building), [site.md](site.md#the-sphinx-renderer)), and leaves the body cache's roots below alone.
 
 A cache in `.docspecsite-cache/` (gitignored; inside the checked repo, so it persists between container runs) keys rendered HTML by (the version's content key from the backend — git's blob sha —, hash of the resolved link targets, docspecsite version).
 Only changed versions and pages whose link targets moved are re-rendered ([DSR-24](../behavior/site.md#building)).
 A diff page's body is kept by the content keys of its two versions, so an unchanged pair is not diffed again.
-The body cache also keeps each version's front matter split from its body (the YAML text and the line where the body starts) by its content key, so a rebuild in which every page comes from the cache runs no markdown-it on doc text; the YAML is still loaded.
-The cache has one root per docspecsite version, set of built parts and versioning backend, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
+The build front, which loads the docs for either renderer, keeps each version's front matter split from its body (the YAML text and the line where the body starts) by its content key in a cache root of its own, so a rebuild in which every page comes from the cache runs no markdown-it on doc text; the YAML is still loaded.
+The body cache has one root per docspecsite version, set of built parts and versioning backend, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
 
 ## Docker image
 

@@ -1,15 +1,18 @@
 """The site's URLs and the resolution of the docs' links to them.
 
 The URL of each page, how one page links to another, and what the links written in the docs point to on the site,
-like ``reverse`` and ``resolve`` in ``django.urls``.
+like ``reverse`` and ``resolve`` in ``django.urls``. A link's target is resolved once, as a value every site renderer
+maps to its own URL.
 
 Docs: meta/linking.md
+Docs: architecture/site.md#the-renderer-seam
 """
 
 import posixpath
 import re
 import warnings
 from collections.abc import Callable, Collection, Container, Mapping
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Protocol
@@ -21,7 +24,7 @@ from .docs import DOCS_DIR, derive_doc_path, is_redirect, is_template
 from .errors import DocspecsiteWarning
 from .history import History, Version
 from .links import CodeRef, Ref, parse_body_ref
-from .markdown import Marker, RenderedLink
+from .markdown import Marker
 from .problems import Problem
 
 URL_SCHEME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -52,6 +55,61 @@ MARKERS: Mapping[str, Marker] = MappingProxyType(
         "not-found": Marker("not-found", "not found"),
     }
 )
+
+
+@dataclass(frozen=True)
+class DocTarget:
+    """A link's target that is a version of a doc: the page of that version, or the doc's latest page."""
+
+    path: str
+    """Doc path relative to ``docs/``."""
+
+    version: Version | None
+    """The version whose page the link goes to; None for the doc's latest page."""
+
+    suffix: str = ""
+    """``?query`` and ``#anchor`` of the link, kept as written; empty for none."""
+
+
+@dataclass(frozen=True)
+class CodeElementTarget:
+    """A link's target that is an element of the code reference."""
+
+    dotted_path: str
+    """Full dotted path of the code element, as the code index holds it."""
+
+
+@dataclass(frozen=True)
+class FileTarget:
+    """A link's target that is a file the site copies from under ``docs/``."""
+
+    site_url: str
+    """Site-root-relative URL of the file, its path within ``docs/``, with the link's ``?query`` and ``#anchor``."""
+
+
+@dataclass(frozen=True)
+class UrlTarget:
+    """A link's target every renderer uses as it is: a web link, a bare anchor, or a page on the repository host."""
+
+    url: str
+    """The URL, absolute or as written in the doc."""
+
+
+type LinkTarget = DocTarget | CodeElementTarget | FileTarget | UrlTarget
+
+
+@dataclass(frozen=True)
+class ResolvedLink:
+    """Where a link of a doc version goes, as a target each renderer maps to its own URL, with its markers."""
+
+    target: LinkTarget | None
+    """Where the link goes; None leaves the link text as plain text."""
+
+    markers: tuple[Marker, ...] = ()
+    """Labels shown after the link."""
+
+    use_code_style: bool = False
+    """Whether link text left without a target is shown as code, as a link to code would be."""
 
 
 def make_doc_url(path: str) -> str:
@@ -233,8 +291,8 @@ class DocPages(Protocol):
         """
         ...
 
-    def locate_doc(self, path: str) -> str | None:
-        """Return the URL a link to a doc goes to, external for a doc whose pages are not built; None for text.
+    def locate_unbuilt_doc(self, path: str) -> str | None:
+        """Return the external URL a link to a doc whose pages are not built goes to; None for text.
 
         Args:
             path: Doc path relative to ``docs/``.
@@ -243,7 +301,7 @@ class DocPages(Protocol):
 
 
 class Resolver:
-    """Resolver of the links of doc versions to hrefs and markers; it issues warnings about unresolvable links."""
+    """Resolver of the links of doc versions to targets and markers; it issues warnings about unresolvable links."""
 
     # Existing paths
     dirs: frozenset[str]
@@ -363,7 +421,7 @@ class Resolver:
             self.issued_warnings.add(str(warning))
             warnings.warn(warning, stacklevel=2)
 
-    def resolve_repo_link(self, version: Version, href: str, rest: str) -> RenderedLink:
+    def resolve_repo_link(self, version: Version, href: str, rest: str) -> ResolvedLink:
         """Return a link on the repository host, or plain text if no ``source-url`` is configured.
 
         The first link of a latest version turned into plain text issues a
@@ -377,7 +435,7 @@ class Resolver:
         """
         source_url = self.config.source_url
         if source_url:
-            return RenderedLink(f"{source_url}/{rest}")
+            return ResolvedLink(UrlTarget(f"{source_url}/{rest}"))
         if (
             self.should_warn_on_dropped_repo_link
             and not self.is_dropped_repo_link_reported
@@ -390,11 +448,11 @@ class Resolver:
                 ProjectConfig.CONFIG_FILE,
                 href,
             )
-        return RenderedLink(None)
+        return ResolvedLink(None)
 
 
 class PageLinks:
-    """Resolver of the links of one doc version as they appear on one page."""
+    """Resolver of the links of one doc version to their targets and markers."""
 
     # Constants
     WEB_API_SCHEME_PATTERN = re.compile(r"^web-api:", re.IGNORECASE)
@@ -407,28 +465,22 @@ class PageLinks:
     version: Version
     """See :meth:`__init__`."""
 
-    page_url: str
-    """See :meth:`__init__`."""
-
-    def __init__(self, resolver: Resolver, version: Version, page_url: str) -> None:
-        """Prepare to resolve the links of a version for a page.
+    def __init__(self, resolver: Resolver, version: Version) -> None:
+        """Prepare to resolve the links of a version.
 
         Args:
             resolver: Resolver holding the docs, files and code that links are resolved against, and the warnings
                 issued so far.
             version: Version holding the links; relative paths resolve against its doc, it picks the target versions,
                 and only warnings about the latest version are issued.
-            page_url: Site path of the page being rendered (latest, version or diff page, or the site root for
-                site-root-relative URLs); the hrefs are relative to it.
         """
         self.resolver = resolver
         self.version = version
-        self.page_url = page_url
 
-    def resolve_link(self, href: str) -> RenderedLink:
-        """Resolve a link of the version for the page.
+    def resolve_link(self, href: str) -> ResolvedLink:
+        """Resolve a link of the version.
 
-        Returns the link as it is to be rendered. A link that cannot be resolved becomes plain text (no ``href``), with
+        Returns where the link goes. A link that cannot be resolved becomes plain text (no target), with
         a :exc:`~docspecsite.errors.DocspecsiteWarning` if the version is the latest. Web links and bare anchors are
         returned unchanged.
 
@@ -437,19 +489,19 @@ class PageLinks:
                 :meth:`~docspecsite.markdown.MarkdownText.extract_links` returns it).
         """
         if self.WEB_API_SCHEME_PATTERN.match(href):
-            return RenderedLink(None)
+            return ResolvedLink(None)
         ref = parse_body_ref(self.version.path, href, 0)
         if ref is None:
-            return RenderedLink(href)
+            return ResolvedLink(UrlTarget(href))
         if isinstance(ref, Problem):
             self.resolver.warn(self.version, "%s", ref.message)
-            return RenderedLink(None)
+            return ResolvedLink(None)
         if isinstance(ref, CodeRef):
             return self.resolve_code_link(ref)
         return self.resolve_path_link(ref, href)
 
-    def resolve_code_link(self, ref: CodeRef) -> RenderedLink:
-        """Resolve a ``code:`` link to its reference page, or to plain text with a marker if unknown.
+    def resolve_code_link(self, ref: CodeRef) -> ResolvedLink:
+        """Resolve a ``code:`` link to its code element, or to plain text with a marker if unknown.
 
         An older version's link gets the "current code" marker. Without the code part (:attr:`Resolver.code` is None)
         it is plain text in code style, with no marker and no warning.
@@ -458,15 +510,14 @@ class PageLinks:
             ref: Parsed ``code:`` link whose dotted path is looked up.
         """
         if self.resolver.code is None:
-            return RenderedLink(None, use_code_style=True)
-        target = self.resolver.code.get(ref.dotted_path)
-        if target is None:
+            return ResolvedLink(None, use_code_style=True)
+        if ref.dotted_path not in self.resolver.code:
             self.resolver.warn(self.version, "unknown code element: code:%s", ref.dotted_path)
-            return RenderedLink(None, (MARKERS["code-gone"],))
+            return ResolvedLink(None, (MARKERS["code-gone"],))
         markers = () if self.resolver.history.is_latest(self.version) else (MARKERS["code-current"],)
-        return RenderedLink(make_relative_url(make_code_url(target), self.page_url), markers)
+        return ResolvedLink(CodeElementTarget(ref.dotted_path), markers)
 
-    def resolve_path_link(self, ref: Ref, href: str) -> RenderedLink:
+    def resolve_path_link(self, ref: Ref, href: str) -> ResolvedLink:
         """Resolve a local link.
 
         It goes to a site page, a file the site copies or the repository host. A file of a part that is not
@@ -481,7 +532,7 @@ class PageLinks:
         resolver = self.resolver
         path, suffix = split_suffix(href)
         if not path:
-            return RenderedLink(href)
+            return ResolvedLink(UrlTarget(href))
         target = ref.target
         # The docs root has no "docs/" prefix to derive from; its doc path is empty, so its index doc is found.
         doc_path = "" if target == DOCS_DIR.removesuffix("/") else derive_doc_path(target)
@@ -497,14 +548,14 @@ class PageLinks:
             return resolver.resolve_repo_link(self.version, href, f"tree/{commit_sha}/{target}{suffix}")
         if target not in resolver.found_files:
             resolver.warn(self.version, "unresolvable link: %s", href)
-            return RenderedLink(None, (MARKERS["not-found"],))
+            return ResolvedLink(None, (MARKERS["not-found"],))
         # A found file under docs/ is one the site copies, whatever its name, unless it is a doc template or its part
         # is not built.
         if doc_path is not None and not is_template(doc_path) and target not in resolver.unbuilt_part_files:
-            return RenderedLink(make_relative_url(target.removeprefix(DOCS_DIR) + suffix, self.page_url))
+            return ResolvedLink(FileTarget(target.removeprefix(DOCS_DIR) + suffix))
         return resolver.resolve_repo_link(self.version, href, f"blob/{commit_sha}/{target}{suffix}")
 
-    def resolve_doc_link(self, path: str, suffix: str) -> RenderedLink:
+    def resolve_doc_link(self, path: str, suffix: str) -> ResolvedLink:
         """Resolve a link from the version to a doc.
 
         It goes to the version current when the linking version was written; from the latest version it goes to the
@@ -515,34 +566,42 @@ class PageLinks:
 
         Args:
             path: Path of the linked doc relative to ``docs/``; it must be a doc of the history.
-            suffix: ``?query`` and ``#anchor`` of the link, appended to the target page URL; may be empty.
+            suffix: ``?query`` and ``#anchor`` of the link, kept with the target; may be empty.
         """
         doc_pages = self.resolver.doc_pages
         if not doc_pages.is_built_doc(path):
-            url = doc_pages.locate_doc(path)
-            return RenderedLink(url + suffix if url is not None else None)
+            url = doc_pages.locate_unbuilt_doc(path)
+            return ResolvedLink(UrlTarget(url + suffix) if url is not None else None)
         history = self.resolver.history
         if doc_pages.is_versionless(path) and not history.is_latest(self.version):
-            return RenderedLink(
-                make_relative_url(make_doc_url(path) + suffix, self.page_url), (MARKERS["code-current"],)
-            )
+            return ResolvedLink(DocTarget(path, None, suffix), (MARKERS["code-current"],))
         markers: list[Marker] = []
         if history.is_latest(self.version):
             target_version = history.find_latest(path)
-            url = make_doc_url(path)
+            target = DocTarget(path, None, suffix)
         else:
             contemporary = history.find_contemporary(path, self.version)
             if contemporary is None:
                 target_version = history.find_latest(path)
-                url = make_doc_url(path)
+                target = DocTarget(path, None, suffix)
                 markers.append(MARKERS["newer"])
             else:
                 target_version = contemporary
-                url = make_version_url(path, contemporary.short_id)
+                target = DocTarget(path, contemporary, suffix)
         front_matter = self.resolver.front_matter_of(target_version) or {}
         if is_redirect(front_matter, target_version.path):
             markers.append(MARKERS["moved"])
-        return RenderedLink(make_relative_url(url + suffix, self.page_url), tuple(markers))
+        return ResolvedLink(target, tuple(markers))
+
+
+def is_relative_down(path: str) -> bool:
+    """Return whether a path is a non-empty relative path without ``..`` or NUL.
+
+    Args:
+        path: Site path to be written under the output directory, or a page URL to be linked as an index.
+    """
+    pure = PurePosixPath(path)
+    return bool(path) and "\0" not in path and not pure.is_absolute() and ".." not in pure.parts
 
 
 def list_ancestor_directories(path: str) -> list[str]:

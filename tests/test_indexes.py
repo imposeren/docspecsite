@@ -1,7 +1,9 @@
 import re
+from dataclasses import replace
 
 from docspecsite.config import ProjectConfig
-from docspecsite.indexes import IndexEntry, IndexRenderer
+from docspecsite.index_pages import IndexRenderer
+from docspecsite.indexes import IndexEntry, SiteIndex
 from docspecsite.pages import Page
 from docspecsite.vocabulary import Vocabulary
 
@@ -11,7 +13,7 @@ _NO_VOCABULARY = Vocabulary(frozenset(), ())
 
 def _make_entry(path: str, **front_matter: object) -> IndexEntry:
     base: dict[str, object] = {"title": path, "summary": "S", "status": "specified", "layer": "meta"}
-    return IndexEntry.from_front_matter(path, path.replace(".md", ".html"), {**base, **front_matter})
+    return IndexEntry.from_front_matter(path, {**base, **front_matter})
 
 
 def _build_index_pages(
@@ -23,7 +25,7 @@ def _build_index_pages(
     config: ProjectConfig = _NO_CONFIG,
 ) -> list[Page]:
     vocabulary = Vocabulary(frozenset(), milestones)
-    makers = IndexRenderer(entries, code_entries, config, site_title, vocabulary).make_page_makers()
+    makers = IndexRenderer(SiteIndex(entries, code_entries, config, site_title, vocabulary)).make_page_makers()
     return [make() for make in makers.values()]
 
 
@@ -32,12 +34,12 @@ def test_tag_and_component_htmls() -> None:
         _make_entry("b.md", tags=["x"], components=["storage/files"]),
         _make_entry("a.md", tags=["x"]),
     ]
-    code = [_make_entry("reference/code/core.md", components=["core"])]
+    code = [replace(_make_entry("core", components=["core"]), is_code_module=True)]
     pages = {p.url: p for p in _build_index_pages(entries, code, (), site_title="Docs")}
     tag = pages["tags/x.html"].body_html
     assert tag.index('href="../a.html"') < tag.index('href="../b.html"')
     assert 'href="../../b.html"' in pages["components/storage/files.html"].body_html
-    assert "core.html" in pages["components/core.html"].body_html
+    assert 'href="../reference/code/core.html"' in pages["components/core.html"].body_html
     assert "reference/code" not in pages["status.html"].body_html
     assert "reference/code" not in pages["tags/x.html"].body_html
 
@@ -58,7 +60,7 @@ def test_status_board_order() -> None:
         _make_entry("c.md", milestone="foundation", priority="could"),
         _make_entry("d.md"),
     ]
-    code = [_make_entry("reference/code/core.md", components=["core"])]
+    code = [replace(_make_entry("core", components=["core"]), is_code_module=True)]
     page = next(
         p
         for p in _build_index_pages(entries, code, ("foundation", "first-release"), site_title="Docs")
@@ -157,7 +159,7 @@ def _make_scenario_entry(**front_matter: object) -> IndexEntry:
 
 
 def test_the_machine_listing_leaves_out_the_status_of_a_doc_without_one() -> None:
-    llms = IndexRenderer([_make_scenario_entry()], [], _NO_CONFIG, "Docs", _NO_VOCABULARY).render_llms_txt("All.")
+    llms = SiteIndex([_make_scenario_entry()], [], _NO_CONFIG, "Docs", _NO_VOCABULARY).make_llms_txt("All.")
     assert (
         "- [Import — scenarios](scenarios/import.html): S (components: checks; source: docs/scenarios/import.md)\n"
         in llms
@@ -183,10 +185,9 @@ def test_a_draft_scenario_doc_is_on_the_status_board() -> None:
 def test_llms_txt_escapes_url_and_title() -> None:
     entry = IndexEntry.from_front_matter(
         "meta/a (b)é.md",
-        "meta/a (b)é.html",
         {"title": "T [x] \\ y", "summary": "S", "status": "specified", "layer": "meta"},
     )
-    text = IndexRenderer([entry], [], _NO_CONFIG, "Docs", _NO_VOCABULARY).render_llms_txt("All.")
+    text = SiteIndex([entry], [], _NO_CONFIG, "Docs", _NO_VOCABULARY).make_llms_txt("All.")
     assert "- [T \\[x\\] \\\\ y](meta/a%20%28b%29%C3%A9.html): S (" in text
     assert "source: docs/meta/a (b)é.md)" in text
 
@@ -197,7 +198,7 @@ def test_llms_txt() -> None:
         _make_entry("index.md", title="Home", layer="root"),
         _make_entry("meta/b.md", title="B", status=["implemented", "specified"], layer="meta"),
     ]
-    assert IndexRenderer(entries, [], _NO_CONFIG, "Docs", _NO_VOCABULARY).render_llms_txt("All.") == (
+    assert SiteIndex(entries, [], _NO_CONFIG, "Docs", _NO_VOCABULARY).make_llms_txt("All.") == (
         "# Docs\n\n> All.\n\n## root\n\n"
         "- [Home](index.html): S (status: specified; components: none; source: docs/index.md)\n\n"
         "## meta\n\n"
@@ -216,5 +217,5 @@ def test_listings_order_adrs_by_prefix() -> None:
     pages = {p.url: p for p in _build_index_pages(entries, [], (), site_title="Docs", config=config)}
     tag = pages["tags/adr.html"].body_html
     assert tag.index("BASE-0001") < tag.index("PYRF-0001") < tag.index("APP-0001")
-    llms = IndexRenderer(entries, [], config, "Docs", _NO_VOCABULARY).render_llms_txt("All.")
+    llms = SiteIndex(entries, [], config, "Docs", _NO_VOCABULARY).make_llms_txt("All.")
     assert llms.index("BASE-0001") < llms.index("PYRF-0001") < llms.index("APP-0001")

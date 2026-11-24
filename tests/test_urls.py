@@ -10,8 +10,19 @@ from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteWarning
 from docspecsite.git import Git
 from docspecsite.history import History, Version
-from docspecsite.markdown import RenderedLink
-from docspecsite.urls import MARKERS, DocPages, PageLinks, Resolver, find_reserved_owner, make_relative_url
+from docspecsite.urls import (
+    MARKERS,
+    CodeElementTarget,
+    DocPages,
+    DocTarget,
+    FileTarget,
+    PageLinks,
+    ResolvedLink,
+    Resolver,
+    UrlTarget,
+    find_reserved_owner,
+    make_relative_url,
+)
 
 SOURCE = "https://github.com/o/r"
 CONFIG = ProjectConfig((), SOURCE, {})
@@ -51,7 +62,7 @@ class _DocPages:
     def is_versionless(self, path: str) -> bool:
         return path in self.versionless_docs
 
-    def locate_doc(self, path: str) -> str | None:
+    def locate_unbuilt_doc(self, path: str) -> str | None:
         return f"{self.base_url}/{path}" if self.base_url is not None else None
 
 
@@ -95,29 +106,22 @@ def make_resolver(
 
 
 def test_latest_links_to_latest(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
-    history, v, commits = load_history_and_versions(history_repo)
+    history, v, _ = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history)
-    assert PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("b.md") == RenderedLink("b.html")
-    assert PageLinks(link_resolver, v["a@c5"], f"meta/a/v/{commits['c5'][:12]}.html").resolve_link(
-        "b.md"
-    ) == RenderedLink("../../b.html")
+    assert PageLinks(link_resolver, v["a@c5"]).resolve_link("b.md") == ResolvedLink(DocTarget("meta/b.md", None))
     assert not recwarn
 
 
 def test_old_links_to_contemporary(history_repo: HistoryRepo) -> None:
-    history, v, commits = load_history_and_versions(history_repo)
-    rewritten_link = PageLinks(make_resolver(history), v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link(
-        "b.md#s"
-    )
-    assert rewritten_link == RenderedLink(f"../../b/v/{commits['c2'][:12]}.html#s")
+    history, v, _ = load_history_and_versions(history_repo)
+    rewritten_link = PageLinks(make_resolver(history), v["a@c3"]).resolve_link("b.md#s")
+    assert rewritten_link == ResolvedLink(DocTarget("meta/b.md", v["b@c2"], "#s"))
 
 
 def test_old_link_to_newer_doc(history_repo: HistoryRepo) -> None:
-    history, v, commits = load_history_and_versions(history_repo)
-    rewritten_link = PageLinks(make_resolver(history), v["a@c1"], f"meta/a/v/{commits['c1'][:12]}.html").resolve_link(
-        "b.md"
-    )
-    assert rewritten_link == RenderedLink("../../b.html", (MARKERS["newer"],))
+    history, v, _ = load_history_and_versions(history_repo)
+    rewritten_link = PageLinks(make_resolver(history), v["a@c1"]).resolve_link("b.md")
+    assert rewritten_link == ResolvedLink(DocTarget("meta/b.md", None), (MARKERS["newer"],))
 
 
 def test_link_to_redirect_doc(history_repo: HistoryRepo) -> None:
@@ -127,34 +131,28 @@ def test_link_to_redirect_doc(history_repo: HistoryRepo) -> None:
         return {"status": "redirect"} if version.short_id == commits["c2"][:12] and version.path == "meta/b.md" else {}
 
     link_resolver = make_resolver(history, front_matter_of)
-    rewritten_link = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("b.md")
-    assert rewritten_link == RenderedLink(f"../../b/v/{commits['c2'][:12]}.html", (MARKERS["moved"],))
-    assert PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("b.md") == RenderedLink("b.html")
+    rewritten_link = PageLinks(link_resolver, v["a@c3"]).resolve_link("b.md")
+    assert rewritten_link == ResolvedLink(DocTarget("meta/b.md", v["b@c2"]), (MARKERS["moved"],))
+    assert PageLinks(link_resolver, v["a@c5"]).resolve_link("b.md") == ResolvedLink(DocTarget("meta/b.md", None))
 
 
 def test_directory_and_index_links(history_repo: HistoryRepo) -> None:
     history, _, _ = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history)
     index = history.find_latest("index.md")
-    assert PageLinks(link_resolver, index, "index.html").resolve_link("meta/") == RenderedLink("meta/index.html")
+    meta_index = ResolvedLink(DocTarget("meta/index.md", None))
+    assert PageLinks(link_resolver, index).resolve_link("meta/") == meta_index
     arch = history.find_latest("architecture/index.md")
-    assert PageLinks(link_resolver, arch, "architecture/index.html").resolve_link("../meta/") == RenderedLink(
-        "../meta/index.html"
-    )
-    assert PageLinks(link_resolver, arch, "architecture/index.html").resolve_link("../meta/index.md") == RenderedLink(
-        "../meta/index.html"
-    )
+    assert PageLinks(link_resolver, arch).resolve_link("../meta/") == meta_index
+    assert PageLinks(link_resolver, arch).resolve_link("../meta/index.md") == meta_index
 
 
 def test_docs_root_links(history_repo: HistoryRepo) -> None:
     history, _, _ = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history)
-    index = history.find_latest("index.md")
-    assert PageLinks(link_resolver, index, "index.html").resolve_link("./") == RenderedLink("index.html")
-    arch = history.find_latest("architecture/index.md")
-    assert PageLinks(link_resolver, arch, "architecture/index.html").resolve_link("../") == RenderedLink(
-        "../index.html"
-    )
+    home = ResolvedLink(DocTarget("index.md", None))
+    assert PageLinks(link_resolver, history.find_latest("index.md")).resolve_link("./") == home
+    assert PageLinks(link_resolver, history.find_latest("architecture/index.md")).resolve_link("../") == home
 
 
 def test_non_doc_targets(history_repo: HistoryRepo) -> None:
@@ -170,18 +168,18 @@ def test_non_doc_targets(history_repo: HistoryRepo) -> None:
     doc_a_latest = history.find_latest("meta/a.md")
     link_resolver = make_resolver(history)
 
-    def make_link(href: str) -> RenderedLink:
-        return PageLinks(link_resolver, doc_a_latest, "meta/a.html").resolve_link(href)
+    def make_link(href: str) -> ResolvedLink:
+        return PageLinks(link_resolver, doc_a_latest).resolve_link(href)
 
-    assert make_link("../../compose.yaml") == RenderedLink(f"{SOURCE}/blob/{sha}/compose.yaml")
-    assert make_link("templates/t.md") == RenderedLink(f"{SOURCE}/blob/{sha}/docs/meta/templates/t.md")
-    assert make_link("../../tools/x/") == RenderedLink(f"{SOURCE}/tree/{sha}/tools/x")
-    assert make_link("img.png") == RenderedLink("img.png")
+    assert make_link("../../compose.yaml") == ResolvedLink(UrlTarget(f"{SOURCE}/blob/{sha}/compose.yaml"))
+    assert make_link("templates/t.md") == ResolvedLink(UrlTarget(f"{SOURCE}/blob/{sha}/docs/meta/templates/t.md"))
+    assert make_link("../../tools/x/") == ResolvedLink(UrlTarget(f"{SOURCE}/tree/{sha}/tools/x"))
+    assert make_link("img.png?v=1#top") == ResolvedLink(FileTarget("meta/img.png?v=1#top"))
     with pytest.warns(DocspecsiteWarning) as recorded:
-        assert make_link("missing.md") == RenderedLink(None, (MARKERS["not-found"],))
+        assert make_link("missing.md") == ResolvedLink(None, (MARKERS["not-found"],))
     assert [str(w.message) for w in recorded] == [f"docs/meta/a.md@{sha[:12]}: unresolvable link: missing.md"]
-    assert make_link("#local") == RenderedLink("#local")
-    assert make_link("https://e.org") == RenderedLink("https://e.org")
+    assert make_link("#local") == ResolvedLink(UrlTarget("#local"))
+    assert make_link("https://e.org") == ResolvedLink(UrlTarget("https://e.org"))
 
 
 def test_found_files_decide_file_links(history_repo: HistoryRepo) -> None:
@@ -191,42 +189,42 @@ def test_found_files_decide_file_links(history_repo: HistoryRepo) -> None:
     history = History.load(Git(root), "main")
     latest_a = history.find_latest("meta/a.md")
     link_resolver = make_resolver(history, found_files=frozenset({"docs/meta/alias.md", "docs/meta/shared/flow.png"}))
-    links = PageLinks(link_resolver, latest_a, "meta/a.html")
-    assert links.resolve_link("alias.md") == RenderedLink("alias.md")
-    assert links.resolve_link("shared/flow.png") == RenderedLink("shared/flow.png")
+    links = PageLinks(link_resolver, latest_a)
+    assert links.resolve_link("alias.md") == ResolvedLink(FileTarget("meta/alias.md"))
+    assert links.resolve_link("shared/flow.png") == ResolvedLink(FileTarget("meta/shared/flow.png"))
     with pytest.warns(DocspecsiteWarning) as recorded:
-        assert links.resolve_link("img.png") == RenderedLink(None, (MARKERS["not-found"],))
+        assert links.resolve_link("img.png") == ResolvedLink(None, (MARKERS["not-found"],))
     assert [str(w.message) for w in recorded] == [f"docs/meta/a.md@{latest_a.short_id}: unresolvable link: img.png"]
 
 
 def test_resolve_code_link_without_code_part(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
     history, v, _ = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history, code=None)
-    links = PageLinks(link_resolver, v["a@c5"], "meta/a.html")
-    assert links.resolve_link("code:a.b") == RenderedLink(None, use_code_style=True)
+    links = PageLinks(link_resolver, v["a@c5"])
+    assert links.resolve_link("code:a.b") == ResolvedLink(None, use_code_style=True)
     assert not recwarn.list
 
 
 def test_code_links(history_repo: HistoryRepo) -> None:
-    history, v, commits = load_history_and_versions(history_repo)
+    history, v, _ = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history)
-    assert PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("code:pkg.mod.C") == RenderedLink(
-        "../reference/code/pkg.mod.html#pkg.mod.C"
+    assert PageLinks(link_resolver, v["a@c5"]).resolve_link("code:pkg.mod.C") == ResolvedLink(
+        CodeElementTarget("pkg.mod.C")
     )
-    assert PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("code:pkg.mod") == RenderedLink(
-        "../reference/code/pkg.mod.html"
+    assert PageLinks(link_resolver, v["a@c5"]).resolve_link("code:pkg.mod") == ResolvedLink(
+        CodeElementTarget("pkg.mod")
     )
-    old = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("code:pkg.mod.C")
-    assert old == RenderedLink("../../../reference/code/pkg.mod.html#pkg.mod.C", (MARKERS["code-current"],))
+    old = PageLinks(link_resolver, v["a@c3"]).resolve_link("code:pkg.mod.C")
+    assert old == ResolvedLink(CodeElementTarget("pkg.mod.C"), (MARKERS["code-current"],))
     with pytest.warns(DocspecsiteWarning, match="unknown code element: code:pkg.gone"):
-        gone = PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("code:pkg.gone")
-    assert gone == RenderedLink(None, (MARKERS["code-gone"],))
+        gone = PageLinks(link_resolver, v["a@c5"]).resolve_link("code:pkg.gone")
+    assert gone == ResolvedLink(None, (MARKERS["code-gone"],))
 
 
 def test_web_api_link_is_text(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
     history, v, _ = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history)
-    assert PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("web-api:x") == RenderedLink(None)
+    assert PageLinks(link_resolver, v["a@c5"]).resolve_link("web-api:x") == ResolvedLink(None)
     assert not recwarn
 
 
@@ -251,15 +249,15 @@ def test_repo_links_without_source_url_are_plain_text(
     history = History.load(Git(root), "main")
     link_resolver = make_resolver(history, config=NO_SOURCE_CONFIG)
 
-    def make_link(href: str) -> RenderedLink:
-        return PageLinks(link_resolver, history.find_latest("meta/a.md"), "meta/a.html").resolve_link(href)
+    def make_link(href: str) -> ResolvedLink:
+        return PageLinks(link_resolver, history.find_latest("meta/a.md")).resolve_link(href)
 
-    assert make_link("../../compose.yaml") == RenderedLink(None)
-    assert make_link("templates/t.md") == RenderedLink(None)
-    assert make_link("../../tools/x/") == RenderedLink(None)
-    assert make_link("../..") == RenderedLink(None)
-    assert make_link("img.png") == RenderedLink("img.png")
-    assert make_link("b.md") == RenderedLink("b.html")
+    assert make_link("../../compose.yaml") == ResolvedLink(None)
+    assert make_link("templates/t.md") == ResolvedLink(None)
+    assert make_link("../../tools/x/") == ResolvedLink(None)
+    assert make_link("../..") == ResolvedLink(None)
+    assert make_link("img.png") == ResolvedLink(FileTarget("meta/img.png"))
+    assert make_link("b.md") == ResolvedLink(DocTarget("meta/b.md", None))
     short_id = history.find_latest("meta/a.md").short_id
     assert [str(w.message) for w in recwarn] == [
         (
@@ -275,9 +273,10 @@ def test_old_link_to_contemporary_that_is_latest(history_repo: HistoryRepo) -> N
     make_commit(root, "change a once more", "2026-11-06T12:00:00+00:00")
     history = History.load(Git(root), "main")
     old = next(v for v in history.versions_by_path["meta/a.md"] if v.short_id == commits["c5"][:12])
-    assert history.find_latest("meta/b.md").short_id == commits["c4"][:12]
-    rewritten_link = PageLinks(make_resolver(history), old, f"meta/a/v/{commits['c5'][:12]}.html").resolve_link("b.md")
-    assert rewritten_link == RenderedLink(f"../../b/v/{commits['c4'][:12]}.html")
+    latest_b = history.find_latest("meta/b.md")
+    assert latest_b.short_id == commits["c4"][:12]
+    rewritten_link = PageLinks(make_resolver(history), old).resolve_link("b.md")
+    assert rewritten_link == ResolvedLink(DocTarget("meta/b.md", latest_b))
 
 
 def test_repo_links_use_the_version_commit(history_repo: HistoryRepo) -> None:
@@ -288,35 +287,33 @@ def test_repo_links_use_the_version_commit(history_repo: HistoryRepo) -> None:
     history = History.load(Git(root), "main", worktree_root=root)
     a_versions_by_commit = {v.commit.sha: v for v in history.versions_by_path["meta/a.md"] if v.commit is not None}
     link_resolver = make_resolver(history)
-    old = PageLinks(link_resolver, a_versions_by_commit[commits["c3"]], "meta/a.html").resolve_link(
-        "../../compose.yaml"
-    )
-    assert old == RenderedLink(f"{SOURCE}/blob/{commits['c3']}/compose.yaml")
+    old = PageLinks(link_resolver, a_versions_by_commit[commits["c3"]]).resolve_link("../../compose.yaml")
+    assert old == ResolvedLink(UrlTarget(f"{SOURCE}/blob/{commits['c3']}/compose.yaml"))
     working = history.find_latest("meta/a.md")
     assert working.commit is None
-    assert PageLinks(link_resolver, working, "meta/a.html").resolve_link("../../compose.yaml") == RenderedLink(
-        f"{SOURCE}/blob/{head}/compose.yaml"
+    assert PageLinks(link_resolver, working).resolve_link("../../compose.yaml") == ResolvedLink(
+        UrlTarget(f"{SOURCE}/blob/{head}/compose.yaml")
     )
 
 
 def test_link_to_unbuilt_doc(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
     history, v, _ = load_history_and_versions(history_repo)
 
-    def make_link(doc_pages: _DocPages) -> RenderedLink:
+    def make_link(doc_pages: _DocPages) -> ResolvedLink:
         link_resolver = make_resolver(history, doc_pages=doc_pages)
-        return PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("b.md#x")
+        return PageLinks(link_resolver, v["a@c5"]).resolve_link("b.md#x")
 
     unbuilt_docs = frozenset({"meta/b.md"})
-    assert make_link(_DocPages(unbuilt_docs, base_url="https://h")) == RenderedLink("https://h/meta/b.md#x")
-    assert make_link(_DocPages(unbuilt_docs)) == RenderedLink(None)
+    assert make_link(_DocPages(unbuilt_docs, base_url="https://h")) == ResolvedLink(UrlTarget("https://h/meta/b.md#x"))
+    assert make_link(_DocPages(unbuilt_docs)) == ResolvedLink(None)
     assert not recwarn.list
 
 
 def test_old_link_to_versionless_doc(history_repo: HistoryRepo) -> None:
-    history, v, commits = load_history_and_versions(history_repo)
+    history, v, _ = load_history_and_versions(history_repo)
     link_resolver = make_resolver(history, doc_pages=_DocPages(versionless_docs=frozenset({"meta/b.md"})))
-    old_link = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("b.md#s")
-    assert old_link == RenderedLink("../../b.html#s", (MARKERS["code-current"],))
+    old_link = PageLinks(link_resolver, v["a@c3"]).resolve_link("b.md#s")
+    assert old_link == ResolvedLink(DocTarget("meta/b.md", None, "#s"), (MARKERS["code-current"],))
 
 
 @pytest.mark.parametrize(
