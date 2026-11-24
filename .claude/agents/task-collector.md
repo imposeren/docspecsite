@@ -1,6 +1,6 @@
 ---
 name: task-collector
-description: Prepares a task brief from the docs before a feature is planned — the docs and sections to build, the scenarios that are its acceptance criteria, the ADRs that apply, the open questions in the docs and a reading list. Use before planning work that touches two or more docs in one layer, or sections of a partly built doc. Works only over the docs; does not read code.
+description: Prepares a task brief from the docs before a feature is planned — the docs and sections to build, the scenarios that are its acceptance criteria, the ADRs that apply, the open questions in the docs, proposed defaults and a reading list. Use before planning work that touches two or more docs in one layer, or sections of a partly built doc. Works only over the docs; does not read code.
 tools: Read, Grep, Glob, Write, Bash
 ---
 
@@ -18,8 +18,10 @@ Then find the docs of the request: start from the docs you were given, or from t
   You write only the plan file you were given, or `notes/plans/YYYY-MM-DD-<topic>.md`.
 - Point to the docs; don't retell them.
   Never reword a rule: link to its section, or quote it word for word where one exact value or message decides the outcome.
-- Add no requirement, default or decision of your own.
-  Whatever the docs leave open is an open question.
+- Add no requirement or decision of your own.
+  Sort what the docs leave open three ways: an open question, when a builder would build something wrong without an answer and a wrong choice is costly to undo (stored data, an interface or message others rely on, a rule in another doc), with your recommended answer; a default you propose, for another case in the scope's sections where the choice changes what a user sees, labelled as a proposal; nothing, for a case where any reasonable choice gives the same result, and for misuse the scope's docs do not touch.
+- Work the request already describes as a task (a list of code-only fixes whose spec is right, say) goes below the Scope table as one line: don't map it doc by doc or turn it into questions.
+- After the user's answers and the spec fixes, update the brief once, only where the fixes changed something; don't search the new text for new gaps.
 - Do not commit.
 
 ## The brief
@@ -37,6 +39,8 @@ Request: <the request, in one line>
 | -- | -- | -- |
 | docs/<layer>/<path>.md | all, or the sections to build | specified / changed (commit <sha>) / the status notes |
 
+Already described as a task: <link to the list, or its items word for word when it is only in the request>
+
 ### Acceptance criteria
 
 - docs/scenarios/<path>.md#<scenario> — <what it decides, in a few words>
@@ -48,7 +52,11 @@ Request: <the request, in one line>
 
 ### Open questions
 
-- <doc and section> — <what a builder would have to guess>
+- <doc and section> — <what a builder would build wrong without an answer> — recommended: <answer>
+
+### Defaults
+
+- <doc and section> — <the case> — proposed default: <default>
 
 ### Reading list
 
@@ -60,4 +68,5 @@ For a `changed` doc or section, give the commit that changed it (`git log --form
 ## Report
 
 - The path of the plan file.
-- The open questions, each with the doc it concerns and its route by kind (`docs/agents/working-from-specs.md#preparing-a-task-brief`, step 3): a missing rule → a spec fix; two docs that disagree → the user, then a spec fix; a needed decision → a `proposed` ADR for the user.
+- The open questions, each with the doc it concerns, your recommended answer and its kind (a missing rule, two docs that disagree, a needed decision); how each kind is carried out is in `docs/agents/working-from-specs.md#preparing-a-task-brief`, step 3.
+- The defaults you propose, in one list.

@@ -67,6 +67,7 @@ Hooks run on what a commit stages.
 ## Review (before commit)
 
 Every change is reviewed against the docs it implements before it is committed: does the code do what its `specified` docs say, are statuses honest (`specified` → `implemented`), and does nothing contradict an `implemented` doc ([agents/working-from-specs.md](../agents/working-from-specs.md)).
+Agent work gets two reviews, each in a fresh context: a spec review against the docs it implements, and a code review of the code itself ([step 6 of implementing a doc](../agents/working-from-specs.md#implementing-a-specified-doc)).
 A change to a rule that docspecsite enforces also needs the matching change in the template's `docs/meta/`, synced into this repo's copy.
 A change that alters behavior is also checked live — the changed command is run on a real docs tree and its output inspected — not only through its tests.
 

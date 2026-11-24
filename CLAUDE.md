@@ -34,7 +34,7 @@ docspecsite checks a repo's docs against the docs-driven method and renders ever
    All links must resolve.
 8. Don't commit unless asked.
    Each commit becomes a permanent doc version, so subjects for doc changes describe the spec change (`spec: …`).
-9. Before handing code over for review or proposing a commit, run the commit hooks (`prek run` on the staged change) and the tests, get it reviewed in a fresh context against the docs it implements, and check behavior changes live (`docs/agents/working-from-specs.md#implementing-a-specified-doc`, step 6).
+9. Before handing code over for review or proposing a commit, run the commit hooks (`prek run` on the staged change) and the tests, get it reviewed in a fresh context against the docs it implements and its code reviewed separately, and check behavior changes live (`docs/agents/working-from-specs.md#implementing-a-specified-doc`, step 6).
    Say if the review was skipped, and why.
 
 ## Design and planning (superpowers skills)

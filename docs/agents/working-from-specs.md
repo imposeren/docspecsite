@@ -20,16 +20,22 @@ A doc together with its [mirrored](../meta/structure.md#mirrored-paths) counterp
 1. A fresh agent that works only over the docs (in Claude Code, the `task-collector` agent) writes the brief as the first section of the plan file, `notes/plans/YYYY-MM-DD-<topic>.md`.
    It does not read the code: where the change goes in the code is for the planner and the implementer to find.
 2. The brief points to the docs instead of retelling them, and adds no requirement of its own.
-   It has five parts:
+   It has six parts:
    - **Scope:** each doc and section to build, with its status (`specified`, `changed`, or the status notes of a partly built doc) and, for `changed` docs, the commit that changed them.
+     Work the user has already described as a task (a list of code-only fixes whose spec is right, say) goes below that as one line, a link to the list or its items word for word when it is only in the request, not mapped doc by doc or turned into questions.
    - **Acceptance criteria:** links to the scenario sections that decide whether the work is done; a rule is quoted word for word only where one exact value or message decides the outcome.
    - **Decisions:** the ADRs that apply, and each decision the task needs that no ADR covers.
-   - **Open questions:** each place in the docs where a builder would have to guess — a missing rule, two docs that disagree, a needed decision without an ADR.
+   - **Open questions:** each place where a builder would build something wrong without an answer and a wrong choice is costly to undo (stored data, an interface or message others rely on, a rule in another doc) — a rule the work needs that no doc gives, two docs that disagree, a needed decision without an ADR — each with a recommended answer.
+   - **Defaults:** each other case in the scope's sections where the choice changes what a user sees, with the default the brief proposes; a case where any reasonable choice gives the same result, and misuse the scope's docs do not touch, is not listed.
    - **Reading list:** each doc to read, with one line on what the implementer needs from it.
-3. Each open question is settled by its kind:
-   a missing rule is fixed in the spec (a `spec:` commit, as in [changing what the system does](#changing-what-the-system-does)); two docs that disagree go to the user, then to a spec fix; a needed decision becomes a `proposed` ADR that the user decides ([below](#decision-records-adrs)).
-   Then the brief is updated, and the user reviews it.
-4. Only then is the rest of the plan written, citing the brief and the docs; each plan task names the docs from the brief that it needs, so an implementer starts from those links.
+3. The open questions go to the user in at most two rounds of dialog; the questions left after them, and the defaults, are shown in one message, each with why it should be answered or the default taken for it, and the user may answer any of them there.
+   The user accepts or replaces each default; a replaced default is handled as an answered question.
+   No new questions are prepared after that, unless one of the user's own answers opens a new point: then one follow-up question about that point, asked the same way.
+   Each answer, and each accepted default, is written into the docs by its kind:
+   a missing rule, or two docs that disagree, by a spec fix (a `spec:` commit, as in [changing what the system does](#changing-what-the-system-does)); a needed decision by a `proposed` ADR with the answer as its recommendation, which the user decides ([below](#decision-records-adrs)).
+   These spec fixes get one **consistency review** of their diff by a fresh agent that did not write them, limited to consistency checks (does the fix agree with the docs around it, say each fact once, read one way, describe the target state); its findings are fixed or go to the user, and the fixes are not reviewed again.
+   Then the brief is updated once, only where the fixes changed something, without a new search for gaps, and the user reviews it.
+4. Only then is the rest of the plan written, citing the brief and the docs; each plan task names the docs from the brief that it needs, so an implementer starts from those links; those docs are also what the task's spec review checks its code against.
    The final review checks the code against the docs in the brief's scope ([step 6 below](#implementing-a-specified-doc)).
 
 ## Implementing a `specified` doc
@@ -54,7 +60,8 @@ A doc together with its [mirrored](../meta/structure.md#mirrored-paths) counterp
 
 6. Run the checks — stage the change and run `prek run` (the commit hooks, on the staged files only), and the tests — then get the change reviewed before proposing a commit ([quality-gate.md](../architecture/quality-gate.md#review-before-commit)):
 
-   - a review in a fresh context (in Claude Code, `/code-review` or an equivalent review skill) checks the change against the docs it implements: does the code do what they say, are statuses honest, does nothing contradict an `implemented` doc;
+   - the **spec review**: a review in a fresh context checks the change against the docs it implements (for a planned task, the docs the task names): does the code do what they say, are statuses honest, does nothing contradict an `implemented` doc the changed code relates to (its `Docs:` lines and `code:` entries); it does not judge the change against the plan, the brief or code-quality rules;
+   - the **code review**: the code itself is reviewed separately, by the project's code review (in Claude Code, `/code-review` or an equivalent review skill);
    - a change to behavior is also checked live: run the changed command or endpoint and look at its output;
    - fix what the review finds, and say in the summary what it found and what was left; if the review was skipped, say so and why.
 
