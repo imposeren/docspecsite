@@ -33,6 +33,9 @@ Every doc should let a reader move **up** (more general), **down** (more detaile
 - **Body links are relative to the current file** (standard Markdown), so they work on GitHub, in editors and for agents reading raw files.
 - **Front-matter paths are relative to `docs/`** (stable regardless of where the doc sits).
 - Link to a section with `#anchor` (GitHub-style heading slugs).
+- A link whose text is a path shows the target's path from `docs/` (`[meta/lifecycle.md](../meta/lifecycle.md)`), or from the current directory when the target is in it or below it (`[orders/checkout.md](orders/checkout.md)`).
+  A directory's `index.md` is named by the directory, ending in `/`: `[decisions/](decisions/index.md)`, also with an anchor (`[decisions/](decisions/index.md#numbering)`).
+  An inline link from a doc directly in that directory to its `index.md` (or an anchor in it) reads `[index.md](index.md)`; the up link itself is still never written.
 - Every link must resolve.
   Broken links are errors, not warnings.
 - Prefer linking to the **shallowest doc that answers the question**; let the reader go deeper themselves.

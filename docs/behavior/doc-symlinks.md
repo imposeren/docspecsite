@@ -24,7 +24,7 @@ So no doc is reached through a symlink under `docs/`.
 What a symlink is depends only on what it leads to, never on its own name: the check reports one that leads to a doc, to a directory with a doc inside, out of the repo or to nothing, and says how to replace it, and listings and the site leave such docs out.
 A symlink that leads to another file, such as an image, or to a directory without docs is allowed, and the site gets the files it leads to.
 
-This is a limit of docspecsite, not a rule of the docs method ([meta/index.md](../meta/index.md)), which says nothing about symlinks.
+This is a limit of docspecsite, not a rule of the docs method ([meta/](../meta/index.md)), which says nothing about symlinks.
 The limit comes from how the tool reads and renders docs, like the reserved paths (the doc paths docspecsite keeps for its generated pages) and the UTF-8 rule (every doc is readable UTF-8 text) ([DSR-20](commands/check.md#requirements)).
 
 ## Requirements

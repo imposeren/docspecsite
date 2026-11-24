@@ -34,10 +34,10 @@ Each one describes the same system from a different angle, and each has its own 
 
 ## Where to start
 
-- **New to docspecsite (any role):** read this page, then [behavior/index.md](behavior/index.md).
+- **New to docspecsite (any role):** read this page, then [behavior/](behavior/index.md).
 - **Using it in a project:** [guides/using-docspecsite.md](guides/using-docspecsite.md).
-- **Developer:** [architecture/index.md](architecture/index.md), then [architecture/dev-environment.md](architecture/dev-environment.md).
-- **Writing or changing docs:** [meta/index.md](meta/index.md).
+- **Developer:** [architecture/](architecture/index.md), then [architecture/dev-environment.md](architecture/dev-environment.md).
+- **Writing or changing docs:** [meta/](meta/index.md).
 - **Unfamiliar term?**
   See the glossaries: [docs](meta/glossary.md), [docspecsite](behavior/glossary.md), [technical](architecture/glossary.md).
-- **AI agent:** [agents/index.md](agents/index.md) — and read only as deep as your task needs.
+- **AI agent:** [agents/](agents/index.md) — and read only as deep as your task needs.

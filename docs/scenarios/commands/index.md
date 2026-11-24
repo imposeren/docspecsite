@@ -18,7 +18,7 @@ The cases of the check, the build and `backlinks` are in the docs below; the res
 
 ## Input that cannot be used
 
-Input that docspecsite cannot use gives one problem or warning naming the file and the reason, is left out, and the rest goes on ([index.md](../../behavior/commands/index.md#input-that-cannot-be-used)).
+Input that docspecsite cannot use gives one problem or warning naming the file and the reason, is left out, and the rest goes on ([behavior/commands/](../../behavior/commands/index.md#input-that-cannot-be-used)).
 
 ```gherkin
 Feature: Input that cannot be used
@@ -50,7 +50,7 @@ Feature: Input that cannot be used
 
 ## Output into a pipe that closes early
 
-When the program that reads the output of `list` or `backlinks` stops reading early, the command stops writing and keeps its exit code ([index.md](../../behavior/commands/index.md#output-into-a-pipe-that-closes-early)).
+When the program that reads the output of `list` or `backlinks` stops reading early, the command stops writing and keeps its exit code ([behavior/commands/](../../behavior/commands/index.md#output-into-a-pipe-that-closes-early)).
 
 ```gherkin
 Feature: Output into a pipe that closes early

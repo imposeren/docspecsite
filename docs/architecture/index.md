@@ -19,7 +19,7 @@ docspecsite is one Python package that reads a repo's `docs/` and its history th
 > **Built.**
 
 - **Documentation first.**
-  Docs are the spec; code follows ([meta/index.md](../meta/index.md)).
+  Docs are the spec; code follows ([meta/](../meta/index.md)).
   docspecsite's own docs follow the same method as the projects it checks.
 - **The method's rules are not configuration.**
   docspecsite implements the rules of the template's `docs/meta/`; only project settings (ADR prefix, source URL, code location) are configurable ([behavior/configuration.md](../behavior/configuration.md)).
@@ -40,5 +40,5 @@ docspecsite is one Python package that reads a repo's `docs/` and its history th
 - [dev-environment.md](dev-environment.md) — docker compose as the entry point for working on docspecsite; the dev and runtime images.
 - [quality-gate.md](quality-gate.md) — Review before commit and the prek hooks; tests before releases.
 - [versioning.md](versioning.md) — Release tags, what counts as an incompatible change, and how to release.
-- [decisions/index.md](decisions/index.md) — Architecture decision records ([ADRs](../meta/glossary.md#adr)), the template's and docspecsite's own.
+- [decisions/](decisions/index.md) — Architecture decision records ([ADRs](../meta/glossary.md#adr)), the template's and docspecsite's own.
 - [glossary.md](glossary.md) — Technical terms and tools.

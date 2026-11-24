@@ -27,7 +27,7 @@ Read **breadth-first, summaries first**, and go deeper only when the current doc
 3. **Go across before going deep.**
    The same part lives at the same path in other layers ([mirrored paths](../meta/structure.md#mirrored-paths)): behavior says *what*, scenarios say *exactly what*, ui says *what it looks like*, architecture says *how*, guides say *how to operate it*. Follow `related:` links.
 4. **Go deep only for specifics** — exact rules, formats, edge cases.
-5. **Check decisions** in [architecture/decisions/index.md](../architecture/decisions/index.md) before proposing technical approaches.
+5. **Check decisions** in [architecture/decisions/](../architecture/decisions/index.md) before proposing technical approaches.
 
 ## History and diffs: use git, not the site
 

@@ -20,7 +20,7 @@ docspecsite is the tool behind the [docs-driven template](https://github.com/imp
 - It **answers questions** about the docs without rendering: which docs match some front-matter values, and which docs link to a given doc.
 - It **generates a code reference** from a project's Python code and links docs and code both ways.
 
-It implements the rules of the method's `docs/meta/` layer ([meta/index.md](../meta/index.md)); it does not make those rules configurable.
+It implements the rules of the method's `docs/meta/` layer ([meta/](../meta/index.md)); it does not make those rules configurable.
 Only project settings, such as the repo's ADR prefix, are configuration.
 
 ## Children

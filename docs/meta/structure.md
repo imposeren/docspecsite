@@ -52,7 +52,7 @@ If they would, fix the parent.
 An `index.md` must:
 
 1. summarize the area in its document brief;
-2. list every direct child doc and child directory in a `## Children` section, one list item each with a one-line description: `- [name.md](name.md) — …`, or `- [name/](name/index.md) — …` for a directory (redirect docs may be left out).
+2. list every direct child doc and child directory in a `## Children` section, one list item each with a one-line description: `- [name.md](name.md) — …`, or `- [name/](name/index.md) — …` for a directory ([link text](linking.md#syntax-rules); redirect docs may be left out).
    The index may have other sections before or after it; links to children elsewhere do not count as listing them.
 
 No doc links up to its parent by hand: the parent is always derivable from the path (the `index.md` of the same directory, or of the directory above for an `index.md`), editors and GitHub show the directory tree, and rendered pages show a generated breadcrumb.
