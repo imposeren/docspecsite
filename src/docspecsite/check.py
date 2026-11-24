@@ -24,6 +24,8 @@ from .docs import (
     DOCS_DIR,
     LAYERS_WITHOUT_BUILD_STATUS,
     Doc,
+    Layer,
+    Status,
     derive_dir_layer,
     derive_doc_path,
     is_dir_index,
@@ -605,9 +607,9 @@ class RelatedOwnersCheck(DocCheck):
         """
         if doc.front_matter is None or not is_str_list(doc.front_matter.get("related")):
             return False
-        return not doc.status.is_written or doc.status.values == ("draft",)
+        return not doc.status.is_written or doc.status.values == (Status.DRAFT,)
 
-    def find_named_owners(self, doc: Doc, owner_layers: tuple[str, ...]) -> list[Doc]:
+    def find_named_owners(self, doc: Doc, owner_layers: tuple[Layer, ...]) -> list[Doc]:
         """Return the docs of the given layers that a doc's ``related`` list names, in list order.
 
         An entry is read as the link check reads it; one that names no doc of :attr:`doc_set` is left out.

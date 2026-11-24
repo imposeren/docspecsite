@@ -23,7 +23,18 @@ from .cache import BodyCache
 from .codeindex import CodeTarget
 from .coderef import Codebase, CodeError, CodeReference
 from .config import ConfigError, ProjectConfig
-from .docs import DOCS_DIR, Doc, DocStatus, derive_doc_path, is_doc, is_redirect, is_template, make_string_tuple
+from .docs import (
+    DOCS_DIR,
+    Doc,
+    DocStatus,
+    Layer,
+    Status,
+    derive_doc_path,
+    is_doc,
+    is_redirect,
+    is_template,
+    make_string_tuple,
+)
 from .docset import DocSet
 from .errors import DOCSPECSITE_WARNINGS, DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from .git import Git, TreeEntry, WorktreeFile
@@ -1466,8 +1477,8 @@ class SiteBuilder:
                 url=make_code_url(CodeTarget(m.path, None)),
                 title=m.path,
                 summary="",
-                status=DocStatus(("implemented",)),
-                layer="reference",
+                status=DocStatus((Status.IMPLEMENTED,)),
+                layer=Layer.REFERENCE,
                 tags=(),
                 components=self.config.find_components(m.path),
             )

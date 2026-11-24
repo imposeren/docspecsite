@@ -21,6 +21,7 @@ from jinja2 import Template
 
 from .codeindex import CodeIndex, CodeTarget
 from .config import ProjectConfig
+from .docs import Status
 from .errors import DocspecsiteError, DocspecsiteWarning
 from .links import EMPTY_CODE_TARGET_MESSAGE, is_empty_code_target, parse_code_target
 from .markdown import HtmlRenderer, Link, MarkdownText, RenderedLink
@@ -1028,7 +1029,7 @@ class CodePage:
         return Page(
             url=self.url,
             title=self.module.path,
-            statuses=("implemented",),
+            statuses=(Status.IMPLEMENTED,),
             components=self.reference.config.find_components(self.module.path),
             tags=(),
             body_html=self.render_body(),

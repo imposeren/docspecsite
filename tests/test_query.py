@@ -5,7 +5,7 @@ import pytest
 from conftest import make_doc
 
 from docspecsite.config import ProjectConfig
-from docspecsite.docs import Doc, DocStatus
+from docspecsite.docs import Doc, DocStatus, Status
 from docspecsite.docset import DocSet
 from docspecsite.query import (
     Backlink,
@@ -15,7 +15,6 @@ from docspecsite.query import (
     format_text_field,
     resolve_doc_path,
 )
-from docspecsite.schema import STATUSES
 
 _NO_CONFIG = ProjectConfig((), "", {})
 
@@ -111,7 +110,7 @@ def _make_scenario_doc(**front_matter: object) -> Doc:
 
 def test_list_reads_the_doc_as_one_without_a_status() -> None:
     docs = DocSet([_make_scenario_doc(), make_doc("behavior/import.md", status="implemented")])
-    for status in STATUSES:
+    for status in Status:
         assert "scenarios/import.md" not in [d.path for d in docs.select(Filters(status=status), _NO_CONFIG)]
     [scenario_doc] = docs.select(Filters(layer="scenarios"), _NO_CONFIG)
     assert (

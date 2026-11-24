@@ -3,15 +3,14 @@
 import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from functools import cached_property
 from types import MappingProxyType
-from typing import ClassVar, Literal, Self, TypeGuard
+from typing import Self, TypeGuard
 
 import yaml
 
 from .markdown import FrontMatterSplit, MarkdownText, split_source_lines
-
-type RoadmapField = Literal["milestone", "priority"]
 
 DOCS_DIR = "docs/"
 """Directory of the docs, as a prefix of repository-relative POSIX paths."""
@@ -20,14 +19,49 @@ DOC_SUFFIX = ".md"
 """File name suffix of a doc."""
 DIR_INDEX_NAME = "index.md"
 """File name of a directory's index doc."""
-ROOT_LAYER = "root"
-"""Layer of a doc directly in ``docs/``."""
-LIST_STATUSES = ("implemented", "specified", "changed")
+
+
+class Status(StrEnum):
+    """A value of a doc's ``status``; the members are in the order of the status board.
+
+    Docs: meta/lifecycle.md
+    """
+
+    DRAFT = "draft"
+    SPECIFIED = "specified"
+    CHANGED = "changed"
+    IMPLEMENTED = "implemented"
+    DEPRECATED = "deprecated"
+    REDIRECT = "redirect"
+
+
+BUILD_STATUSES = (Status.IMPLEMENTED, Status.SPECIFIED, Status.CHANGED)
 """The build statuses, which say how far the code has caught up with a doc; also the values a status list may hold.
 
 Docs: behavior/status-notes.md#requirements
 """
-LAYERS_WITHOUT_BUILD_STATUS: Mapping[str, tuple[str, ...]] = MappingProxyType({"scenarios": ("behavior", "ui")})
+
+
+class Layer(StrEnum):
+    """A layer of the docs, named after its top-level directory in ``docs/``; ``root`` for a doc directly in it.
+
+    Docs: meta/front-matter.md#fields
+    """
+
+    ROOT = "root"
+    META = "meta"
+    BEHAVIOR = "behavior"
+    SCENARIOS = "scenarios"
+    ARCHITECTURE = "architecture"
+    UI = "ui"
+    GUIDES = "guides"
+    AGENTS = "agents"
+    REFERENCE = "reference"
+
+
+LAYERS_WITHOUT_BUILD_STATUS: Mapping[str, tuple[Layer, ...]] = MappingProxyType(
+    {Layer.SCENARIOS: (Layer.BEHAVIOR, Layer.UI)}
+)
 """Each layer without a build status, mapped to the layers whose docs its docs must name in ``related``.
 
 A method rule, not a setting.
@@ -35,6 +69,25 @@ A method rule, not a setting.
 Docs: behavior/docs-format.md#layers-without-a-build-status
 Docs: architecture/docs-tooling.md#statuses-and-status-notes
 """
+
+
+class Priority(StrEnum):
+    """A doc's ``priority`` within its milestone, from the most to the least important; the status board groups docs
+    in this order.
+
+    Docs: meta/front-matter.md#fields
+    """
+
+    MUST = "must"
+    SHOULD = "should"
+    COULD = "could"
+
+
+class RoadmapField(StrEnum):
+    """A front-matter field that places a doc on the roadmap, read with the status."""
+
+    MILESTONE = "milestone"
+    PRIORITY = "priority"
 
 
 @dataclass(frozen=True)
@@ -48,9 +101,6 @@ class DocStatus:
     Docs: behavior/docs-format.md#layers-without-a-build-status
     Docs: architecture/docs-tooling.md#statuses-and-status-notes
     """
-
-    ROADMAP_FIELDS: ClassVar[tuple[RoadmapField, ...]] = ("milestone", "priority")
-    """Front-matter fields that place a doc on the roadmap, read with the status."""
 
     written_values: tuple[str, ...]
     """The values as written, in doc order, duplicates and left-out build statuses kept; empty when the field is
@@ -113,7 +163,7 @@ class DocStatus:
         Args:
             value: One value of the ``status`` field.
         """
-        return not self.is_build_tracked and value in LIST_STATUSES
+        return not self.is_build_tracked and value in BUILD_STATUSES
 
     @property
     def roadmap_front_matter(self) -> Mapping[str, object]:
@@ -129,12 +179,12 @@ class DocStatus:
     @property
     def is_redirect(self) -> bool:
         """Whether the doc is a redirect doc: its status is ``redirect`` alone."""
-        return self.values == ("redirect",)
+        return self.values == (Status.REDIRECT,)
 
     @property
     def is_deprecated(self) -> bool:
         """Whether the doc is deprecated: its status is ``deprecated`` alone."""
-        return self.values == ("deprecated",)
+        return self.values == (Status.DEPRECATED,)
 
     @property
     def is_retired(self) -> bool:
@@ -144,12 +194,12 @@ class DocStatus:
     @property
     def milestone(self) -> str | None:
         """The milestone as text; None when the doc has none, it is null, or the layer has no build status."""
-        return self._read_roadmap_text("milestone")
+        return self._read_roadmap_text(RoadmapField.MILESTONE)
 
     @property
     def priority(self) -> str | None:
         """The priority as text; None when the doc has none, it is null, or the layer has no build status."""
-        return self._read_roadmap_text("priority")
+        return self._read_roadmap_text(RoadmapField.PRIORITY)
 
     def _read_roadmap_text(self, name: RoadmapField) -> str | None:
         """Return a roadmap field's value as text; None when it is missing or null.
@@ -306,7 +356,7 @@ def derive_dir_layer(path: str) -> str:
     Args:
         path: Doc path relative to ``docs/``.
     """
-    return path.split("/")[0] if "/" in path else ROOT_LAYER
+    return path.split("/")[0] if "/" in path else Layer.ROOT
 
 
 def make_string_tuple(value: object, *, strings_only: bool = False) -> tuple[str, ...]:

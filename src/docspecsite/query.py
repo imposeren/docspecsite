@@ -11,7 +11,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path, PurePosixPath
 from typing import ClassVar, Literal
 
-from .docs import Doc, DocStatus, is_doc
+from .docs import Doc, RoadmapField, is_doc
 from .text import collapse_to_one_line, show_name_bytes
 
 type Format = Literal["text", "json"]
@@ -91,7 +91,7 @@ def read_list_field(doc: Doc, field: str) -> object:
     """
     if field == "status":
         return doc.status.make_json_value()
-    if field in DocStatus.ROADMAP_FIELDS:
+    if field in RoadmapField:
         return doc.status.roadmap_front_matter.get(field)
     return (doc.front_matter or {}).get(field)
 

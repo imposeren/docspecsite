@@ -7,46 +7,40 @@ Docs: meta/structure.md#adr-ids
 
 import datetime
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from types import MappingProxyType
 
-from .docs import LIST_STATUSES, ROOT_LAYER, Doc, DocStatus, derive_dir_layer, is_dir_index, is_str_list
+from .docs import (
+    BUILD_STATUSES,
+    Doc,
+    DocStatus,
+    Layer,
+    Priority,
+    Status,
+    derive_dir_layer,
+    is_dir_index,
+    is_str_list,
+)
 from .problems import DocCheck, Problem
 from .vocabulary import Vocabulary
 
 ADR_DIR = "architecture/decisions/"
 ADR_NAME_PATTERN = re.compile(r"^(?P<prefix>[A-Z]+)-\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.md$")
 
-LAYERS = (
-    ROOT_LAYER,
-    "meta",
-    "behavior",
-    "scenarios",
-    "architecture",
-    "ui",
-    "guides",
-    "agents",
-    "reference",
-)
-STATUSES = ("draft", "specified", "changed", "implemented", "deprecated", "redirect")
-"""All statuses, in the order of the status board.
-
-Docs: meta/lifecycle.md
-"""
-STATUS_NOTES: Mapping[str, str] = MappingProxyType(
-    {"Not built yet.": "specified", "Changed, not built yet.": "changed", "Built.": "implemented"}
+STATUS_NOTES: Mapping[str, Status] = MappingProxyType(
+    {"Not built yet.": Status.SPECIFIED, "Changed, not built yet.": Status.CHANGED, "Built.": Status.IMPLEMENTED}
 )
 """Status note labels, each with the status it announces.
 
 Docs: behavior/status-notes.md#requirements
 """
-PRIORITIES = ("must", "should", "could")
 
 
 def is_valid_status(status: DocStatus) -> bool:
     """Return whether a status is one known value, or a list of two or more distinct values that may be combined.
 
-    The known values are :data:`STATUSES`, those that may be combined :data:`~docspecsite.docs.LIST_STATUSES`.
+    The known values are :class:`~docspecsite.docs.Status`, those that may be combined
+    :data:`~docspecsite.docs.BUILD_STATUSES`.
 
     Docs: behavior/status-notes.md#requirements
 
@@ -55,8 +49,8 @@ def is_valid_status(status: DocStatus) -> bool:
     """
     values = status.values
     if status.is_single:
-        return values[0] in STATUSES
-    return bool(values) and len(set(values)) == len(values) and all(value in LIST_STATUSES for value in values)
+        return values[0] in Status
+    return bool(values) and len(set(values)) == len(values) and all(value in BUILD_STATUSES for value in values)
 
 
 def make_status_edit_hint(edit: str, status: DocStatus) -> str:
@@ -247,13 +241,13 @@ class FrontMatterCheck:
             if field in front_matter and not is_str_list(front_matter[field]):
                 self.report(f'"{field}" must be a list of strings')
 
-        self.check_enum("layer", LAYERS, front_matter)
+        self.check_enum("layer", Layer, front_matter)
         self.check_status()
-        self.check_enum("priority", PRIORITIES, status.roadmap_front_matter)
+        self.check_enum("priority", Priority, status.roadmap_front_matter)
 
         layer = front_matter.get("layer")
         expected_layer = derive_dir_layer(self.doc.path)
-        if layer in LAYERS and layer != expected_layer:
+        if layer in Layer and layer != expected_layer:
             self.report(f'layer "{layer}" does not match the directory (expected "{expected_layer}")')
 
         components = front_matter.get("components")
@@ -288,7 +282,7 @@ class FrontMatterCheck:
         """
         self.problems.append(Problem(self.doc.path, 1, message, is_warning=is_warning, hint=hint))
 
-    def check_enum(self, field: str, allowed: tuple[str, ...], fields: Mapping[str, object]) -> None:
+    def check_enum(self, field: str, allowed: Collection[str], fields: Mapping[str, object]) -> None:
         """Record a violation if the field is present with a value outside the allowed ones.
 
         Args:
@@ -305,22 +299,23 @@ class FrontMatterCheck:
 
         A missing ``status`` is left to the required-field rule, and one whose values were all left out, in a layer
         without a build status, counts as not written. A status with no values or a value outside
-        :data:`STATUSES` is one violation without a hint. Otherwise each single-only value combined with other values
+        :class:`~docspecsite.docs.Status` is one violation without a hint. Otherwise each single-only value combined
+        with other values
         is one violation, then each value listed more than once, in doc order.
         """
         status = self.doc.status
         if not status.is_written or is_valid_status(status):
             return
-        if not status.values or any(value not in STATUSES for value in status.values):
+        if not status.values or any(value not in Status for value in status.values):
             self.report(
-                f'"status" must be one of: {", ".join(STATUSES)}, '
-                f"or a list of distinct values from: {', '.join(LIST_STATUSES)}"
+                f'"status" must be one of: {", ".join(Status)}, '
+                f"or a list of distinct values from: {', '.join(BUILD_STATUSES)}"
             )
             return
         distinct_status = status.remove_duplicates()
         if not distinct_status.is_single:
             for value in distinct_status.values:
-                if value not in LIST_STATUSES:
+                if value not in BUILD_STATUSES:
                     removal = make_status_edit_hint(f'remove "{value}" from', distinct_status.remove_value(value))
                     self.report(
                         f'"{value}" is combined with other statuses in "status"',
@@ -339,7 +334,7 @@ class FrontMatterCheck:
         Docs: behavior/docs-format.md#layers-without-a-build-status
         Docs: behavior/commands.md#docs-without-a-build-status
         """
-        if "implemented" in self.doc.status.ignored_values:
+        if Status.IMPLEMENTED in self.doc.status.ignored_values:
             layer = derive_dir_layer(self.doc.path)
             self.report(self.IGNORED_IMPLEMENTED_MESSAGE.format(layer=layer), is_warning=True)
 

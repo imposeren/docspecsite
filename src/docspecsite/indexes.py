@@ -4,17 +4,16 @@ Docs: architecture/docs-tooling.md
 """
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from functools import partial
 from html import escape
 from typing import Self
 
 from .config import ProjectConfig
-from .docs import DocStatus, make_string_tuple
+from .docs import DocStatus, Layer, Priority, Status, make_string_tuple
 from .pages import Page, PageLink
 from .query import format_text_field
-from .schema import LAYERS, PRIORITIES, STATUSES
 from .text import collapse_to_one_line
 from .urls import STATUS_PAGE, encode_href_path, is_usable_tag, make_component_url, make_relative_url, make_tag_url
 from .vocabulary import Vocabulary
@@ -38,10 +37,10 @@ class IndexEntry:
 
     status: DocStatus
     """Status of the doc, with the milestone and the priority that group it on the status board; the board lists the
-    entry under each of its values from :data:`~docspecsite.schema.STATUSES` and leaves out other values."""
+    entry under each of its values from :class:`~docspecsite.docs.Status` and leaves out other values."""
 
     layer: str
-    """Layer from :data:`~docspecsite.schema.LAYERS`, or another value ``llms.txt`` leaves out; empty when the doc has
+    """Layer from :class:`~docspecsite.docs.Layer`, or another value ``llms.txt`` leaves out; empty when the doc has
     none."""
 
     tags: tuple[str, ...]
@@ -196,7 +195,7 @@ class IndexRenderer:
         return self.NO_PRIORITY if priority is None else priority
 
     @staticmethod
-    def order_groups(used: set[str], known: Sequence[str], none_name: str) -> list[str]:
+    def order_groups(used: set[str], known: Collection[str], none_name: str) -> list[str]:
         """Return the status board's group names in their order: the known ones, the other used ones, then none.
 
         Args:
@@ -210,9 +209,9 @@ class IndexRenderer:
     def render_status_body(self) -> str:
         """Return the body HTML of the status board: docs by status, then milestone (roadmap order), then priority.
 
-        A doc is listed under each of its status values; values outside :data:`~docspecsite.schema.STATUSES` are left
+        A doc is listed under each of its status values; values outside :class:`~docspecsite.docs.Status` are left
         out. Milestones used by docs but not in the roadmap follow the roadmap's by code point, then docs without one.
-        Priorities come as :data:`~docspecsite.schema.PRIORITIES`, then other values by code point, then docs without
+        Priorities come as :class:`~docspecsite.docs.Priority`, then other values by code point, then docs without
         one.
         The entry links are relative to :data:`~docspecsite.urls.STATUS_PAGE`.
         """
@@ -221,9 +220,9 @@ class IndexRenderer:
             {self.find_milestone_group(e) for e in self.entries}, self.vocabulary.milestones, self.NO_MILESTONE
         )
         priority_order = self.order_groups(
-            {self.find_priority_group(e) for e in self.entries}, PRIORITIES, self.NO_PRIORITY
+            {self.find_priority_group(e) for e in self.entries}, Priority, self.NO_PRIORITY
         )
-        for status in STATUSES:
+        for status in Status:
             status_entries = [e for e in self.entries if status in e.status.values]
             if not status_entries:
                 continue
@@ -278,7 +277,7 @@ class IndexRenderer:
             site_summary: Summary of the home doc, written as the quote under the heading; may be empty.
         """
         llms_lines = [f"# {collapse_to_one_line(self.site_title)}", "", f"> {collapse_to_one_line(site_summary)}"]
-        for layer in LAYERS:
+        for layer in Layer:
             layer_entries = sorted(
                 (e for e in self.entries if e.layer == layer),
                 key=lambda e: self.config.make_sort_key(e.path),

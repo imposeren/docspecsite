@@ -151,9 +151,9 @@ flowchart TD
   N -- yes --> Own["A section with the status note's status"]
 ```
 
-- **Vocabulary.** `docspecsite.schema` holds the statuses (`STATUSES`, also the status board's order) and the default status note texts by status (`STATUS_NOTES`); `schema.is_valid_status` is the one rule for a valid `status`.
+- **Vocabulary.** `docspecsite.docs` holds the closed vocabularies as enums: the statuses (`Status`, in the status board's order, with the build statuses as a named subset), the layers (`Layer`), the priorities (`Priority`, also the status board's order) and the roadmap fields (`RoadmapField`); `docspecsite.schema` builds on it and holds the default status note texts by status (`STATUS_NOTES`) and `schema.is_valid_status`, the one rule for a valid `status`.
   The project's `status-notes` setting, held by `ProjectConfig.status_notes`, replaces default texts.
-- **Layers without a build status.** `docspecsite.docs` holds the one table of them, next to the values a status list may hold, since `DocStatus` needs both and `docspecsite.schema` already builds on `docspecsite.docs`: each such layer, mapped to the layers whose docs its docs must name in `related` (today `scenarios` → `behavior`, `ui`).
+- **Layers without a build status.** `docspecsite.docs` holds the one table of them, keyed by `Layer`, next to the values a status list may hold, since `DocStatus` needs both and `docspecsite.schema` already builds on `docspecsite.docs`: each such layer, mapped to the layers whose docs its docs must name in `related` (today `scenarios` → `behavior`, `ui`).
   `DocStatus` and the related check read the table, never a layer name, so another such layer is one more entry, added once the method's `docs/meta/` names it.
   It is a method rule, not a setting in `docspecsite.toml` ([guiding principles](index.md#guiding-principles)).
   A doc's layer for these rules is the one of its directory, so a wrong `layer` field gives its own problem and does not change which rules apply.

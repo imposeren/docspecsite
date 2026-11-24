@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import ClassVar
 
-from .docs import LIST_STATUSES, is_str_list, make_string_tuple
+from .docs import BUILD_STATUSES, is_str_list, make_string_tuple
 from .errors import DocspecsiteError, DocspecsiteWarning
 from .schema import ADR_DIR, ADR_NAME_PATTERN, STATUS_NOTES
 from .text import decode_text
@@ -400,7 +400,7 @@ class ProjectConfigParser:
         problems_before = len(self.invalid_values)
         texts_by_status = {status: label for label, status in STATUS_NOTES.items()}
         for status, text in value.items():
-            if status not in LIST_STATUSES:
+            if status not in BUILD_STATUSES:
                 self.invalid_values.append(f'"status-notes" has an unknown status: "{status}"')
             elif not (isinstance(text, str) and text and text == text.strip()):
                 self.invalid_values.append(
@@ -411,7 +411,7 @@ class ProjectConfigParser:
         if len(self.invalid_values) > problems_before:
             return STATUS_NOTES
         statuses_by_text: dict[str, str] = {}
-        for status in LIST_STATUSES:
+        for status in BUILD_STATUSES:
             text = texts_by_status[status]
             if text in statuses_by_text:
                 self.invalid_values.append(
