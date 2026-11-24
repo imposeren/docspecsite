@@ -2,9 +2,7 @@
 title: Symlinked docs — scenarios
 summary: Exact cases for symlinks under docs/, judged by what they lead to — first, for each kind of symlink, what the check, the listings and the site do with it, also inside a symlinked directory; then what is particular to the check (hints, indexes, templates, links, removing a symlink), to the site (versions, previews, the built revision) and to loops of symlinks.
 layer: scenarios
-status: [implemented, changed]
-milestone: hardening
-priority: must
+status: draft
 components: [checks, site]
 tags: [checks, versioning]
 related:
@@ -21,6 +19,8 @@ The sections after it hold only what is particular to one command: the check's h
 The exact problem lines and hints are in [commands.md](../behavior/commands.md#check).
 
 ## The kinds of symlink
+
+What a symlink leads to gives its kind, and the check, the listings and the site each treat every symlink of one kind the same way ([The kinds of symlink](../behavior/doc-symlinks.md#the-kinds-of-symlink)).
 
 ```gherkin
 Feature: The kinds of symlink
@@ -104,6 +104,8 @@ Feature: The kinds of symlink
 
 ### Inside a symlinked directory
 
+The symlinks and files inside a directory that a symlink leads to are judged by the same rule, followed from the directory's symlink ([How a symlink is followed](../behavior/doc-symlinks.md#how-a-symlink-is-followed)).
+
 ```gherkin
 Feature: Inside a symlinked directory
   As a docs author
@@ -175,6 +177,8 @@ Feature: Inside a symlinked directory
 ```
 
 ## The check
+
+The check reports a symlink of the first four kinds (one that leads out of the repo, to nothing, to a doc or to a directory with a doc inside) with a hint that depends on where it leads, and asks nothing more of a symlink ([What the check reports](../behavior/doc-symlinks.md#what-the-check-reports), [Listings and links](../behavior/doc-symlinks.md#listings-and-links) for links to a symlink).
 
 ```gherkin
 Feature: Symlinks in the check
@@ -306,7 +310,7 @@ Feature: Symlinks in the check
 
 ### Removing and renaming a symlink
 
-> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, so these scenarios run through `check --staged`.
+A symlink is never a doc, so the `git:staged` check (which reports docs deleted or renamed in the next commit) passes over a path that was a symlink in the last commit ([DS-39](../behavior/doc-symlinks.md#requirements)).
 
 ```gherkin
 Feature: Removing and renaming a symlink
@@ -332,6 +336,8 @@ Feature: Removing and renaming a symlink
 
 ### A symlinked image in the check
 
+A symlink that leads to a file that is not a doc, such as an image, is allowed ([Other files under docs/](../behavior/doc-symlinks.md#other-files-under-docs)).
+
 ```gherkin
 Feature: A symlinked image in the check
   As a docs author
@@ -345,6 +351,8 @@ Feature: A symlinked image in the check
 ```
 
 ## The site
+
+The site has no pages for a symlink, and keeps a doc's versions only where its path was a doc ([On the site](../behavior/doc-symlinks.md#on-the-site)); a symlink it cannot follow is left out, and links to it are not found ([Other files under docs/](../behavior/doc-symlinks.md#other-files-under-docs)).
 
 ```gherkin
 Feature: Symlinks on the site
@@ -407,6 +415,8 @@ Feature: Symlinks on the site
 
 ### A symlinked image in a preview
 
+The site gets the file a symlink leads to; in a preview, it reads that file as it is in the working tree (the files on disk) ([Other files under docs/](../behavior/doc-symlinks.md#other-files-under-docs)).
+
 ```gherkin
 Feature: A symlinked image in a preview of the working tree
   As a docs author
@@ -421,6 +431,8 @@ Feature: A symlinked image in a preview of the working tree
 ```
 
 ## Symlink loops
+
+No loop of symlinks makes the check or the build run forever or report the same thing twice ([Symlink loops](../behavior/doc-symlinks.md#symlink-loops)).
 
 ```gherkin
 Feature: Symlink loops

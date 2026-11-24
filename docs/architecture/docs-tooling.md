@@ -137,10 +137,8 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
 
 ## Statuses and status notes
 
-> **Built.**
-
-A doc's `status` is one value or, for a partly built doc, a list ([behavior/status-notes.md](../behavior/status-notes.md), DS-44 to DS-49).
-The status is parsed once into one type that every reader uses; the section notes are read from the Markdown parser's block structure; and two checks compare them with the rules: the status note check, and the title check that keeps each doc's title in its place (DS-52).
+A doc's `status` is one value or, for a partly built doc, a list ([behavior/status-notes.md](../behavior/status-notes.md), DS-44 to DS-49); in a [layer without a build status](../meta/lifecycle.md#layers-without-a-build-status), today the scenarios layer, docspecsite ignores the build statuses, the `milestone` and `priority` fields and status notes ([DS-53](../behavior/docs-format.md#layers-without-a-build-status)).
+The status is parsed once into one type that every reader uses; the section notes are read from the Markdown parser's block structure; and the checks compare them with the rules: the front-matter check, the status note check, the check of a scenario doc's `related` list, and the title check that keeps each doc's title in its place (DS-52).
 
 ```mermaid
 flowchart TD
@@ -151,13 +149,21 @@ flowchart TD
   N -- yes --> Own["A section with the status note's status"]
 ```
 
-- **Vocabulary.** `docspecsite.schema` holds the statuses (`STATUSES`, also the status board's order), the values a list may hold (`LIST_STATUSES`) and the default status note texts by status (`STATUS_NOTES`); `schema.is_valid_status` is the one rule for a valid `status`.
+- **Vocabulary.** `docspecsite.schema` holds the statuses (`STATUSES`, also the status board's order) and the default status note texts by status (`STATUS_NOTES`); `schema.is_valid_status` is the one rule for a valid `status`.
   The project's `status-notes` setting, held by `ProjectConfig.status_notes`, replaces default texts.
-- **Parsed status.** `docspecsite.docs.DocStatus` is the parsed field, built once per doc (`Doc.status`), and every reader of the status goes through it instead of reading the front matter: the `list` filter and output, `llms.txt`, index entries, the status board and the page badges (parse, don't validate).
+- **Layers without a build status.** `docspecsite.docs` holds the one table of them, next to the values a status list may hold, since `DocStatus` needs both and `docspecsite.schema` already builds on `docspecsite.docs`: each such layer, mapped to the layers whose docs its docs must name in `related` (today `scenarios` → `behavior`, `ui`).
+  `DocStatus` and the related check read the table, never a layer name, so another such layer is one more entry, added once the method's `docs/meta/` names it.
+  It is a method rule, not a setting in `docspecsite.toml` ([guiding principles](index.md#guiding-principles)).
+  A doc's layer for these rules is the one of its directory, so a wrong `layer` field gives its own problem and does not change which rules apply.
+- **Parsed status.** `docspecsite.docs.DocStatus` is the parsed `status` with the `milestone` and `priority` fields, built once per doc from its front matter and its path (`Doc.status`, and once per version for the site's pages), and every reader of them goes through it instead of reading the front matter: the front-matter check, the `list` filters and output, `llms.txt`, index entries, the status board and the page badges (parse, don't validate).
+  This is the one place where the ignoring of [DS-53](../behavior/docs-format.md#layers-without-a-build-status) happens: for a doc in a layer of that table, `DocStatus` leaves out the build statuses, the milestone and the priority, so every reader sees the doc as if they were not written, in every version.
+  It keeps the build statuses it left out apart from its values, for the warning only.
   A single value and a one-value list give the same `DocStatus`; its values stay in the doc's order with duplicates kept, so the check can report them.
   It formats itself for listings, for JSON and for hints.
-  A `status` of the wrong shape gives no values, so the doc is left off the status board like one with an unknown status.
-- **Front-matter check.** `FrontMatterCheck.check_status` reports an invalid `status` (DS-44), and a single-only value in a list and a value listed twice, with hints (DS-46).
+  A `status` of the wrong shape gives no values, so the doc is left off the status board like one with an unknown status; a doc with no values matches no `list --status`, has an empty text column and `null` in JSON, no `status:` part in `llms.txt` and no badge.
+- **Front-matter check.** `FrontMatterCheck` reports an invalid `status` (DS-44), and a single-only value in a list and a value listed twice, with hints (DS-46), and checks the milestone and the priority, all from the doc's `DocStatus`.
+  For a doc in a layer of that table, `status` is not a required field, and a `status` whose values were all left out counts as not written; any other `status` is checked by the same rules as in every doc.
+  It gives the [DS-53](../behavior/docs-format.md#layers-without-a-build-status) warning when the left-out values hold `implemented`, as a `Problem` marked as a warning; `check` prints the warnings after the problems and, with `--strict`, exits with 1 when there is any, with the counts unchanged ([behavior/commands.md](../behavior/commands.md#check)).
 - **Title and sections.** `docspecsite.markdown.MarkdownText` is the one place that decides which heading is the doc's title: the first level-1 heading at the top level, in either style.
   The title check and the section notes both take the title from it, so they never disagree.
   Every other top-level heading opens a section, and sections form no tree: a section's status is its own status note's, else the first value, and nothing is compared between a heading and the headings above or below it.
@@ -169,6 +175,11 @@ flowchart TD
 - **Status note check.** `StatusNoteCheck`, a `DocCheck`, compares a doc's `DocStatus` with its status notes (DS-46).
   One mistake gives one problem: it skips a doc whose `status` the front-matter check rejects, a status note under the title gives only the title problem, and a second status note in a section gives only its own problem while its status still counts as given.
   Its hints are built from the `DocStatus` with a value added or removed, and offer adding a value only when the result is a valid `status`.
+  It skips a doc whose layer has no build status, so its status notes stay ordinary text (DS-53).
+- **Related check.** `RelatedOwnersCheck`, a `DocCheck` in `docspecsite.check` built by `Checker` with the loaded `DocSet`, reports a doc in a layer of that table whose `DocStatus` has no values or is `draft`, and whose `related` front-matter field names no doc of the mapped layers whose `DocStatus` is neither `deprecated` nor `redirect` (DS-53).
+  It reads the other docs' statuses from the `DocSet`, so it needs no second read of any file; an entry that is not a doc of the `DocSet` does not count, and the link check reports it.
+  It reads the entries as `DocLinks` reads every front-matter link (anchor removed, path normalized), so an entry names the same doc for it as for the link check.
+  It skips an `index.md`, a `deprecated` or `redirect` doc, a doc whose `status` the front-matter check rejects, a missing `related`, which is already the missing-field problem, and a `related` that is not a list of strings, which is already the front-matter check's `"related" must be a list of strings` problem; its hint offers `status: deprecated` when one of the named docs of the mapped layers is `deprecated`.
 - **Title check.** `TitleCheck`, a `DocCheck` in `docspecsite.check`, reports a doc whose text does not start with its title and each level-1 heading after the title (DS-52); it skips a doc whose front matter is missing or does not load.
   It compares lines, not blocks, since markdown-it leaves link reference definitions out of its blocks: any line that is not blank before the title's line is text before the title.
   Its hints quote the heading as written and, for a doc without a title, offer the front matter's `title`.
@@ -261,14 +272,12 @@ The message keeps one form per kind of problem, so the problem line is stable fo
 
 ## Errors and warnings
 
-> **Built.**
-
 Errors in `docspecsite build` stay local to the page they occur in ([behavior/commands.md](../behavior/commands.md#build)).
 An expected failure (a doc version that is not valid UTF-8, a doc at a reserved path) is an error line for that page.
 Code that cannot be loaded is a warning instead, since it affects no single page: the code reference is built without modules, and `code:` links get the "no longer exists" marker.
 Any other exception is a bug in docspecsite: it is reported as a Python warning of category `docspecsite.InternalErrorWarning`, raised while the exception is being handled, so the warning carries the original traceback.
-docspecsite's own warnings (such as unresolvable links) are Python warnings of category `docspecsite.DocspecsiteWarning`.
-Both go through Python's warning filters, so `PYTHONWARNINGS` can turn them into errors. Python reads it before docspecsite can be imported, so a filter names the built-in base category and the module that issues the warning: `PYTHONWARNINGS=error::RuntimeWarning:docspecsite.build` stops the build at the first internal error, with its traceback (useful while working on docspecsite).
+The build's own warnings (such as unresolvable links) are Python warnings of category `docspecsite.DocspecsiteWarning`; the check's warnings are not: they are problems marked as warnings ([Statuses and status notes](#statuses-and-status-notes), [behavior/commands.md](../behavior/commands.md#check)).
+Both build warning categories go through Python's warning filters, so `PYTHONWARNINGS` can turn them into errors. Python reads it before docspecsite can be imported, so a filter names the built-in base category and the module that issues the warning: `PYTHONWARNINGS=error::RuntimeWarning:docspecsite.build` stops the build at the first internal error, with its traceback (useful while working on docspecsite).
 With `--strict`, the build sets `error` filters for both warning categories.
 
 ### Closed output pipe

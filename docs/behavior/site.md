@@ -13,6 +13,7 @@ related:
   - behavior/code-reference.md
   - behavior/versioning-backends.md
   - behavior/status-notes.md
+  - scenarios/status-notes.md
   - architecture/docs-tooling.md
   - meta/versioning.md
 ---
@@ -42,11 +43,14 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
 
 ### Navigation and indexes
 
-- **DS-14** Each page shows: breadcrumb (up), children (down), `related` and computed **backlinks** (across), status (every status of a partly built doc, [DS-49](status-notes.md#requirements)), components and tags.
+> **Changed, not built yet.** The machine listing shows an empty `status:` part for a doc without a status.
+
+- **DS-14** Each page shows: breadcrumb (up), children (down), `related` and computed **backlinks** (across), status (every status of a partly built doc and none for a doc without a status: [DS-49](status-notes.md#requirements)), components and tags.
 - **DS-15** Generated index pages: per tag, per component, and a **status board** grouping docs by `status`, then by `milestone` (in roadmap order) and `priority`; a partly built doc is listed under each of its statuses ([DS-48](status-notes.md#requirements)).
   The milestone groups come in roadmap order, then each other milestone by the code points of its name, then the docs without a milestone. Within a milestone, the priority groups come in the order `must`, `should`, `could`, then each other value (one that `check` reports, [meta/front-matter.md](../meta/front-matter.md#fields), such as `Must` with a capital or `high`) in a group of its own named by that value, by code point (so `Must` before `high`), and last the docs without a priority. A doc with such a value is still listed, so that it never drops off the board while its front matter is being fixed.
 - **DS-16** A plain-text machine listing of all docs (path, title, summary, status, components) for agents.
   Each doc is one Markdown list line, `- [<title>](<url>): <summary> (status: <status>; components: <components>; source: docs/<path>)`, which stays one valid link whatever the doc's path and title hold: in the URL, every character other than ASCII letters (`A`–`Z`, `a`–`z`), digits and `-`, `.`, `_`, `~`, `/` is percent-encoded (a space as `%20`, `(` and `)` as `%28` and `%29`, a letter such as `é` as the percent codes of its UTF-8 bytes), and in the title each `\`, `[` and `]` is written with a backslash before it (`\\`, `\[`, `\]`).
+  A doc without a status has no `status:` part: `- [<title>](<url>): <summary> (components: <components>; source: docs/<path>)` ([DS-47](status-notes.md#requirements)).
 - **DS-29** The rendered site is for humans. Agents use the raw Markdown and git for content, history and diffs, and lookup commands for code and the web API schema ([DS-30](web-api-reference.md#looking-up-the-schema), [DS-31](code-reference.md#requirements)); the tooling provides no Markdown copies of rendered pages.
 
 Listings that include ADRs (the index pages and the machine listing here, and `list`, [commands.md](commands.md#list)) sort docs by path, except that external ADRs come before the repo's own, by prefix in the order `external-adr-prefixes` lists them.

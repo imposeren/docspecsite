@@ -28,7 +28,7 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 > **Built.**
 
 - [requirements.md](requirements.md) — The index of the numbered docs system requirements (`DS-n`): every ID and the doc that holds it.
-- [docs-format.md](docs-format.md) — What a doc is: Markdown with front matter in `docs/`, its title, and how ADR files are named.
+- [docs-format.md](docs-format.md) — What a doc is: Markdown with front matter in `docs/`, its title, how ADR files are named, and scenario docs without a build status.
 - [site.md](site.md) — The rendered site: version pages, pickers, old-version warnings, diffs, redirect pages, build parts, navigation, index pages and the machine listing.
 - [code-reference.md](code-reference.md) — The code reference generated from the code and its docstrings, and the links between docs and code.
 - [distribution.md](distribution.md) — How projects run docspecsite: the `docs-check` prek hook and the Docker image, pinned to a release tag.
@@ -39,6 +39,6 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 - [versioning-backends.md](versioning-backends.md) — The choice of where versions come from: git, no version control, or another version control from a separate package; versions from tags only.
 - [tag-versions.md](tag-versions.md) — Merged into versioning-backends.md.
 - [doc-symlinks.md](doc-symlinks.md) — A symlink (a file that only points to another file or directory) under `docs/` is judged by what it leads to, never by its name: one that leads to a doc, to a directory with a doc inside, out of the repo or to nothing is a check problem, with a hint that depends on where it leads. Listings and the site leave such docs out; symlinked images reach the site as the file they point to.
-- [status-notes.md](status-notes.md) — Partly built docs: a list of statuses with status notes, checked, listed and shown on the site.
+- [status-notes.md](status-notes.md) — Partly built docs: a list of statuses with status notes, checked, listed and shown on the site; and how a doc without a status is listed and shown.
 - [limits.md](limits.md) — What docspecsite deliberately does not handle: text that is not UTF-8 beyond the listed cases, and a few other limits.
 - [glossary.md](glossary.md) — docspecsite's terms in plain language.

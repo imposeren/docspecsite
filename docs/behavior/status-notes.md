@@ -2,7 +2,7 @@
 title: Partly built docs
 summary: A doc that is only partly built lists several statuses and gives the sections that differ a status note; docspecsite checks that the list and the status notes agree, finds such a doc under each of its statuses, and shows all of them on the site.
 layer: behavior
-status: implemented
+status: [implemented, changed]
 code: [docspecsite.docs.DocStatus, docspecsite.check.StatusNoteCheck, docspecsite.markdown.MarkdownText.get_section_notes, docspecsite.problems.Problem]
 milestone: later
 priority: should
@@ -11,7 +11,9 @@ tags: [requirements, status, checks]
 related:
   - scenarios/status-notes.md
   - behavior/requirements.md
+  - behavior/docs-format.md
   - behavior/commands.md
+  - behavior/site.md
   - architecture/docs-tooling.md
   - meta/lifecycle.md
 ---
@@ -22,6 +24,7 @@ A doc can be partly built: some of its sections are true in the code, others are
 Its [status](../meta/glossary.md#status) in the [front matter](../meta/glossary.md#front-matter) is then a list, such as `status: [implemented, specified]`, and each section that differs from the first value carries a [status note](../meta/glossary.md#status-note) such as `> **Not built yet.**` among its [section notes](../meta/glossary.md#section-note).
 `docspecsite check` checks that the list and the status notes agree, `docspecsite list` finds the doc under each of its statuses, and the site shows all of them.
 On the site, as on GitHub and in an editor, a status note reads like any other note.
+Docs in a [layer without a build status](../meta/lifecycle.md#layers-without-a-build-status), today the scenario docs, are never partly built: docspecsite ignores their [build status](../meta/glossary.md#build-status) and status notes ([DS-53](docs-format.md#layers-without-a-build-status)).
 
 ## Statuses
 
@@ -44,6 +47,8 @@ Text may follow the status note on the same line, such as what still works the o
 
 ## Requirements
 
+> **Changed, not built yet.** The build statuses and status notes of a scenario doc count like those of any other doc, and `llms.txt` shows an empty `status:` part for a doc without a status.
+
 These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
 
 - **DS-44** `status` is a single value, or a list of distinct values from `implemented`, `specified` and `changed`.
@@ -54,6 +59,8 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
   ```
   "status" must be one of: draft, specified, changed, implemented, deprecated, redirect, or a list of distinct values from: implemented, specified, changed
   ```
+
+  In a layer without a build status, this rule applies to what is left of the `status` field once [DS-53](docs-format.md#layers-without-a-build-status) has ignored the build statuses.
 
 - **DS-45** A section's notes are the note lines (lines starting with `>`) that come right after its heading, before any other content: a paragraph, list, table, code block or subheading.
   Each note line is one note, also when several follow each other without a blank line between them.
@@ -67,6 +74,7 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
   A section note with any other bold label, or with none, is ordinary text, not a problem, so new kinds of section notes do not break existing docs.
 
 - **DS-46** The check reports a problem in each case below.
+  None of these concerns a status note or a build status that [DS-53](docs-format.md#layers-without-a-build-status) ignores.
   Each problem names the statuses involved and carries a hint ([DS-51](commands.md#checks)).
   A problem about a status note is reported on the status note's line, a problem about the `status` list on the doc's first line, where the front matter starts.
   Problems and hints name a section by its heading quoted with its `#` marks, exactly as written in the file (`"## Import"`), so a heading with the same words at another level is not mistaken for it, and the quoted text can be searched for in the file.
@@ -138,14 +146,18 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
     ```
 
 - **DS-47** `list --status S` lists a doc whose `status` has `S` anywhere in it.
+  A doc without a `status`, also one whose `status` [DS-53](docs-format.md#layers-without-a-build-status) ignores as a whole, matches no `--status`.
   The text output shows a list of statuses comma-separated, in the doc's order and without spaces (`implemented,specified`), and so does `llms.txt`, the plain-text listing of all docs for agents ([DS-16](site.md#navigation-and-indexes)).
   In `--format json` (JSON, a data format for scripts), `status` stays a string (`"implemented"`) for a single status and is a list of strings (`["implemented", "specified"]`) for a list; a list with one value is shown as that single value, as a string.
+  For a doc without a `status`, the text output leaves the status column empty (two tabs follow its path), `--format json` gives `"status": null` (`null` is JSON's word for no value), and `llms.txt` leaves out the doc's `status:` part ([DS-16](site.md#navigation-and-indexes)).
 
 - **DS-48** The status board ([DS-15](site.md#navigation-and-indexes)) lists a doc under each status it has, in that status's [milestone](../meta/glossary.md#milestone) and [priority](../meta/glossary.md#priority) groups.
   Entries on the index pages (the status board, tag and component pages) show all of a doc's statuses.
+  A doc without a `status` is not on the status board, and its entries on the tag and component pages show no status.
 
 - **DS-49** A doc's page shows one status badge (a label with the status name) for each of its statuses, in the doc's order.
   The status notes in its body are shown as written, like any other note.
+  A doc without a `status` has no status badge.
 
 - **DS-50** A project can replace the default text of each status note in `docspecsite.toml`; the texts must differ from each other, and the default text of a status the project replaced no longer counts as a status note, while the defaults of the other statuses still do.
 

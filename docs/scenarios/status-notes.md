@@ -1,15 +1,15 @@
 ---
 title: Partly built docs — scenarios
-summary: Exact cases for partly built docs — a status list with status notes that the check accepts or reports with hints, `list` filtering and output, and the statuses shown on the site.
+summary: Exact cases for partly built docs — a status list with status notes that the check accepts or reports with hints, `list` filtering and output, and the statuses shown on the site — and how a doc without a status, such as an agreed scenario doc, is listed and shown.
 layer: scenarios
-status: implemented
-milestone: later
-priority: should
+status: draft
 components: [checks, queries, site]
 tags: [status, checks]
 related:
   - scenarios/requirements.md
   - behavior/status-notes.md
+  - behavior/site.md
+  - scenarios/docs-format.md
   - architecture/docs-tooling.md
 ---
 
@@ -17,6 +17,11 @@ related:
 
 These scenarios pin down [Partly built docs](../behavior/status-notes.md): a doc whose [status](../meta/glossary.md#status) is a list, such as `[implemented, specified]`, with a [status note](../meta/glossary.md#status-note) (a [section note](../meta/glossary.md#section-note) such as `> **Not built yet.**` right after a heading) on each section that differs from the first status.
 Each heading below the title starts a section of its own, so a status note does not cover its subsections, the sections under the deeper headings below it.
+The last cases of the listing and the site say what they do with a doc without a status, such as an agreed scenario doc; that docspecsite ignores a scenario doc's [build status](../meta/glossary.md#build-status) and status notes is in [docs-format.md](docs-format.md#docs-without-a-build-status).
+
+## Checking partly built docs
+
+These cases pin down how the check compares a doc's statuses with its status notes, [DS-44](../behavior/status-notes.md#requirements) to [DS-46](../behavior/status-notes.md#requirements), and the project's own status note texts, [DS-50](../behavior/status-notes.md#requirements).
 
 ```gherkin
 Feature: Checking partly built docs
@@ -200,7 +205,13 @@ Feature: Checking partly built docs
     When I run the check
     Then no problem is reported
     And the second section's note is ordinary text
+```
 
+## Listing partly built docs
+
+These cases pin down how `list` finds and shows a doc's statuses, [DS-47](../behavior/status-notes.md#requirements), also for a doc without a status.
+
+```gherkin
 Feature: Listing partly built docs
   As a docs author
   I want to find a partly built doc under each of its statuses
@@ -230,6 +241,40 @@ Feature: Listing partly built docs
     Then the first doc's status is the list ["implemented", "specified"]
     And the other doc's status is the string "implemented"
 
+  Scenario: A doc without a status matches no status
+    Given a scenario doc without "status"
+    When I list the docs with status specified, changed, implemented, draft, deprecated or redirect
+    Then the doc is not listed
+    When I list the docs in the scenarios layer
+    Then the doc is listed
+
+  Scenario: The text output leaves the status column empty
+    Given a scenario doc "docs/scenarios/import.md" without "status", titled "Import — scenarios", with the summary "Exact cases for importing."
+    When I list the docs in the scenarios layer
+    Then the doc's line is "scenarios/import.md", an empty status, "Import — scenarios" and "Exact cases for importing.", separated by tabs
+
+  Scenario: The JSON output gives no status
+    Given a scenario doc without "status"
+    When I list the docs in the scenarios layer as JSON
+    Then the doc's "status" is null
+
+  Scenario: A draft scenario doc is listed as a draft
+    Given a scenario doc with status draft
+    When I list the docs with status draft
+    Then the doc is listed
+
+  Scenario: The machine listing leaves out the status of a doc without one
+    Given a scenario doc "docs/scenarios/import.md" titled "Import — scenarios", without "status" and with the components [checks]
+    When the site is built
+    Then the doc's line in llms.txt ends with "(components: checks; source: docs/scenarios/import.md)"
+    And it has no "status:" part
+```
+
+## Partly built docs on the site
+
+These cases pin down the statuses on the status board, [DS-48](../behavior/status-notes.md#requirements), and on a doc's page, [DS-49](../behavior/status-notes.md#requirements), also for a doc without a status.
+
+```gherkin
 Feature: Partly built docs on the site
   As a reader
   I want to see every status of a partly built doc
@@ -245,4 +290,20 @@ Feature: Partly built docs on the site
     When I open the doc's page
     Then it shows the status badges implemented and changed, in that order
     And its section with a status note shows that note as an ordinary note
+
+  Scenario: A doc without a status is not on the status board
+    Given a scenario doc without "status"
+    When the site is built
+    Then the status board does not list the doc
+    And its entry on its component's page shows no status
+
+  Scenario: A draft scenario doc is on the status board
+    Given a scenario doc with status draft
+    When the site is built
+    Then the status board lists the doc under draft
+
+  Scenario: A doc without a status has no badge
+    Given a scenario doc without "status"
+    When I open the doc's page
+    Then it shows no status badge
 ```

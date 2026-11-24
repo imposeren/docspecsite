@@ -1,12 +1,10 @@
 ---
 title: Commands — scenarios
-summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for input that docspecsite cannot use, for unknown components in `code-components`, for the backlinks of a doc template, for output into a pipe that closes early, for the characters that file names may not contain, and for the anchors of links to a directory.
+summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for input that docspecsite cannot use, for unknown components in `code-components`, for the backlinks of a doc template, for output into a pipe that closes early, for the characters that file names may not contain, for the anchors of links to a directory, and for warnings in the check and `check --strict`.
 layer: scenarios
-status: implemented
+status: draft
 components: [site, code-reference, checks, queries]
 tags: [cli, rendering]
-milestone: hardening
-priority: must
 related:
   - behavior/commands.md
   - behavior/configuration.md
@@ -21,10 +19,13 @@ The second is which code pages of such a preview link to their source.
 The third is which link targets count as found, and how a body link (a link in a doc's text) whose target is not found is shown.
 Further cases cover the source links of a path in `code-dirs` that is a symlink, unknown components in the `[code-components]` setting ([configuration.md](../behavior/configuration.md#settings)), and input that docspecsite cannot use, such as a file name that is not UTF-8.
 The cases of `backlinks` are a path that names a doc template and, with `list`, output into a pipe that closes early.
-The last cases are the check's rules on which characters file and directory names under `docs/` may not contain, and how it takes a link to a directory ([DS-20](../behavior/commands.md#checks)).
+Then come the check's rules on which characters file and directory names under `docs/` may not contain, and how it takes a link to a directory ([DS-20](../behavior/commands.md#checks)).
+The last cases are the check's warnings and its `--strict` option.
 The rest of the commands is pinned down by [commands.md](../behavior/commands.md) and the tests; the check's rules on a doc's title and on symlinks have scenarios of their own ([docs-format.md](docs-format.md), [doc-symlinks.md](doc-symlinks.md)).
 
 ## Building what is checked out
+
+When no `--ref` is given, a build shows the commit that is checked out, and a preview adds only the uncommitted changes as the working copy ([commands.md](../behavior/commands.md#build), the `--ref` and `--include-worktree` options).
 
 ```gherkin
 Feature: Building what is checked out
@@ -55,6 +56,8 @@ Feature: Building what is checked out
 
 ### A preview measured against a named ref
 
+With both `--ref` and `--include-worktree`, the working copy is everything in which the working tree differs from that ref ([commands.md](../behavior/commands.md#build), the `--ref` option).
+
 ```gherkin
 Feature: A preview measured against a named ref
   As a docs author
@@ -73,6 +76,8 @@ Feature: A preview measured against a named ref
 ```
 
 ## Previewing the working tree
+
+A code page whose file is new or changed in the working tree has no source links in a preview, and the pages of unchanged files keep theirs ([commands.md](../behavior/commands.md#build), the `--include-worktree` option).
 
 ```gherkin
 Feature: Previewing the working tree
@@ -137,6 +142,8 @@ Feature: Links whose target is not found
 
 ### Uncommitted files in a preview
 
+In a preview, a file under `docs/` that is not a Markdown file counts as found also when it is not committed yet ([commands.md](../behavior/commands.md#build), which targets are found).
+
 ```gherkin
 Feature: Uncommitted files in a preview
   As a docs author
@@ -152,6 +159,8 @@ Feature: Uncommitted files in a preview
 ```
 
 ### Warnings for the latest version only
+
+The warning about a link whose target is not found is given only for the latest version of the linking doc ([commands.md](../behavior/commands.md#build)).
 
 ```gherkin
 Feature: Warnings about links for the latest version only
@@ -361,6 +370,45 @@ Feature: Checking links to a directory
       | link             |
       | guides/#install  |
       | guides#install   |
+```
+
+## Warnings in the check
+
+The check prints its warnings after the problems and still exits with 0 when there is no problem; `--strict` makes warnings count as problems ([check](../behavior/commands.md#check)).
+The warning in these cases is the one for `implemented` in a scenario doc's `status` ([DS-53](../behavior/docs-format.md#layers-without-a-build-status)).
+
+```gherkin
+Feature: Warnings in the check
+  As a docs author
+  I want the check to show warnings without failing, unless I ask it to
+  So that a commit hook passes on them while CI can stop on them
+
+  Scenario: A warning alone does not fail the check
+    Given a scenario doc "docs/scenarios/import.md" with status implemented
+    And no doc has a problem
+    When I run the check
+    Then the output is the warning line for "docs/scenarios/import.md", starting with "warning: "
+    And the exit code is 0
+
+  Scenario: Warnings come after the problems
+    Given a scenario doc "docs/scenarios/import.md" with status implemented
+    And the doc "docs/guides/setup.md" has a broken link
+    When I run the check
+    Then the problem line for "docs/guides/setup.md" comes first, and the warning line after it
+    And the exit code is 1
+
+  Scenario: --strict makes a warning fail the check
+    Given a scenario doc "docs/scenarios/import.md" with status implemented
+    And no doc has a problem
+    When I run the check with --strict
+    Then the output is the warning line for "docs/scenarios/import.md", starting with "warning: "
+    And the exit code is 1
+
+  Scenario: --strict passes without warnings or problems
+    Given no doc has a problem or a warning
+    When I run the check with --strict
+    Then nothing is reported
+    And the exit code is 0
 ```
 
 ## See also

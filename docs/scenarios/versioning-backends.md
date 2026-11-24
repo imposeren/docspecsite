@@ -2,9 +2,7 @@
 title: Where versions come from — scenarios
 summary: Exact cases for choosing where versions come from — automatic choice, git, no version control, a backend from another package, versions from tags only, link patterns and backend checks.
 layer: scenarios
-status: specified
-milestone: later
-priority: should
+status: draft
 components: [versioning]
 tags: [versioning, configuration]
 related:
@@ -17,6 +15,10 @@ related:
 
 These scenarios pin down [Where versions come from](../behavior/versioning-backends.md): how the [versioning backend](../behavior/glossary.md) (the part of docspecsite that reads the project's version control) is chosen, what a site without version control looks like, versions from tags only, link patterns, and backend checks.
 The rules every version follows once a backend has given it (version pages, pickers, old-version warnings) are in [behavior/site.md](../behavior/site.md#rendering), not here.
+
+## Choosing a backend
+
+The `backend` setting chooses where versions come from, and `auto` picks the one backend that recognizes the project ([What a project can choose](../behavior/versioning-backends.md#what-a-project-can-choose), [DS-40](../behavior/versioning-backends.md#requirements)).
 
 ```gherkin
 Feature: Choosing where versions come from
@@ -91,7 +93,13 @@ Feature: Choosing where versions come from
     And the versioning.git section has the key "tag-patern"
     When I check the docs
     Then a problem on docspecsite.toml names the unknown key
+```
 
+## Building without version control
+
+With `none`, each doc has one version, the file on disk, and the site has no older versions ([DS-41](../behavior/versioning-backends.md#requirements)).
+
+```gherkin
 Feature: Building without version control
   As a docs author
   I want a project without version control to get a working site
@@ -136,7 +144,13 @@ Feature: Building without version control
     Given versioning.none sets file-link to "{source-url}/blob/{revision}/{path}"
     When I check the docs
     Then a problem on docspecsite.toml says the pattern names a revision
+```
 
+## Versions from tags only
+
+With `versions = "tags"`, a doc's versions are the ones current at the project's matching tags ([DS-38](../behavior/versioning-backends.md#versions-from-tags-only)).
+
+```gherkin
 Feature: Versions from tags only
   As a reader
   I want each doc's versions to be the ones of the project's releases
@@ -172,7 +186,13 @@ Feature: Versions from tags only
     Given a site built with versions set to "commits"
     When I rebuild it with versions set to "tags"
     Then every version page of the tags build has the same address as in the commits build
+```
 
+## Link patterns
+
+Links to files on the project's web host follow the backend's link patterns, which a project can change ([DS-42](../behavior/versioning-backends.md#requirements)).
+
+```gherkin
 Feature: Link patterns
   As a docs author on a host other than GitHub
   I want links to repo files to follow my host's addresses
@@ -183,7 +203,13 @@ Feature: Link patterns
     And versioning.git sets file-link to "{source-url}/-/blob/{revision}/{path}"
     When I build the site
     Then each code reference page links to its source file under "https://gitlab.example.com/group/project/-/blob/<commit>/"
+```
 
+## Backend checks
+
+A backend offers optional checks of its own, such as `git:staged` ([DS-43](../behavior/versioning-backends.md#requirements), [Rules and limits](../behavior/versioning-backends.md#rules-and-limits)).
+
+```gherkin
 Feature: Backend checks
   As a docs author
   I want the commit hook to stop commits that delete or rename docs
@@ -201,6 +227,10 @@ Feature: Backend checks
     When I run check with --optional-checks code,git:staged
     Then both the code check and the git check run
 ```
+
+## Settings for versions from tags
+
+`versions = "tags"` requires `tag-pattern` ([Versions from tags only](../behavior/versioning-backends.md#versions-from-tags-only)).
 
 ```gherkin
 Feature: Settings for versions from tags

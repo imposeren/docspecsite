@@ -61,6 +61,7 @@ A new DS-n is listed under the section whose subject it matches, or under Other 
 
 - **DS-20**, **DS-51**, **DS-36** What the check validates, hints under problems, and the code check: [commands.md](commands.md#checks).
 - **DS-52**, **DS-33** A doc's title, and how ADR files are named: [docs-format.md](docs-format.md#requirements).
+- **DS-53** Docs in a layer without a build status, today the scenario docs: their build status, milestone, priority and status notes ignored, a warning for `implemented`, and the docs they give cases for in `related`: [docs-format.md](docs-format.md#layers-without-a-build-status).
 - **DS-21** The `docs-check` prek hook: [distribution.md](distribution.md#requirements).
 
 ## Settings

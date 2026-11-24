@@ -2,7 +2,7 @@
 title: Commands
 summary: The docspecsite command line — `check`, `list`, `backlinks` and `build`, with their options, output and exit codes.
 layer: behavior
-status: [implemented, changed]
+status: [implemented, changed, specified]
 milestone: first-release
 priority: must
 code: [docspecsite.cli]
@@ -36,7 +36,7 @@ A command-line error (an unknown option, or an option value that is not valid, s
 
 | Command | Does |
 | -- | -- |
-| `check [--optional-checks C,…] [--no-hints]` | Runs every check ([DS-20](#checks), [DS-33](docs-format.md#requirements)) on the working tree (the files as they are now on disk). `--no-hints` leaves out the hint lines under the problems ([DS-51](#checks)). `--optional-checks` adds the optional checks it names: `code`, the code check ([DS-36](#checks)), and the checks of the backend in use, such as `git:staged`, which reports docs marked in git as deleted or renamed in the next commit ("staged") ([DS-6](versioning-backends.md#versions-of-a-doc), [DS-43](versioning-backends.md#requirements)). |
+| `check [--optional-checks C,…] [--no-hints] [--strict]` | Runs every check ([DS-20](#checks), [DS-33](docs-format.md#requirements)) on the working tree (the files as they are now on disk). `--no-hints` leaves out the hint lines under the problems ([DS-51](#checks)). `--strict` makes warnings count as problems ([check](#check)). `--optional-checks` adds the optional checks it names: `code`, the code check ([DS-36](#checks)), and the checks of the backend in use, such as `git:staged`, which reports docs marked in git as deleted or renamed in the next commit ("staged") ([DS-6](versioning-backends.md#versions-of-a-doc), [DS-43](versioning-backends.md#requirements)). |
 | `list [--layer L] [--status S] [--component C] [--tag T] [--milestone M] [--priority P] [--format text\|json]` | Prints the docs whose front matter matches every given filter, from the working tree ([DS-17](#queries)). |
 | `backlinks <path> [--format text\|json]` | Prints the docs that link to `<path>` through body links, `related`, `redirect_to` or `superseded_by`, from the working tree ([DS-28](#queries)). |
 | `build [--ref REF] [--out site] [--parts P,…] [--include-worktree] [--strict]` | Renders the static site; with version control, from the history of a [ref](glossary.md), by default the commit that is checked out ([DS-7](site.md#rendering) … [DS-19](code-reference.md#requirements)). |
@@ -52,10 +52,10 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
 
 ### Checks
 
-> **Changed, not built yet.** The deletes-and-renames check is still `check --staged`. Every `web-api:` link is reported as a problem: there is no HTTP API reference for it to resolve to.
+> **Changed, not built yet.** The deletes-and-renames check is still `check --staged`. Every `web-api:` link is reported as a problem: there is no HTTP API reference for it to resolve to. A doc in a layer without a build status is checked like any other doc.
 
 - **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), where a symlink is neither a directory that needs an `index.md` nor a child that an index lists ([DS-39](doc-symlinks.md#requirements)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, where a body link to a directory is a link to its `index.md`, and an anchor in it names a heading there ([check](#check)), components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#`, `%` or `?` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)) and no file name under `docs/` that is not valid UTF-8 ([Input that cannot be used](#input-that-cannot-be-used)), no symlink under `docs/` that leads out of the repo, to nothing, to a doc or to a directory with a doc inside, whatever the symlink's own name ([DS-39](doc-symlinks.md#requirements)), every doc is readable UTF-8, every doc has its title in its place ([DS-52](docs-format.md#requirements)), and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
-  It also checks that a partly built doc's statuses and its status notes agree ([DS-44](status-notes.md#requirements) to [DS-46](status-notes.md#requirements)).
+  It also checks that a partly built doc's statuses and its status notes agree ([DS-44](status-notes.md#requirements) to [DS-46](status-notes.md#requirements)), and that a scenario doc names the docs it gives cases for ([DS-53](docs-format.md#layers-without-a-build-status)).
   Doc templates are not docs and are not checked ([meta/structure.md](../meta/structure.md#outside-docs)).
   The code is not checked: specs may change before it does ([meta/linking.md](../meta/linking.md#code-links)).
   Deletes and renames under `docs/` ([DS-6](versioning-backends.md#versions-of-a-doc)) are an optional check of the version control's backend ([DS-43](versioning-backends.md#requirements)).
@@ -69,7 +69,7 @@ How projects run the check before each commit and in CI is in [distribution.md](
 
 ## check
 
-> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`.
+> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`. `check` gives no warnings and has no `--strict` option.
 
 Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>:<line>: <message>` for a problem outside `docs/` (such as a `Docs:` line in code found by the `code` check); the line number, with its colon, is left out only when the problem concerns the whole file, such as an invalid `docspecsite.toml` (`docspecsite.toml: <message>`).
 A problem may carry a hint, which says how to fix this particular problem: it is printed on its own line right under the problem, indented by two spaces and starting with `hint: `.
@@ -165,7 +165,7 @@ Each level-1 heading after the title, in either style, is a problem on its line:
 
 In a [partly built doc](status-notes.md), whose `status` is a list of statuses, the check reports each case listed in [DS-46](status-notes.md#requirements): a problem with the `status` field (a status listed twice, `draft`, `deprecated` or `redirect` combined with other statuses, a listed status that no status note gives) on the doc's first line, and a problem with a status note (one whose status is not in `status`, one that gives the status its section already has, a second one in a section, one right under the doc's title, any in a doc with a single status) on the status note's line.
 Each of these problems names the statuses involved and carries a hint ([DS-46](status-notes.md#requirements)).
-A count of the problems follows on stderr.
+A count of the problems follows on stderr, and a count of the warnings, `<n> warning(s)`, when there are any.
 
 `--optional-checks` names the optional checks to run, separated by commas without spaces.
 docspecsite's own optional checks have plain names (`code`); a backend's checks are named `<backend>:<check>` (`git:staged`).
@@ -178,7 +178,32 @@ Without `code-dirs` the code check adds nothing.
 
 The problems in `docspecsite.toml` are given with each setting in [configuration.md](configuration.md#settings); an unknown component in `[code-components]` is reported by every `check`, with or without the `code` check.
 
-The exit code is 0 when no problem is found, and 1 when there are problems.
+A warning is something the check found that does not break a rule but deserves a look, such as an ignored value that can mislead a reader ([DS-53](docs-format.md#layers-without-a-build-status)).
+Each warning is printed on its own line, in the form of a problem line with `warning: ` before it (`warning: docs/<path>:<line>: <message>`), without a hint; the warnings come after all the problems.
+`--strict` makes the check exit with 1 when there is any warning; the warnings and both counts are printed the same way.
+It is meant for CI, as `build --strict` is.
+
+The exit code is 0 when no problem is found, also when there are warnings, and 1 when there are problems or, with `--strict`, warnings.
+
+### Docs without a build status
+
+> **Not built yet.**
+
+In a doc of a [layer without a build status](../meta/lifecycle.md#layers-without-a-build-status), today a scenario doc, the check ignores what [DS-53](docs-format.md#layers-without-a-build-status) says it ignores, and reports this warning and this problem, both on the doc's first line.
+A `status` field that holds `implemented`, as a single value or in a list:
+
+```
+warning: docs/scenarios/import.md:1: "implemented" in "status" is ignored: the "scenarios" layer has no build status, and the value can mislead a reader once the doc that owns the rules changes and nobody updates it
+```
+
+A `related` front-matter field that names no behavior or ui doc that is neither `deprecated` nor `redirect`:
+
+```
+docs/scenarios/import.md:1: "related" names no behavior or ui doc that is neither deprecated nor redirect
+  hint: add to "related" the behavior or ui docs whose rules this doc gives cases for
+```
+
+When the `related` field names a behavior or ui doc that is `deprecated`, the hint also offers deprecating the scenario doc: `hint: add to "related" the behavior or ui docs whose rules this doc gives cases for, or write "status: deprecated" if they are all deprecated`.
 
 ## list
 
