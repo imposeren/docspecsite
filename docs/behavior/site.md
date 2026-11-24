@@ -99,7 +99,7 @@ They differ in these points, each named with the renderer it applies to:
   A heading made only of punctuation has no link of its own with `sphinx`.
 - **Code reference pages** — `internal` lets a reader fold each member's section and lists a page's members at its top; `sphinx` shows every member in full, with no such list.
 - **Rebuilds** — `sphinx` draws the whole site on every build; `internal` keeps the pages it has drawn in `.docspecsite-cache/` in the checked repo and draws again only what changed ([DSR-24](#building)).
-- **A failure of the drawing itself** — with `sphinx`, a failure inside the documentation tool, one that concerns no single page, stops the whole build ([build.md](commands/build.md#what-the-build-does)); with `internal`, every error stays with its page.
+- **A failure of the drawing itself** — with `sphinx`, a failure of the documentation tool itself, rather than a problem in one page, stops the whole build ([build.md](commands/build.md#what-the-build-does)); with `internal`, every error belongs to one page and fails only that page.
 
 ## See also
 

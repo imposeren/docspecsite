@@ -295,7 +295,7 @@ Feature: Rebuilding with the standard renderer
 
 ### A failure inside the standard renderer
 
-A failure inside the documentation tool that concerns no single page stops the whole build, and the output directory is left as it was ([build.md](../../behavior/commands/build.md#what-the-build-does)).
+A failure of the documentation tool itself, rather than a problem in one page, stops the whole build, and the output directory is left as it was ([build.md](../../behavior/commands/build.md#what-the-build-does)).
 
 ```gherkin
 Feature: A failure inside the standard renderer

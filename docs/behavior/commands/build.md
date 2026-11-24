@@ -73,7 +73,7 @@ When `code-dirs` is not set, it warns at the first repo link it turns into plain
 Without `--strict`, an error stays local to its page: a doc version, diff, code page or index page that cannot be built is left out, and the rest of the site is still built.
 Each such error is printed on stderr as `error: <page>: <message>`; warnings (such as an unresolvable link) are printed as `warning: <message>`.
 With the `sphinx` renderer, the warnings of the documentation tool it is built on, such as a link to a heading that does not exist, are build warnings in the same form, so `--strict` turns them into errors too.
-A failure inside that tool that concerns no single page stops the whole build: one error line, exit code 1, and the output directory is left as it was.
+A failure of that tool itself, rather than a problem in one page, stops the whole build: one error line, exit code 1, and the output directory is left as it was.
 A doc whose page would take the URL of a generated page (which `check` reports) is such an error for the doc's page; the generated page is kept.
 A symlink that leads to a doc gets no pages, and the build says nothing about it: it is neither an error nor a warning and is not counted, since `check` reports it ([DSR-39](../doc-symlinks.md#on-the-site)).
 A path can be a symlink in some revisions and a doc, a file with its own text, in others:

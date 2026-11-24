@@ -30,8 +30,8 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
 - **DSR-21** The check runs automatically before code leaves a developer's machine and again in CI: docspecsite provides it, with the git backend's `git:staged` check, as a prek hook, `docs-check`, that a project pins to a release tag ([guides/using-docspecsite.md](../guides/using-docspecsite.md)).
 - **DSR-22** Building and serving docs run through Docker, in an image built from docspecsite's repo at a release tag; the check runs as a prek hook in an environment prek creates.
   Nothing beyond Docker, prek and the project's version control (git by default) is required on the host.
-- **DSR-23** docspecsite uses established, widely used libraries rather than writing its own code for the same job, and keeps its dependencies few: each one is there for a stated reason, and adding one is a recorded decision.
-  The image and the hook install the same set, so the hook's environment also holds the packages that draw the site, though the check never uses them.
+- **DSR-23** docspecsite builds on established, widely used software packages rather than its own code for the same job, and keeps the packages it needs few: each one is there for a stated reason, and adding one is a recorded decision.
+  The image and the hook install the same packages, so installing the hook also installs the packages that draw the site, though the check never uses them.
 
 ## See also
 

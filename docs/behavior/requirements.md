@@ -75,7 +75,7 @@ A new DSR-n is listed under the section whose subject it matches, or under Other
 
 ## Running
 
-> **Changed, not built yet.** Builds are still incremental.
+> **Changed, not built yet.** A build still draws again only what changed, not the whole site.
 
 - **DSR-22**, **DSR-23** The Docker image, what the host needs, and dependencies chosen for a reason: [distribution.md](distribution.md#requirements).
 - **DSR-24**, **DSR-25** Full rebuilds and static output: [site.md](site.md#building).

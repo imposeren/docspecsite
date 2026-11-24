@@ -26,7 +26,7 @@ It is one part of the [site](site.md); the code check that validates its referen
 
 ## Requirements
 
-> **Changed, not built yet.** The site and the code check look roles up with the same code; with the standard renderer, the site's lookup is the documentation tool's.
+> **Changed, not built yet.** The site and the code check still find the targets of roles in the same way, docspecsite's own; with the standard renderer, the site does not yet find them by the documentation tool's rules.
 
 These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering listed in [requirements.md](requirements.md):
 
@@ -43,7 +43,8 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
   Each role renders as a link to the element on the code reference; the role names the kind of element for readers, and docspecsite does not check that it matches.
   Other roles are shown as written.
   A target that is not found is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check does ([DSR-36](commands/check.md#requirements)).
-  With the standard [renderer](site.md#renderers), the site looks roles up by the rules of the documentation tool it is built on, while the code check keeps docspecsite's own lookup; both follow the rules above, and a target that one finds and the other does not is a fault in docspecsite.
+  With the standard [renderer](site.md#renderers), the site finds the target of each role by the rules of the documentation tool that renderer is built on, while the code check keeps docspecsite's own way of finding it.
+  Both follow the rules above, so a target that one finds and the other does not is a bug in docspecsite.
   A name from another package, such as `pathlib.Path`, stays plain text, without a marker or a warning.
 - **DSR-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with the version control or an IDE.
 - **DSR-19** Code reference pages show "described in" backlinks from docs' `code:` fields.
