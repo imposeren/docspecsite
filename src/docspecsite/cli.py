@@ -316,9 +316,10 @@ def run_build_command(args: argparse.Namespace) -> int:
             return 1
     for error in build_result.errors:
         print(show_name_bytes(f"error: {error}"), file=sys.stderr)
-    failed = f", {build_result.failed_count} failed" if build_result.failed_count else ""
-    counts = ", ".join(f"{page_count.count} {page_count.label}" for page_count in build_result.counts) + failed
-    print(f"built {build_result.page_count} pages ({counts}) → {args.out}")
+    count_texts = [f"{page_count.count} {page_count.label}" for page_count in build_result.counts]
+    if build_result.failed_count:
+        count_texts.append(f"{build_result.failed_count} failed")
+    print(f"built {build_result.page_count} pages ({', '.join(count_texts)}) → {args.out}")
     return 1 if build_result.failed_count else 0
 
 

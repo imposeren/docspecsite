@@ -8,12 +8,12 @@ import griffe
 import pytest
 from conftest import load_sample_code, write_roles_module
 
+from docspecsite.code_pages import CodeReference
 from docspecsite.codeindex import CodeTarget
 from docspecsite.coderef import (
     BrokenReference,
     Codebase,
     CodeError,
-    CodeReference,
     DocsLine,
     FoundPackages,
     Package,
@@ -484,7 +484,7 @@ def test_code_page_griffe_error_is_code_error(code_tree: Path, monkeypatch: pyte
     def raise_griffe_error(*args: object) -> str:
         raise griffe.GriffeError("cannot resolve sample.gone")
 
-    monkeypatch.setattr("docspecsite.coderef.CodePage.render_body", raise_griffe_error)
+    monkeypatch.setattr("docspecsite.code_pages.CodePage.render_body", raise_griffe_error)
     with pytest.raises(CodeError) as raised:
         _build_pages(code_tree)
     assert str(raised.value) == "cannot document sample: cannot resolve sample.gone"

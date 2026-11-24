@@ -478,9 +478,9 @@ class PageLinks:
         self.version = version
 
     def resolve_link(self, href: str) -> ResolvedLink:
-        """Resolve a link of the version.
+        """Return the target and markers of a link of the version.
 
-        Returns where the link goes. A link that cannot be resolved becomes plain text (no target), with
+        A link that cannot be resolved becomes plain text (no target), with
         a :exc:`~docspecsite.errors.DocspecsiteWarning` if the version is the latest. Web links and bare anchors are
         returned unchanged.
 

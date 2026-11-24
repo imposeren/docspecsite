@@ -19,12 +19,11 @@ from typing import assert_never
 import griffe
 
 from .cache import BodyCache
+from .code_pages import CodeReference
 from .codeindex import CodeIndex, CodeTarget
-from .coderef import CodeReference
-from .diskcache import CacheRoot
 from .docs import DOCS_DIR, DocStatus, is_redirect, make_string_tuple
 from .errors import DocspecsiteError, DocspecsiteWarning
-from .history import Version
+from .history import History, Version
 from .index_pages import IndexRenderer
 from .links import list_front_matter_paths
 from .markdown import HtmlRenderer, MarkdownText, RenderedLink
@@ -67,7 +66,7 @@ from .urls import (
 type BuiltPage = tuple[str, Page]
 
 # A page not built yet: its name in error lines, and how to build it.
-type Pending = tuple[str, Callable[[], Page]]
+type PendingPage = tuple[str, Callable[[], Page]]
 
 
 class ReservedPathError(DocspecsiteError):
@@ -122,15 +121,15 @@ class InternalSite:
             site: The docs, code, links and files the build front prepared.
         """
         self.site = site
-        self.cache = BodyCache(site.cache_dir, CacheRoot.compute_fingerprint(), self.parts_label)
+        self.cache = BodyCache(site.cache_dir, site.cache_fingerprint, site.docs.parts_label)
         self.templates = Templates()
         self.page_urls = []
         self.site_files = {}
 
     @property
-    def parts_label(self) -> str:
-        """The names of the parts built, sorted and joined by ``+``, e.g. ``code+docs``."""
-        return "+".join(sorted(self.site.docs.parts))
+    def history(self) -> History:
+        """Doc versions at the build ref, as the build front loaded them."""
+        return self.site.docs.history
 
     @property
     def code_index(self) -> CodeIndex:
@@ -184,14 +183,14 @@ class InternalSite:
         """Return the URL a link to a doc goes to, or None to show the link as text.
 
         It is the doc's latest page, site-root-relative, when its pages are built, else where
-        :meth:`~docspecsite.renderers.SiteDocs.locate_unbuilt_doc` says. A doc missing from the history has no page
+        :meth:`~docspecsite.sitedocs.SiteDocs.locate_unbuilt_doc` says. A doc missing from the history has no page
         anywhere: None.
 
         Args:
             path: Doc path relative to ``docs/``, e.g. from a ``Docs:`` line or of a doc linking to another.
         """
         docs = self.site.docs
-        if path not in docs.history.versions_by_path:
+        if path not in self.history.versions_by_path:
             return None
         if docs.is_built_doc(path):
             return make_doc_url(path)
@@ -203,7 +202,7 @@ class InternalSite:
 
         Kept once for the build: every page's breadcrumb looks its links up in it.
         """
-        return MappingProxyType({make_doc_url(path): path for path in self.site.docs.history.versions_by_path})
+        return MappingProxyType({make_doc_url(path): path for path in self.history.versions_by_path})
 
     def limit_breadcrumb(
         self, breadcrumb: Iterable[PageLink], module_urls: Container[str] = frozenset()
@@ -266,8 +265,8 @@ class InternalSite:
             page_url: Site path of the page the body is on (latest or ``/v/`` page); the hrefs are relative to it.
         """
         links = PageLinks(self.site.resolver, version)
-        text = self.site.docs.history.read_text(version)
-        hrefs = self.cache.get_hrefs(
+        text = self.history.read_text(version)
+        hrefs = self.cache.load_or_compute_hrefs(
             version.blob_sha, lambda: [link.target for link in MarkdownText(text).extract_links()]
         )
         links_by_href = {href: self.render_link(links.resolve_link(href), page_url) for href in hrefs}
@@ -278,7 +277,9 @@ class InternalSite:
 
         minimum = self.site.config.toc_min_headings
         key = f"{self.cache.make_targets_key(links_by_href)}\0toc={minimum}"
-        return self.cache.get_body(version.blob_sha, key, lambda: HtmlRenderer(resolve_href, minimum).render(text))
+        return self.cache.load_or_compute_body(
+            version.blob_sha, key, lambda: HtmlRenderer(resolve_href, minimum).render(text)
+        )
 
     def build_front_matter_link(self, root_links: PageLinks, front_matter_path: str) -> PageLink | None:
         """Return the page link for a front-matter path of a version, or None if it cannot be linked.
@@ -300,7 +301,7 @@ class InternalSite:
             return None
         docs = self.site.docs
         return PageLink(
-            docs.latest_docs.titles.get(docs.history.find_doc_path(target), front_matter_path),
+            docs.latest_docs.titles.get(self.history.find_doc_path(target), front_matter_path),
             rendered_link.href,
             markers=rendered_link.markers,
         )
@@ -321,7 +322,7 @@ class InternalSite:
         links = (self.build_front_matter_link(root_links, path) for path in paths)
         return tuple(link for link in links if link is not None)
 
-    def build_doc_pages(self, extra_children: Mapping[str, tuple[PageLink, ...]]) -> list[Pending]:
+    def build_doc_pages(self, extra_children: Mapping[str, tuple[PageLink, ...]]) -> list[PendingPage]:
         """List the pages still to build for every doc.
 
         These are its latest page, a ``/v/`` page per version and the diff pages. Each is named ``docs/<path>@<id>``
@@ -334,16 +335,16 @@ class InternalSite:
                 code reference index its top-level packages. Docs missing from it get none.
         """
         docs = self.site.docs
-        pages: list[Pending] = []
+        pages: list[PendingPage] = []
         for path, owner in sorted(docs.reserved_owners_by_path.items()):
             if docs.is_doc_part_built(path):
                 pages.append((f"{DOCS_DIR}{path}", partial(self.refuse_reserved_doc, owner)))
-        for path in sorted(filter(docs.is_built_doc, docs.history.versions_by_path)):
-            versions = docs.history.versions_by_path[path]
+        for path in sorted(filter(docs.is_built_doc, self.history.versions_by_path)):
+            versions = self.history.versions_by_path[path]
             backlink_list = self.build_backlink_list(path)
             child_list = extra_children.get(path, ())
             if docs.is_versionless(path):
-                versions = (docs.history.find_latest(path),)
+                versions = (self.history.find_latest(path),)
                 picker_entries: tuple[PickerEntry, ...] = ()
             else:
                 picker_entries = tuple(
@@ -429,7 +430,7 @@ class InternalSite:
         """
         path = version.path
         urls: list[str] = []
-        if self.site.docs.history.is_latest(version):
+        if self.history.is_latest(version):
             urls.append(make_doc_url(path))
             if self.is_root_doc(path):
                 urls.append(self.ROOT_PAGE)
@@ -450,7 +451,7 @@ class InternalSite:
         """
         if self.site.docs.is_versionless(version.path) or previous is None:
             return None
-        history = self.site.docs.history
+        history = self.history
         has_diff = history.is_decodable(previous) and history.is_decodable(version)
         return previous if has_diff else None
 
@@ -462,7 +463,7 @@ class InternalSite:
         Args:
             version: Version of a doc whose pages are built.
         """
-        if self.site.docs.history.is_latest(version):
+        if self.history.is_latest(version):
             return make_doc_url(version.path)
         return make_version_url(version.path, version.short_id)
 
@@ -479,7 +480,7 @@ class InternalSite:
         docs = self.site.docs
         front_matter = docs.get_front_matter(version) or {}
         old_banner = None
-        if not docs.history.is_latest(version):
+        if not self.history.is_latest(version):
             old_banner = OldBanner(version, make_doc_url(version.path))
         return Page(
             url=url,
@@ -547,7 +548,7 @@ class InternalSite:
             version: Version the diff page is for, the newer side.
             previous: Version just before ``version``, as :meth:`find_diff_base` returns it; the older side.
         """
-        history = self.site.docs.history
+        history = self.history
         diff_url = make_diff_url(version.path, version.short_id)
         version_url = self.make_version_page_url(version)
         previous_url = make_version_url(previous.path, previous.short_id)
@@ -557,7 +558,7 @@ class InternalSite:
             f'<p class="diff-versions">Changes from <a href="{previous_href}">{escape(make_picker_label(previous))}</a>'
             f' to <a href="{version_href}">{escape(make_picker_label(version))}</a></p>\n'
         )
-        diff_html = self.cache.get_diff_body(
+        diff_html = self.cache.load_or_compute_diff_body(
             previous.blob_sha,
             version.blob_sha,
             lambda: self.render_diff_html(history.read_text(previous), history.read_text(version)),
@@ -592,7 +593,7 @@ class InternalSite:
                 html_lines.append(text)
         return '<pre class="diff">' + "\n".join(html_lines) + "</pre>"
 
-    def build_code_pages(self, code_reference: CodeReference) -> list[Pending]:
+    def build_code_pages(self, code_reference: CodeReference) -> list[PendingPage]:
         """List the pages still to build for the modules of the code.
 
         Each is named ``reference/code/<module>`` in error lines.
@@ -615,7 +616,7 @@ class InternalSite:
                 doc_links_by_module.setdefault(module, []).append(link)
         module_urls = {make_code_url(CodeTarget(m.path, None)) for m in codebase.modules}
 
-        def make(module: griffe.Module) -> Page:
+        def make_module_page(module: griffe.Module) -> Page:
             page = code_reference.build_page(module, doc_links_by_module.get(module.path, ()))
             return replace(
                 page,
@@ -623,7 +624,7 @@ class InternalSite:
                 has_mermaid=self.MERMAID_MARK in page.body_html,
             )
 
-        return [(f"reference/code/{module.path}", partial(make, module)) for module in codebase.modules]
+        return [(f"reference/code/{module.path}", partial(make_module_page, module)) for module in codebase.modules]
 
     def copy_docs_files(self) -> None:
         """Add the copied files under ``docs/`` to the site files, each at its path within ``docs/``.
@@ -633,7 +634,7 @@ class InternalSite:
         """
         generated_paths = set(self.site_files)
         generated_dirs = {parent for path in generated_paths for parent in list_ancestor_directories(path)}
-        for path, staged in self.site.docs_files.items():
+        for path, staged_file in self.site.docs_files.items():
             site_path = path.removeprefix(DOCS_DIR)
             if (
                 site_path in generated_paths
@@ -642,7 +643,7 @@ class InternalSite:
             ):
                 warnings.warn(DocspecsiteWarning("%s: collides with a generated file, not copied", path), stacklevel=1)
                 continue
-            self.site_files[site_path] = staged
+            self.site_files[site_path] = staged_file
 
     def load_mermaid_bundle(self) -> dict[str, bytes] | None:
         """Return the Mermaid script and its licence as site files, or None.
@@ -694,7 +695,7 @@ class InternalSite:
         return CodeReference.for_commit(
             site.codebase,
             site.config,
-            site.docs.history.head,
+            self.history.head,
             site.docs.latest_docs.titles,
             locate_doc=self.locate_doc,
             changed_paths=site.changed_code_paths,

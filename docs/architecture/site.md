@@ -49,7 +49,7 @@ flowchart LR
 The front is `SiteBuilder` in `docspecsite.build`.
 It reads the settings, picks the versioning backend, resolves the ref, loads the docs, the history, the code at the ref (with the symlink rules and the "cannot load code" and package-name warnings of docspecsite's code layer) and the parts, follows the symlinks under `docs/` and in the code directories, leaves out doc versions that are not valid UTF-8, gathers the non-Markdown files under `docs/` to copy, and passes all of it to the renderer as one prepared input.
 It keeps an error local to its page, and with `--strict` turns every build warning into an error, for both renderers: the renderer makes each page through the front's page guard, which records the per-page errors and the failed pages.
-The renderer returns a `RenderedSite`: the list of the site's files, each an output path with the staged file that holds it, which of them are pages, and the counts.
+The renderer returns a `RenderedSite`: the list of the site's files, each an output path with the file that holds it (one staged for this build, or a working-tree file under `docs/` that is copied as it is), which of them are pages, and the counts.
 The front copies exactly that list to `--out` through `SiteWriter` and `.docspecsite-manifest`, so leftovers of an earlier build (also of the other renderer) are removed, a `--strict` build with an error writes nothing, and a build that stops in the middle leaves `--out` as it was.
 It prints the summary line from the counts the renderer returns.
 

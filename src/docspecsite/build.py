@@ -4,7 +4,6 @@ Docs: architecture/site.md#build-front
 Docs: architecture/docs-tooling.md
 """
 
-import importlib
 import os
 import posixpath
 import warnings
@@ -21,23 +20,15 @@ import griffe
 
 from .coderef import Codebase, CodeError
 from .config import ConfigError, ProjectConfig
-from .diskcache import CacheRoot, FrontMatterCache
+from .diskcache import CacheRoot
 from .docs import DOCS_DIR, DocStatus, Layer, Status, derive_doc_path, is_doc, is_template
 from .errors import DOCSPECSITE_WARNINGS, DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from .git import Git, TreeEntry, WorktreeFile
-from .history import History, Version
+from .history import History
 from .indexes import IndexEntry, SiteIndex
 from .parts import Part
-from .renderers import (
-    RENDERER_PATHS,
-    VENDOR_ENV,
-    PageCount,
-    PreparedSite,
-    RendererName,
-    SiteDocs,
-    SiteRenderer,
-    stage_file,
-)
+from .renderers import VENDOR_ENV, PageCount, PreparedSite, RendererName, SiteRenderer, stage_file
+from .sitedocs import SiteDocs
 from .symlinks import (
     CODE_DIR_TO_FILE_REASON,
     LEFT_OUT_SYMLINK_REASON,
@@ -207,8 +198,8 @@ class SiteBuilder:
     UNKNOWN_CODE_COMPONENT_WARNING = '%s: "code-components" of "%s" has an unknown component: "%s"; ignored'
 
     # Helpers
-    front_matter_cache: FrontMatterCache
-    """Cache of the docs' front matter splits."""
+    cache_fingerprint: str
+    """Docspecsite version fingerprint that keys the build's cache entries, computed once per build."""
 
     git: Git
     """The repository's git."""
@@ -219,10 +210,6 @@ class SiteBuilder:
 
     docs: SiteDocs
     """The docs at the build ref, with the working-tree docs with :attr:`include_worktree`, and the parts built."""
-
-    # Parts built
-    parts: frozenset[Part]
-    """The parts of the site this build produces."""
 
     # Errors
     errors: list[str]
@@ -293,10 +280,12 @@ class SiteBuilder:
             parts = available_parts
         elif not parts <= available_parts:
             raise BuildError("the code part needs code-dirs in %s", ProjectConfig.CONFIG_FILE)
-        self.parts = parts
         history = self.leave_out_non_utf8_docs(loaded_history)
-        self.front_matter_cache = FrontMatterCache(root / self.CACHE_DIR, CacheRoot.compute_fingerprint())
-        self.docs = SiteDocs(history, parts, self.config.source_url, self.front_matter_cache)
+        self.cache_fingerprint = CacheRoot.compute_fingerprint()
+        self.docs = SiteDocs(
+            history, parts, self.config, cache_dir=root / self.CACHE_DIR, cache_fingerprint=self.cache_fingerprint
+        )
+        self.warn_non_utf8_docs(loaded_history)
         if not self.docs.is_docs_part_built and CODE_INDEX_DOC not in self.docs.latest_docs.by_path:
             warnings.warn(
                 DocspecsiteWarning(
@@ -316,6 +305,11 @@ class SiteBuilder:
     def history(self) -> History:
         """Doc versions at the build ref, with the working-tree docs with :attr:`include_worktree`."""
         return self.docs.history
+
+    @property
+    def parts(self) -> frozenset[Part]:
+        """The parts of the site this build produces."""
+        return self.docs.parts
 
     @staticmethod
     def compute_repo_path_part(repo_path: str) -> Part:
@@ -364,23 +358,35 @@ class SiteBuilder:
         if self.is_repo_path_part_built(path):
             warnings.warn(DocspecsiteWarning(self.LEFT_OUT_WARNING, path, reason), stacklevel=2)
 
-    def leave_out_non_utf8_docs(self, history: History) -> History:
-        """Return a history without the docs whose name is not valid UTF-8, with a warning about each.
+    @staticmethod
+    def leave_out_non_utf8_docs(history: History) -> History:
+        """Return a history without the docs whose name is not valid UTF-8.
 
-        No link can name such a doc, and its pages could not be linked to.
+        No link can name such a doc, and its pages could not be linked to; :meth:`warn_non_utf8_docs` warns about them.
 
         Docs: behavior/commands/index.md#input-that-cannot-be-used
 
         Args:
             history: History whose docs are kept when their names are valid UTF-8.
         """
-        versions_by_path: dict[str, tuple[Version, ...]] = {}
-        for path, versions in history.versions_by_path.items():
-            if is_utf8_name(path):
-                versions_by_path[path] = versions
-            else:
+        return replace(
+            history,
+            versions_by_path=MappingProxyType(
+                {path: versions for path, versions in history.versions_by_path.items() if is_utf8_name(path)}
+            ),
+        )
+
+    def warn_non_utf8_docs(self, history: History) -> None:
+        """Warn about each doc whose name is not valid UTF-8, which :meth:`leave_out_non_utf8_docs` leaves out.
+
+        Docs: behavior/commands/index.md#input-that-cannot-be-used
+
+        Args:
+            history: History as loaded, before those docs are left out.
+        """
+        for path in history.versions_by_path:
+            if not is_utf8_name(path):
                 self.warn_left_out(f"{DOCS_DIR}{path}", NON_UTF8_NAME_MESSAGE)
-        return replace(history, versions_by_path=MappingProxyType(versions_by_path))
 
     @cached_property
     def tree_symlink_follower(self) -> SymlinkFollower:
@@ -801,29 +807,13 @@ class SiteBuilder:
             for docs_file in built_docs_files.values()
             if not docs_file.is_in_worktree
         )
-        staged: dict[str, Path] = {}
+        staged_paths: dict[str, Path] = {}
         for path, docs_file in built_docs_files.items():
             if docs_file.is_in_worktree:
-                staged[path] = self.root / docs_file.source_path
+                staged_paths[path] = self.root / docs_file.source_path
             else:
-                staged[path] = stage_file(staging_dir, blobs[self.history.tree[docs_file.source_path].blob_sha])
-        return staged
-
-    @staticmethod
-    def load_renderer(name: RendererName) -> SiteRenderer:
-        """Return the site renderer of a name, importing its module only now.
-
-        Args:
-            name: The renderer to use.
-
-        Raises:
-            TypeError: The renderer's import path does not name a site renderer class.
-        """
-        module_name, _, class_name = RENDERER_PATHS[name].partition(":")
-        renderer_class: object = getattr(importlib.import_module(module_name), class_name)
-        if not (isinstance(renderer_class, type) and issubclass(renderer_class, SiteRenderer)):
-            raise TypeError(f"{RENDERER_PATHS[name]} is not a site renderer")
-        return renderer_class()
+                staged_paths[path] = stage_file(staging_dir, blobs[self.history.tree[docs_file.source_path].blob_sha])
+        return staged_paths
 
     def prepare_site(self, code_root: Path | None, staging_dir: Path) -> PreparedSite:
         """Load the code and the links, and return everything the renderer needs.
@@ -860,6 +850,7 @@ class SiteBuilder:
             docs_files=self.stage_docs_files(staging_dir),
             vendor_dir=self.vendor_dir,
             cache_dir=self.root / self.CACHE_DIR,
+            cache_fingerprint=self.cache_fingerprint,
             staging_dir=staging_dir,
             attempt=self.attempt,
         )
@@ -880,16 +871,16 @@ class SiteBuilder:
         """
         with self.prepare_code_root() as code_root, TemporaryDirectory(prefix="docspecsite-site-") as staging_dir:
             site = self.prepare_site(code_root, Path(staging_dir))
-            rendered = self.load_renderer(RendererName.INTERNAL).render(site)
+            rendered_site = SiteRenderer.load(RendererName.INTERNAL).render(site)
             writer = SiteWriter(out)
-            refused_paths = writer.find_outside(rendered.files)
+            refused_paths = writer.find_outside(rendered_site.files)
             for path in refused_paths:
                 warnings.warn(DocspecsiteWarning("refusing to write outside --out: %s", path), stacklevel=1)
-            writer.write({path: staged.read_bytes() for path, staged in rendered.files.items()})
-        self.front_matter_cache.prune()
+            writer.write({path: file.read_bytes() for path, file in rendered_site.files.items()})
+        self.docs.front_matter_cache.prune()
         return BuildResult(
-            page_count=len(rendered.page_paths - set(refused_paths)),
-            counts=rendered.counts,
+            page_count=len(rendered_site.page_paths - set(refused_paths)),
+            counts=rendered_site.counts,
             errors=tuple(self.errors),
             failed_count=len(self.failed_names),
         )

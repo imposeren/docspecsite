@@ -28,11 +28,14 @@ class CacheRoot:
     """
 
     # Constants
-    MARKER_FILENAME = ".docspecsite-cache-root"
-    """Name of the file that marks a cache root as made by this cache, so :meth:`prune` may remove it."""
-
     ENTRY_DIRS: ClassVar[tuple[str, ...]] = ()
     """Directories of a cache root holding this kind of cache's entries; :meth:`prune` looks only into these."""
+
+    FINGERPRINT_PREFIX_LENGTH = 16
+    """Number of hex digits of the fingerprint's hash that start each root name, :attr:`fingerprint_prefix`."""
+
+    MARKER_FILENAME = ".docspecsite-cache-root"
+    """Name of the file that marks a cache root as made by this cache, so :meth:`prune` may remove it."""
 
     # Fingerprint inputs
     PACKAGE_DIR = Path(__file__).parent
@@ -72,7 +75,7 @@ class CacheRoot:
                 variants keep separate roots, so none throws away the entries of another.
         """
         self.directory = directory
-        self.fingerprint_prefix = hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
+        self.fingerprint_prefix = hashlib.sha256(fingerprint.encode()).hexdigest()[: self.FINGERPRINT_PREFIX_LENGTH]
         self.root = directory / f"{self.fingerprint_prefix}-{variant}"
         self.used_paths = set()
 
@@ -107,7 +110,7 @@ class CacheRoot:
         except PackageNotFoundError:
             return "none"
 
-    def get_json[T](
+    def load_or_compute_json[T](
         self,
         path: Path,
         compute: Callable[[], T],
@@ -164,14 +167,14 @@ class CacheRoot:
             data: Bytes that replace the whole file.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
+        fd, temp_path = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
-            os.replace(tmp, path)
+            os.replace(temp_path, path)
         except BaseException:
             with contextlib.suppress(OSError):
-                os.unlink(tmp)
+                os.unlink(temp_path)
             raise
 
     def prune(self) -> None:
@@ -202,25 +205,32 @@ class CacheRoot:
 class FrontMatterCache(CacheRoot):
     """On-disk cache of the docs' front matter splits, one per blob, so a rebuild runs no markdown-it on them."""
 
-    VARIANT = "front-matter"
-    """Name of the cache root's variant: the splits do not depend on the parts built."""
-
+    # Entry directories
     FRONT_MATTER_DIR = "front-matter"
     """Directory of a cache root holding the front matter splits, one JSON entry per blob."""
 
     ENTRY_DIRS = (FRONT_MATTER_DIR,)
     """The entry directories :meth:`~CacheRoot.prune` looks into."""
 
-    def __init__(self, directory: Path, fingerprint: str) -> None:
+    # Variant
+    VARIANT_PREFIX = "front-matter"
+    """Start of the cache root's variant, before the label of the built parts; it keeps the root apart from the body
+    cache's root of the same parts."""
+
+    def __init__(self, directory: Path, fingerprint: str, parts_label: str) -> None:
         """Prepare the cache of the front matter splits in a directory.
 
         Args:
             directory: Directory holding the cache roots; this cache's root is made under it.
             fingerprint: Docspecsite version fingerprint; entries made under another one are never read.
+            parts_label: Names of the parts built (:attr:`~docspecsite.sitedocs.SiteDocs.parts_label`); builds of
+                different parts keep separate roots, so none throws away the entries of another.
         """
-        super().__init__(directory, fingerprint, self.VARIANT)
+        super().__init__(directory, fingerprint, f"{self.VARIANT_PREFIX}-{parts_label}")
 
-    def get_front_matter_split(self, blob_sha: str, compute: Callable[[], FrontMatterSplit]) -> FrontMatterSplit:
+    def load_or_compute_front_matter_split(
+        self, blob_sha: str, compute: Callable[[], FrontMatterSplit]
+    ) -> FrontMatterSplit:
         """Return the front matter's YAML and the body's line of a blob, from the cache or else computed (and cached).
 
         Args:
@@ -228,15 +238,15 @@ class FrontMatterCache(CacheRoot):
             compute: Called only on a miss or an unreadable entry to split the text, as
                 :meth:`~docspecsite.markdown.MarkdownText.split_front_matter` does; its result is stored.
         """
-        return self.get_json(
+        return self.load_or_compute_json(
             self.root / self.FRONT_MATTER_DIR / f"{blob_sha}.json",
             compute,
-            parse=self.parse_front_matter_split,
+            parse=self._parse_front_matter_split,
             to_json=list,
         )
 
     @staticmethod
-    def parse_front_matter_split(cached: object) -> FrontMatterSplit | None:
+    def _parse_front_matter_split(cached: object) -> FrontMatterSplit | None:
         """Return the front matter split a cache entry holds; None when it holds no valid one.
 
         Args:

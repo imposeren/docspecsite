@@ -3,7 +3,7 @@ from dataclasses import replace
 
 from docspecsite.config import ProjectConfig
 from docspecsite.index_pages import IndexRenderer
-from docspecsite.indexes import IndexEntry, SiteIndex
+from docspecsite.indexes import IndexEntry, IndexGroup, SiteIndex
 from docspecsite.pages import Page
 from docspecsite.vocabulary import Vocabulary
 
@@ -72,6 +72,30 @@ def test_status_board_order() -> None:
         "implemented", "foundation", "must",
     ]  # fmt: skip
     assert "core" not in page.body_html
+
+
+def test_status_board_groups_by_status_milestone_and_priority() -> None:
+    a = _make_entry("a.md", status=["implemented", "specified"], milestone="foundation", priority="must")
+    b = _make_entry("b.md", milestone="foundation", priority="should")
+    c = _make_entry("c.md", status="not-a-status")
+    vocabulary = Vocabulary(frozenset(), ("foundation",))
+    groups = SiteIndex([a, b, c], [], _NO_CONFIG, "Docs", vocabulary).group_status_board()
+    assert groups == [
+        IndexGroup(
+            "specified",
+            (),
+            (IndexGroup("foundation", (), (IndexGroup("must", (a,)), IndexGroup("should", (b,)))),),
+        ),
+        IndexGroup("implemented", (), (IndexGroup("foundation", (), (IndexGroup("must", (a,)),)),)),
+    ]
+
+
+def test_group_by_tag_lists_each_doc_under_each_usable_tag() -> None:
+    a = _make_entry("a.md", tags=["x", "y"])
+    b = _make_entry("b.md", tags=["x", "bad/tag"])
+    code = [replace(_make_entry("core", tags=["x"]), is_code_module=True)]
+    by_tag = SiteIndex([a, b], code, _NO_CONFIG, "Docs", _NO_VOCABULARY).group_by_tag()
+    assert by_tag == {"x": [a, b], "y": [a]}
 
 
 def test_status_board_unknown_milestones() -> None:

@@ -23,8 +23,8 @@ class BodyCache(CacheRoot):
 
     # Constants
     DIFF_KEY_PREFIX = "diff\0"
-    """Start of the :meth:`get_body` key of a diff entry, before the older blob's SHA hash; body keys never start with
-    it."""
+    """Start of the :meth:`load_or_compute_body` key of a diff entry, before the older blob's SHA hash; body keys
+    never start with it."""
 
     # Entry directories
     BODIES_DIR = "bodies"
@@ -49,7 +49,7 @@ class BodyCache(CacheRoot):
         Args:
             directory: Directory holding the cache roots; one root per fingerprint and variant is made under it.
             fingerprint: Docspecsite version fingerprint; entries made under another one are never read.
-            variant: Name of the set of built parts (:attr:`~docspecsite.internal_renderer.InternalSite.parts_label`);
+            variant: Name of the set of built parts (:attr:`~docspecsite.sitedocs.SiteDocs.parts_label`);
                 builds of different sets keep separate roots, so none throws away the entries of another.
         """
         super().__init__(directory, fingerprint, variant)
@@ -72,19 +72,19 @@ class BodyCache(CacheRoot):
         )
         return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
-    def get_hrefs(self, blob_sha: str, compute: Callable[[], list[str]]) -> list[str]:
+    def load_or_compute_hrefs(self, blob_sha: str, compute: Callable[[], list[str]]) -> list[str]:
         """Return the link hrefs of a blob, from the cache or else computed (and cached).
 
         Args:
             blob_sha: Git blob SHA hash of the doc's text; names the entry, so all versions with the same text share it.
             compute: Called only on a miss or an unreadable entry to extract the hrefs; its result is stored.
         """
-        return self.get_json(
-            self.root / self.HREFS_DIR / f"{blob_sha}.json", compute, parse=self.parse_hrefs, to_json=lambda h: h
+        return self.load_or_compute_json(
+            self.root / self.HREFS_DIR / f"{blob_sha}.json", compute, parse=self._parse_hrefs, to_json=lambda h: h
         )
 
     @staticmethod
-    def parse_hrefs(cached: object) -> list[str] | None:
+    def _parse_hrefs(cached: object) -> list[str] | None:
         """Return the hrefs a cache entry holds; None when it holds no list of strings.
 
         Args:
@@ -94,7 +94,7 @@ class BodyCache(CacheRoot):
             return [str(item) for item in cached]
         return None
 
-    def get_body(self, blob_sha: str, key: str, compute: Callable[[], str]) -> str:
+    def load_or_compute_body(self, blob_sha: str, key: str, compute: Callable[[], str]) -> str:
         """Return the body HTML of a blob rendered for given link targets.
 
         It comes from the cache or else is computed. Cache hits and misses are counted in :attr:`hit_count` and
@@ -121,7 +121,7 @@ class BodyCache(CacheRoot):
         self.store(path, body_html.encode())
         return body_html
 
-    def get_diff_body(self, old_blob_sha: str, new_blob_sha: str, compute: Callable[[], str]) -> str:
+    def load_or_compute_diff_body(self, old_blob_sha: str, new_blob_sha: str, compute: Callable[[], str]) -> str:
         """Return the diff HTML between two blobs, from the cache or else computed (and cached).
 
         It is counted like a page body in :attr:`hit_count` and :attr:`miss_count`.
@@ -131,4 +131,4 @@ class BodyCache(CacheRoot):
             new_blob_sha: Git blob SHA hash of the newer version's text, the ``+`` side.
             compute: Called only on a miss to diff the two texts; its result is stored.
         """
-        return self.get_body(new_blob_sha, f"{self.DIFF_KEY_PREFIX}{old_blob_sha}", compute)
+        return self.load_or_compute_body(new_blob_sha, f"{self.DIFF_KEY_PREFIX}{old_blob_sha}", compute)

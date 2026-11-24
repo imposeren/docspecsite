@@ -33,7 +33,7 @@ class IndexRenderer:
         self.site_index = site_index
 
     @staticmethod
-    def locate_entry(entry: IndexEntry) -> str:
+    def make_entry_url(entry: IndexEntry) -> str:
         """Return the site-root-relative URL of the page of an entry: its doc's latest page, or its module's page.
 
         Args:
@@ -53,7 +53,7 @@ class IndexRenderer:
         """
         title = escape(entry.title)
         summary = escape(entry.summary)
-        href = escape(make_relative_url(cls.locate_entry(entry), page_url), quote=True)
+        href = escape(make_relative_url(cls.make_entry_url(entry), page_url), quote=True)
         escaped_statuses = (escape(status) for status in entry.status.values)
         markers = "".join(f' <span class="status status-{status}">{status}</span>' for status in escaped_statuses)
         return f'<li><a href="{href}">{title}</a>{markers}: {summary}</li>'

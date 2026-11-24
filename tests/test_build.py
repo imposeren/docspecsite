@@ -1,7 +1,7 @@
 import os
 import re
 import warnings
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -20,7 +20,8 @@ from conftest import (
 )
 
 from docspecsite.build import BuildError, BuildResult, SiteBuilder, SiteWriter, run_build
-from docspecsite.coderef import Codebase, CodeError, CodeReference
+from docspecsite.code_pages import CodeReference
+from docspecsite.coderef import Codebase, CodeError
 from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
 from docspecsite.git import Git, UnknownRefError
@@ -31,7 +32,7 @@ from docspecsite.markdown import FrontMatterSplit, MarkdownText
 from docspecsite.pages import Page, PageLink, Templates
 from docspecsite.parts import Part
 from docspecsite.renderers import PageCountLabel
-from docspecsite.urls import make_version_url
+from docspecsite.urls import CodeElementTarget, DocTarget, FileTarget, LinkTarget, UrlTarget, make_version_url
 
 _LINK = re.compile(r'(?:href|src)="([^"]*)"')
 _EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -60,6 +61,20 @@ def repo(history_repo: HistoryRepo, code_tree: Path) -> HistoryRepo:
     return HistoryRepo(root, shas)
 
 
+@pytest.fixture
+def internal_site(repo: HistoryRepo, tmp_path: Path) -> Iterator[InternalSite]:
+    """The `internal` renderer's site of ``repo``, with the code and the docs, prepared but not built.
+
+    Args:
+        repo: Repository with the docs and the sample package.
+        tmp_path: The build's staging directory.
+    """
+    root, _ = repo
+    builder = SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, is_strict=False, parts=None)
+    with builder.prepare_code_root() as code_root:
+        yield InternalSite(builder.prepare_site(code_root, tmp_path))
+
+
 def _read(site_dir: Path, path: str) -> str:
     return (site_dir / path).read_text(encoding="utf-8")
 
@@ -72,7 +87,7 @@ def _shorten_sha(sha: str) -> str:
     return sha[:12]
 
 
-def _count(build_result: BuildResult, label: PageCountLabel) -> int:
+def _find_page_count(build_result: BuildResult, label: PageCountLabel) -> int:
     return next(page_count.count for page_count in build_result.counts if page_count.label is label)
 
 
@@ -138,7 +153,7 @@ def test_build_is_incremental(repo: HistoryRepo, tmp_path: Path, monkeypatch: py
     root, _ = repo
     site_dir = tmp_path / "site"
     first_build = run_build(root, "main", site_dir)
-    assert _count(first_build, PageCountLabel.RENDERED) > 0
+    assert _find_page_count(first_build, PageCountLabel.RENDERED) > 0
     assert [page_count.label for page_count in first_build.counts] == [
         PageCountLabel.RENDERED,
         PageCountLabel.FROM_CACHE,
@@ -153,17 +168,18 @@ def test_build_is_incremental(repo: HistoryRepo, tmp_path: Path, monkeypatch: py
     monkeypatch.setattr(InternalSite, "render_diff_html", staticmethod(count_diff))
     second_build = run_build(root, "main", site_dir)
     assert not diff_calls
-    assert _count(second_build, PageCountLabel.RENDERED) == 0
-    assert _count(second_build, PageCountLabel.FROM_CACHE) == _count(first_build, PageCountLabel.RENDERED) + _count(
-        first_build, PageCountLabel.FROM_CACHE
-    )
+    assert _find_page_count(second_build, PageCountLabel.RENDERED) == 0
+    assert _find_page_count(second_build, PageCountLabel.FROM_CACHE) == _find_page_count(
+        first_build, PageCountLabel.RENDERED
+    ) + _find_page_count(first_build, PageCountLabel.FROM_CACHE)
     write_doc(root, "meta/b.md", "No links. Changed once more.\n")
     make_commit(root, "spec: change b again", "2026-11-07T12:00:00+00:00")
     third_build = run_build(root, "main", site_dir)
-    assert _count(third_build, PageCountLabel.RENDERED) == 2  # the new version's body and its diff
+    assert _find_page_count(third_build, PageCountLabel.RENDERED) == 2  # the new version's body and its diff
     assert (
-        _count(third_build, PageCountLabel.RENDERED) + _count(third_build, PageCountLabel.FROM_CACHE)
-        == _count(second_build, PageCountLabel.FROM_CACHE) + 2
+        _find_page_count(third_build, PageCountLabel.RENDERED)
+        + _find_page_count(third_build, PageCountLabel.FROM_CACHE)
+        == _find_page_count(second_build, PageCountLabel.FROM_CACHE) + 2
     )
     assert diff_calls == [1]  # pruning kept the other diffs, so only the new one is diffed
 
@@ -219,6 +235,27 @@ def test_diff_html() -> None:
     assert '<span class="del">-b &lt;i&gt;</span>' in html
     assert '<span class="add">+c</span>' in html
     assert '<span class="hunk">@@' in html
+
+
+@pytest.mark.parametrize(
+    ("target", "page_url", "href"),
+    [
+        (DocTarget("meta/a.md", None), "meta/b.html", "a.html"),
+        (DocTarget("meta/a.md", None, "#s"), "guides/x/y.html", "../../meta/a.html#s"),
+        (CodeElementTarget("sample.mod.Thing"), "meta/b.html", "../reference/code/sample.mod.html#sample.mod.Thing"),
+        (FileTarget("guides/flow.png"), "meta/sub/x.html", "../../guides/flow.png"),
+        (FileTarget("guides/flow.png"), "index.html", "guides/flow.png"),
+        (UrlTarget("https://example.org/a#b"), "meta/b.html", "https://example.org/a#b"),
+    ],
+)
+def test_make_href(internal_site: InternalSite, target: LinkTarget, page_url: str, href: str) -> None:
+    assert internal_site.make_href(target, page_url) == href
+
+
+def test_make_href_to_a_version(internal_site: InternalSite) -> None:
+    version = internal_site.history.find_latest("meta/a.md")
+    target = DocTarget("meta/a.md", version, "#s")
+    assert internal_site.make_href(target, "meta/b.html") == f"a/v/{version.short_id}.html#s"
 
 
 def test_write_site_writes_only_changed_files(tmp_path: Path) -> None:
@@ -644,7 +681,7 @@ def test_build_code_template_error_is_local(repo: HistoryRepo, tmp_path: Path, m
     def raise_in_create_environment() -> None:
         raise DocspecsiteError("no code template")
 
-    monkeypatch.setattr("docspecsite.coderef.create_environment", raise_in_create_environment)
+    monkeypatch.setattr("docspecsite.code_pages.create_environment", raise_in_create_environment)
     site_dir = tmp_path / "site"
     build_result = run_build(root, "main", site_dir)
     assert (site_dir / "meta/a.html").is_file()
@@ -1103,12 +1140,12 @@ def test_build_contents_list_and_cache_follows_threshold(repo: HistoryRepo, tmp_
     assert '<a href="#sub3">Sub3</a>' in page_html
     assert "<h2>Contents</h2>" not in page_html
     assert 'class="toc"' not in _read(site_dir, "meta/a.html")
-    assert _count(run_build(root, "main", site_dir), PageCountLabel.RENDERED) == 0
+    assert _find_page_count(run_build(root, "main", site_dir), PageCountLabel.RENDERED) == 0
 
     _set_toc_min(root, 6)
     make_commit(root, "config: raise toc threshold", "2026-11-08T12:00:00+00:00")
     build_result = run_build(root, "main", site_dir)
-    assert _count(build_result, PageCountLabel.RENDERED) > 0
+    assert _find_page_count(build_result, PageCountLabel.RENDERED) > 0
     assert 'class="toc"' not in _read(site_dir, "meta/long.html")
 
 
@@ -1194,10 +1231,12 @@ def test_build_default_parts(repo: HistoryRepo) -> None:
         root, "main", include_worktree=False, vendor_dir=None, is_strict=False, parts=None
     )
     assert code_and_docs_builder.parts == {Part.DOCS, Part.CODE}
+    assert code_and_docs_builder.docs.parts_label == "code+docs"
     (root / ProjectConfig.CONFIG_FILE).write_text("", encoding="utf-8")
     make_commit(root, "drop code-dirs", "2026-11-07T12:00:00+00:00")
     docs_only_builder = SiteBuilder(root, "main", include_worktree=False, vendor_dir=None, is_strict=False, parts=None)
     assert docs_only_builder.parts == {Part.DOCS}
+    assert docs_only_builder.docs.parts_label == "docs"
 
 
 def test_build_code_part_needs_code_dirs(history_repo: HistoryRepo, tmp_path: Path) -> None:
@@ -1264,7 +1303,25 @@ def test_build_alternating_parts_reuses_cache(repo: HistoryRepo, tmp_path: Path)
     run_build(root, "main", site_dir, parts=frozenset({Part.DOCS}))
     assert not [path for path in (site_dir / "reference/code").rglob("*") if path.is_file()]
     third_build = run_build(root, "main", site_dir)
-    assert _count(third_build, PageCountLabel.RENDERED) == 0
+    assert _find_page_count(third_build, PageCountLabel.RENDERED) == 0
+
+
+def test_build_alternating_parts_keeps_front_matter_cache(
+    repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = repo
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # the code-only site of this repo has no root page
+        run_build(root, "main", site_dir, parts=frozenset({Part.CODE}))
+
+    def refuse(self: MarkdownText) -> FrontMatterSplit:
+        raise AssertionError("front matter was split by markdown-it on a warm cache")
+
+    monkeypatch.setattr(MarkdownText, "split_front_matter", refuse)
+    third_build = run_build(root, "main", site_dir)
+    assert _find_page_count(third_build, PageCountLabel.RENDERED) == 0
 
 
 def test_build_docs_only_ignores_broken_code(
@@ -1579,7 +1636,7 @@ def test_cached_rebuild_does_not_parse_markdown(
 
     monkeypatch.setattr(MarkdownText, "split_front_matter", refuse)
     second_build = run_build(root, "main", site_dir)
-    assert _count(second_build, PageCountLabel.RENDERED) == 0
+    assert _find_page_count(second_build, PageCountLabel.RENDERED) == 0
 
 
 def _find_site_files(site_dir: Path, path: str) -> list[str]:

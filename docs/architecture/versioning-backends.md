@@ -140,7 +140,7 @@ Both classes are public API: their method signatures follow the release rules ([
 **Symlinks:** the git backend tells a symlink by its tree entry's mode in a revision, and by the file itself in the working tree.
 It reads a symlink's target where it reads the other files: in the tree of the built revision, or among the working-tree files git sees (tracked, or untracked and not ignored), which gives the rules of the history and files rows of the [contract](#contract).
 
-**Link patterns:** defaults `{source-url}/blob/{revision}/{path}` and `{source-url}/tree/{revision}/{path}`, with `{revision}` the built commit's full SHA; they replace the hard-coded `blob/` and `tree/` URLs of `docspecsite.urls`, `docspecsite.coderef` and `docspecsite.build`.
+**Link patterns:** defaults `{source-url}/blob/{revision}/{path}` and `{source-url}/tree/{revision}/{path}`, with `{revision}` the built commit's full SHA; they replace the hard-coded `blob/` and `tree/` URLs of `docspecsite.urls`, `docspecsite.code_pages` and `docspecsite.sitedocs`.
 
 ### none backend
 
