@@ -46,7 +46,7 @@ The rendered HTML site is for humans ([docspecsite](https://github.com/imposeren
 | Task | Read |
 | -- | -- |
 | Implement a feature | behavior doc → scenarios doc (acceptance criteria) → ui doc (if it has a UI) → architecture doc → its ADRs ([architecture decision records](../meta/glossary.md#adr)) |
-| Fix a bug | the `implemented` scenarios/behavior doc (or built section) it contradicts → architecture doc |
+| Fix a bug | the `implemented` behavior doc (or built section) it contradicts, or the scenario whose `Feature` links such a section ([meta/lifecycle.md](../meta/lifecycle.md#scenario-docs)) → architecture doc |
 | Write a new spec | [meta/authoring.md](../meta/authoring.md) → template → parent `index.md` → siblings' summaries |
 | Infra / tooling change | architecture doc for the area → its ADRs → the guides for that area |
 | Integrate an external platform | its `reference/external/` doc → the architecture doc of the integration |

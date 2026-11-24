@@ -102,7 +102,11 @@ Here: any doc in `docs/` — a description of the system's target state.
 
 ### Status
 
-Where a doc is in its lifecycle: `draft`, `specified` (agreed, not built — i.e. work to do), `changed` (agreed, built in an older form — also work to do), `implemented`, `deprecated`, `redirect`. A partly built doc lists several of `implemented`, `specified` and `changed`, and marks its sections with [status notes](#status-note). See [lifecycle.md](lifecycle.md).
+Where a doc is in its lifecycle: `draft`, `specified` (agreed, not built — i.e. work to do), `changed` (agreed, built in an older form — also work to do), `implemented`, `deprecated`, `redirect`. A partly built doc lists several of `implemented`, `specified` and `changed`, and marks its sections with [status notes](#status-note). Some layers have no [build status](#build-status). See [lifecycle.md](lifecycle.md).
+
+### Build status
+
+The `status` values that say how far the code has caught up with a doc: `specified`, `changed` and `implemented`. Docs in the layers listed in lifecycle.md, today scenario docs, carry none ([lifecycle.md](lifecycle.md#layers-without-a-build-status)).
 
 ### Status note
 

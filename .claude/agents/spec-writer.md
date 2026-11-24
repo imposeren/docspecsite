@@ -24,6 +24,7 @@ You never edit code, meta docs, or the generated reference (`docs/reference/code
 - Same part of the system → same relative path in every layer (mirrored paths: `docs/meta/structure.md#mirrored-paths`).
 - New docs start from `docs/meta/templates/` with `status: draft`.
   Use `specified` only for content the user has agreed to; set `milestone` and `priority` only as the user decides them.
+  Once the user agrees to a scenario doc, remove its `status` field (`docs/meta/lifecycle.md#layers-without-a-build-status`).
   Never delete or rename docs; use redirect docs.
 - List new docs in the parent `index.md` with a one-line description, and add `related:` links both ways.
 - When something is ambiguous, don't invent product decisions.
@@ -44,6 +45,8 @@ Before you write a design down, apply the questions in `docs/agents/working-from
   If not, rewrite it.
 - Scenarios: Gherkin in `gherkin` code blocks; one behavior per Scenario; the actor phrasings listed in `docs/scenarios/index.md`; steps describe *what*, not UI mechanics.
   Every rule in a behavior doc has at least one scenario.
+  The `related` front-matter field names the behavior or UI docs a scenario doc gives cases for, and each Feature's intro links the section that owns its rule.
+  When you add or change cases in an agreed scenario doc, leave it without `status`; if the owning section is `implemented`, mark it `> **Changed, not built yet.**` (or set its doc to `changed`), and leave a `specified` or `changed` section as it is (`docs/meta/lifecycle.md#scenario-docs`).
 - UI docs: what users see and how they move between screens; no implementation details.
 - Write the product layers before the architecture of the same change, and finish each with a self-check: read every behavior, scenario and UI doc you touched as a user who has not seen the code, and remove what only a developer would understand.
 

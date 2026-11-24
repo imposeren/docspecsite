@@ -14,8 +14,12 @@ related:
 
 <One paragraph: what is covered here and what is deliberately not.>
 
+## <Rule these cases pin down>
+
+<One sentence: which rule these cases pin down, linking the section of the behavior or ui doc that owns it, such as [<Capability name>](<relative path to behavior/same/path.md>#<section>).>
+
 ```gherkin
-Feature: <Capability name>
+Feature: <Rule these cases pin down>
   As a <role>
   I want <goal>
   So that <benefit>

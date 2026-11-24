@@ -14,7 +14,7 @@ docspecsite checks a repo's docs against the docs-driven method and renders ever
   Link to them with `code:<dotted.path>`.
 - Glossaries: `docs/meta/glossary.md` (doc terms), `docs/behavior/glossary.md` (docspecsite terms), `docs/architecture/glossary.md` (technical).
   Spell out or link terms on first use.
-- Step-by-step procedures: `docs/guides/`. Milestones: `docs/roadmap.md` (docs carry `milestone` + `priority`).
+- Step-by-step procedures: `docs/guides/`. Milestones: `docs/roadmap.md` (docs carry `milestone` + `priority`, except scenario docs).
 - How docs are written: `docs/meta/index.md`. Templates: `docs/meta/templates/`.
   `docs/meta/` and `docs/agents/` are a copy of the template's; change them in the template first, then sync them here.
 - ADRs are numbered `<PREFIX>-NNNN`; this repo's prefix is `DSS` (`adr-prefix` in `docspecsite.toml`), and `BASE-*` ADRs come from the template (`external-adr-prefixes = ["BASE"]`) (`docs/meta/structure.md#adr-ids`).
@@ -29,7 +29,7 @@ docspecsite checks a repo's docs against the docs-driven method and renders ever
    No TODOs, change requests or bug reports in docs.
 4. Keep `status` honest: `specified` = to do, `changed` = to do over an older form, `implemented` = true in the code; a partly built doc lists several and gives the sections that differ status notes (`docs/meta/lifecycle.md#partly-built-docs`).
 5. A technical choice not covered by an ADR (architecture decision record, in `docs/architecture/decisions/`) → write a `decision: proposed` ADR and ask.
-6. Every doc has front matter (`title, summary, layer, status, components, tags, related`); components come from `docs/architecture/components.md`.
+6. Every doc has front matter (`title, summary, layer, status, components, tags, related`; scenario docs have no build status: `docs/meta/lifecycle.md#layers-without-a-build-status`); components come from `docs/architecture/components.md`.
 7. Body links are relative to the file; front-matter paths are relative to `docs/`.
    All links must resolve.
 8. Don't commit unless asked.

@@ -15,6 +15,7 @@ Create a doc that follows `docs/meta/` rules on the first try.
    ADRs: `docs/architecture/decisions/<PREFIX>-NNNN-<slug>.md`, where `<PREFIX>` is `adr-prefix` from `docspecsite.toml` and `NNNN` the next free number of that prefix (`docs/meta/structure.md#adr-ids`).
 3. **Copy the template** from `docs/meta/templates/` (`behavior-doc.md`, `scenarios-doc.md`, `architecture-doc.md`, `guide-doc.md`, `adr.md`, `index-doc.md`, `redirect-doc.md`) and replace every `<placeholder>`.
    New docs start as `status: draft` unless the user has agreed to the content (`specified`).
+   Once the user agrees to a scenario doc, its `status` field is removed; its `related` front-matter field names the behavior or ui docs it gives cases for, and each `Feature`'s intro links the section that owns its rule (`docs/meta/lifecycle.md#scenario-docs`).
    New ADRs start as `decision: proposed`.
 4. **Wire it in:**
    - list it under `## Children` in the parent `index.md` (`- [name.md](name.md) — …`) **with a one-line description** of what the reader finds there (`docs/meta/structure.md#every-directory-has-an-indexmd`): tooling can list files, but only a person can say what each one is for, and that line is what lets readers and agents choose without opening every doc.

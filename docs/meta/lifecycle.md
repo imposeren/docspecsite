@@ -1,6 +1,6 @@
 ---
 title: Doc lifecycle and docs as a task list
-summary: The status values a doc moves through, what each means, how a partly built doc lists several statuses and marks its sections, how ADR decisions fit in, and how statuses turn the docs into the project's task list.
+summary: The status values a doc moves through, what each means, how a partly built doc lists several statuses and marks its sections, which layers have no build status, how ADR decisions fit in, and how statuses turn the docs into the project's task list.
 layer: meta
 status: implemented
 components: [docs-system]
@@ -19,7 +19,7 @@ There are no change requests or bug reports in `docs/`.
 
 Work arises from the **gap between docs and code**.
 To ask for a change, edit the spec to describe the desired state and set its `status` accordingly; the diff of that commit *is* the change request.
-A bug is code that contradicts an `implemented` doc.
+A bug is code that contradicts an `implemented` doc; for a scenario doc, a case that fails while the section its `Feature` links is `implemented` ([below](#scenario-docs)).
 
 ## Status values
 
@@ -39,9 +39,50 @@ For docs that describe practices rather than code (meta, agents), `implemented` 
 
 A parent doc's status summarizes its children: if any child is `specified` or `changed`, the parent should not claim `implemented` for that part.
 
+## Layers without a build status
+
+`specified`, `changed` and `implemented` are the **build status** values: they say how far the code has caught up with a doc.
+Docs in these layers have no build status:
+
+- `scenarios`: their cases belong to rules that behavior and ui docs own, and those docs say whether the rules are built ([below](#scenario-docs)).
+
+A doc in such a layer carries no build status in its `status`, no `milestone` or `priority` field, and no [status notes](#status-notes); [partly built docs](#partly-built-docs) do not apply to it.
+The docs tooling ignores them where they appear: it reads the doc as if they were not there.
+It may have `status: draft`, `deprecated` or `redirect`, also as a one-value list such as `status: [draft]`; these are about the doc itself, not about the code.
+Without `status`, it is a current, agreed doc.
+
+Transitions: `draft` → no `status` (the field is removed when the user agrees to the doc) → `deprecated` → `redirect`; `draft` → `redirect`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> draft
+  draft --> current: the user agrees (status removed)
+  current --> deprecated
+  deprecated --> redirect
+  draft --> redirect
+```
+
+Such a doc does not return to `draft`: when it is revised, the doc that owns the rules tracks the work ([below](#scenario-docs)).
+
+The docs check gives one warning for a `status` that holds `implemented` in such a doc, since that value can mislead a reader once the doc that owns its rules changes and nobody updates it; the other ignored values and status notes give neither a problem nor a warning.
+The status views of the docs tooling (`list --status`, the status board, the status badge of a page) leave such docs out, except those with `draft`, `deprecated` or `redirect`.
+
+### Scenario docs
+
+The behavior and ui docs a scenario doc gives cases for are in its `related` front-matter field, which may also name other docs, such as architecture docs or other scenario docs.
+A scenario doc without `status` or with `status: draft` names at least one behavior or ui doc there that is neither `deprecated` nor `redirect`; this does not apply to an `index.md`, whose children carry the links.
+Each `Feature`'s intro links the section of the behavior or ui doc that owns its rule ([authoring.md](authoring.md#style-per-layer)).
+That section's status, the first value of its doc's `status` or its status note, says whether the `Feature`'s cases should already hold: a failing case is a bug when that section is `implemented`.
+
+When cases are added to or changed in an agreed scenario doc, it stays without `status` and is edited in place.
+When the owning section is `implemented`, it gets `> **Changed, not built yet.**` (or its doc becomes `changed`) until the code and the tests catch up, so the work shows among the `changed` docs; a `specified` or `changed` section keeps its status, since its cases already count as work.
+A scenario doc is deprecated when every behavior and ui doc it gives cases for is deprecated; while only some of them are, it stays as it is, and the `Feature`s that link a deprecated doc are removed when that doc becomes a redirect.
+
+The docs check reports a scenario doc that breaks the rule on its `related` list above, also when the list is missing or empty; it does not check the links in the `Feature` intros: which section owns a rule is the author's call, which a check cannot tell, so they are a writing rule ([authoring.md](authoring.md#style-per-layer)).
+
 ## Partly built docs
 
-A doc can be partly built: some of its sections are true in the code, others are not yet.
+A doc can be partly built, unless it is in a [layer without a build status](#layers-without-a-build-status): some of its sections are true in the code, others are not yet.
 Its `status` is then a list of distinct values from `implemented`, `specified` and `changed`, such as `status: [implemented, specified]`.
 The doc's title is its level-1 heading, right after the front matter ([authoring.md](authoring.md#page-shape)).
 The title and the [document brief](authoring.md#page-shape) under it carry no status note: the doc's whole `status` describes them, so the brief may mention built and unbuilt parts alike.
@@ -124,6 +165,7 @@ All other docs only ever describe the current target.
 - "What is left to do?" → all docs with `specified` or `changed` anywhere in their `status` (and `draft` for spec work); in a partly built doc, the sections its status notes and its first value name.
 - "What is left for part X?" → the same, filtered by `components: [X]`.
 - "What is next?" → `specified` docs of the earliest unfinished milestone (the project's `roadmap.md`), `must` first, then `should`, then `could`.
+- A doc in a [layer without a build status](#layers-without-a-build-status) shows here only as `draft` spec work or `deprecated` removal work: the work of building its cases shows in the docs that own their rules.
 - Tooling provides a status board and filtered listings ([docspecsite](https://github.com/imposeren/docspecsite/blob/main/docs/behavior/index.md)).
 - `milestone` says *when* a target state is due, `priority` how important it is within that milestone ([front-matter.md](front-matter.md)); a milestone is reached when all its `must` docs have `status: implemented` alone, not as part of a list.
 - Granularity comes for free from depth: a depth-1 doc is an epic, its depth-2 children are stories.

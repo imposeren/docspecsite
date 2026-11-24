@@ -1,8 +1,8 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
-_commit: v0.2.4-2-g4744555
+_commit: v0.2.6
 _src_path: https://github.com/imposeren/docs-driven-template.git
 adr_prefix: DSS
-docspecsite_version: v0.2.0
+docspecsite_version: v0.3.0
 languages:
 - python
 other_languages: ''

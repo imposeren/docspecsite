@@ -23,7 +23,7 @@ A doc together with its [mirrored](../meta/structure.md#mirrored-paths) counterp
    It has six parts:
    - **Scope:** each doc and section to build, with its status (`specified`, `changed`, or the status notes of a partly built doc) and, for `changed` docs, the commit that changed them.
      Work the user has already described as a task (a list of code-only fixes whose spec is right, say) goes below that as one line, a link to the list or its items word for word when it is only in the request, not mapped doc by doc or turned into questions.
-   - **Acceptance criteria:** links to the scenario sections that decide whether the work is done; a rule is quoted word for word only where one exact value or message decides the outcome.
+   - **Acceptance criteria:** links to the scenario sections that decide whether the work is done: those whose `Feature` intros link the sections being built ([meta/lifecycle.md](../meta/lifecycle.md#scenario-docs)); a rule is quoted word for word only where one exact value or message decides the outcome.
    - **Decisions:** the ADRs that apply, and each decision the task needs that no ADR covers.
    - **Open questions:** each place where a builder would build something wrong without an answer and a wrong choice is costly to undo (stored data, an interface or message others rely on, a rule in another doc) — a rule the work needs that no doc gives, two docs that disagree, a needed decision without an ADR — each with a recommended answer.
    - **Defaults:** each other case in the scope's sections where the choice changes what a user sees, with the default the brief proposes; a case where any reasonable choice gives the same result, and misuse the scope's docs do not touch, is not listed.
@@ -41,7 +41,7 @@ A doc together with its [mirrored](../meta/structure.md#mirrored-paths) counterp
 ## Implementing a `specified` doc
 
 1. Read the task brief, if there is one, and the docs it lists; otherwise read the doc and its counterparts ([reading-strategy.md](reading-strategy.md)).
-   Scenarios are the acceptance criteria.
+   The scenarios whose `Feature` intros link the sections being built are the acceptance criteria ([meta/lifecycle.md](../meta/lifecycle.md#scenario-docs)).
 
 2. If anything needed to build it is ambiguous or missing, **fix the spec first** (or ask) — don't encode a guess only in code.
 
@@ -55,6 +55,7 @@ A doc together with its [mirrored](../meta/structure.md#mirrored-paths) counterp
 
 4. Set the doc's `status: implemented` (and its parents' if all their children are done).
    When only some sections are built, the doc's `status` lists the statuses that are left and the sections not built yet keep their [status notes](../meta/lifecycle.md#status-notes); a built section loses its status note.
+   A scenario doc gets no build status ([meta/lifecycle.md](../meta/lifecycle.md#scenario-docs)).
 
 5. Write or update the [guides](../guides/index.md) for any new procedure it introduces (setup, migration, release step): whoever builds a thing writes its guide.
 
@@ -67,7 +68,7 @@ A doc together with its [mirrored](../meta/structure.md#mirrored-paths) counterp
 
 ## Changing what the system does
 
-Edit the docs to describe the **new target state** in every layer concerned (behavior → scenarios → ui → architecture), set them to `changed` (for what the code already implements in an older form) or `specified` (for what is new), or mark only the sections that change ([meta/lifecycle.md](../meta/lifecycle.md#partly-built-docs)), and commit them together with a subject like `spec: <what changed>`.
+Edit the docs to describe the **new target state** in every layer concerned (behavior → scenarios → ui → architecture), set them to `changed` (for what the code already implements in an older form) or `specified` (for what is new), or mark only the sections that change ([meta/lifecycle.md](../meta/lifecycle.md#partly-built-docs)); a scenario doc is edited in place without a build status, and the section that owns its new or changed cases is marked `changed` when it is `implemented` ([meta/lifecycle.md](../meta/lifecycle.md#scenario-docs)); commit them together with a subject like `spec: <what changed>`.
 That commit is the change request; implementing it follows the steps above.
 
 ## Designing before specifying
@@ -85,7 +86,7 @@ In Claude Code this is the superpowers `brainstorming` skill, then `writing-plan
    Its rewrite is checked for meaning: another fresh subagent compares the text before and after it and lists every rule, case, condition, default or message that was lost, added or changed; each one is fixed or goes to the user.
    Then a builder check on the specs: a fresh subagent that can read the code, and look up its symbols and their uses with the language server where the project has one, reads the new and changed specs as the planner of their implementation would, and lists every place where it would have to guess: a missing message or rule, a case two requirements answer differently, a planned code location that does not fit the code; each one is fixed in the spec or goes to the user.
    The user reviews the specs after these steps, so they read the text once, in its final form; each step is its own commit on the spec branch, so its changes show as a plain diff.
-3. **Plan:** only once those docs are `specified`, an implementation plan in `notes/plans/YYYY-MM-DD-<topic>.md` that cites them as its spec, starting with a [task brief](#preparing-a-task-brief) for work that touches two or more docs in one layer, or sections of a partly built doc; then [implementing](#implementing-a-specified-doc) as above.
+3. **Plan:** only once those docs are `specified` (scenario docs: agreed, without `status`), an implementation plan in `notes/plans/YYYY-MM-DD-<topic>.md` that cites them as its spec, starting with a [task brief](#preparing-a-task-brief) for work that touches two or more docs in one layer, or sections of a partly built doc; then [implementing](#implementing-a-specified-doc) as above.
 
 ### Thinking ahead
 

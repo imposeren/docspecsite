@@ -45,6 +45,7 @@ If a sentence would only make sense to a developer, it belongs in architecture.
 Concrete, checkable situations in **Gherkin** (Feature / Scenario / Given / When / Then), embedded in Markdown so docs keep front matter and prose.
 Each scenario names its actor ("As an anonymous visitor", "As a signed-in customer with a saved payment method").
 Scenarios are precise enough to become automated acceptance tests later.
+A scenario doc has no build status; each `Feature` links the section of the behavior or ui doc that owns its rule ([lifecycle.md](lifecycle.md#scenario-docs)).
 **Not here:** implementation details; UI pixel specifics unless they *are* the behavior.
 
 ## architecture

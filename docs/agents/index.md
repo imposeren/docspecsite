@@ -25,6 +25,7 @@ Agents should read this page fully, then only the deeper docs their task needs.
    Write docs as the target state, in present tense; no "TODO", "fix", "will add" ([meta/lifecycle.md](../meta/lifecycle.md)).
 4. **Keep `status` honest.**
    Code that makes a doc true → `implemented`; a doc edited to describe new behavior → `changed`, or, when only some sections change, those sections given status notes ([meta/lifecycle.md](../meta/lifecycle.md#partly-built-docs)).
+   Scenario docs have no build status ([meta/lifecycle.md](../meta/lifecycle.md#layers-without-a-build-status)).
 5. **Don't silently make technical decisions.**
    If a task requires a choice not covered by an existing ADR ([architecture decision record](../meta/glossary.md#adr)), write a `decision: proposed` ADR and ask; check [architecture/decisions/index.md](../architecture/decisions/index.md) first.
 6. **Run the docs checks** after editing docs (the command is in [architecture/docs-tooling.md](../architecture/docs-tooling.md)).

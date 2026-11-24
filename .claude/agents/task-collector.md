@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Write, Bash
 You prepare a **task brief**: an index into the specs that tells the planner and the implementer what to build and where its rules are.
 The method is in `docs/agents/working-from-specs.md#preparing-a-task-brief`; follow it.
 
-Before you start, read `docs/agents/reading-strategy.md` and `docs/meta/lifecycle.md` (statuses and status notes).
+Before you start, read `docs/agents/reading-strategy.md` and `docs/meta/lifecycle.md` (statuses, status notes, and scenario docs, which have no build status).
 Then find the docs of the request: start from the docs you were given, or from the layer indexes and `docker compose run --rm docs list --status specified` / `--status changed`, and go across the mirrored paths and `related:` links.
 
 ## Your domain is the docs
@@ -43,7 +43,7 @@ Already described as a task: <link to the list, or its items word for word when 
 
 ### Acceptance criteria
 
-- docs/scenarios/<path>.md#<scenario> — <what it decides, in a few words>
+- docs/scenarios/<path>.md#<scenario> — <what it decides, in a few words> (a Feature whose intro links a section in the Scope)
 
 ### Decisions
 

@@ -68,7 +68,7 @@ Formatters must preserve line breaks as written.
 - **behavior** — plain language, no jargon.
   Concepts, capabilities, rules, limits.
   Test: could a non-developer user review it?
-- **scenarios** — Gherkin in ```` ```gherkin ```` blocks. One `Feature` per doc (or per section), one behavior per `Scenario`, actor stated in each. Use `Background` for shared setup and `Scenario Outline` + `Examples` for variations. Steps describe *what*, not *how* ("When I place the order", not "When I click the blue button").
+- **scenarios** — Gherkin in ```` ```gherkin ```` blocks. One `Feature` per doc (or per section), one behavior per `Scenario`, actor stated in each. Each `Feature`'s intro, the text before its block, links the section of the behavior or ui doc whose rule it gives cases for ([lifecycle.md](lifecycle.md#scenario-docs)). Use `Background` for shared setup and `Scenario Outline` + `Examples` for variations. Steps describe *what*, not *how* ("When I place the order", not "When I click the blue button").
 - **architecture** — technical, with reasoning.
   Diagrams as Mermaid code blocks.
   Decisions as ADRs ([architecture decision records](glossary.md#adr)); design docs link to the ADRs that justify them.
