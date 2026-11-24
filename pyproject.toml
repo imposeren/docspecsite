@@ -30,6 +30,7 @@ dev = [
 
 [tool.pytest]
 testpaths = ["tests"]
+filterwarnings = ["error"]
 
 # Lint and type-check settings: docs/architecture/quality-gate.md (DSS-0003).
 [tool.ruff]

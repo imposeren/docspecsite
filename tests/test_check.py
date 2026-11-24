@@ -1,25 +1,32 @@
 import codecs
 import os
+from collections import Counter
 from dataclasses import replace
+from functools import cached_property
 from pathlib import Path
 
 import pytest
-from conftest import edit_text, move_sample_package_to_root, run_git, write_doc, write_roles_module
+from conftest import (
+    ROOT_INDEX_WITH_GUIDES,
+    edit_text,
+    move_sample_package_to_root,
+    run_git,
+    write_doc,
+    write_guides,
+    write_roles_module,
+)
+from markdown_it.token import Token
 
-from docspecsite.check import Checker, CodeLinkCheck, LinkCheck, OptionalCheck
+from docspecsite.check import Checker, CodeLinkCheck, OptionalCheck
 from docspecsite.config import ProjectConfig
 from docspecsite.docset import DocSet
 from docspecsite.git import GitError
+from docspecsite.markdown import MarkdownText
 from docspecsite.problems import Problem
-
-ROOT_INDEX_WITH_GUIDES = (
-    "## Children\n\n- [roadmap.md](roadmap.md) — M.\n- [meta/index.md](meta/index.md) — R.\n"
-    "- [architecture/index.md](architecture/index.md) — A.\n- [guides/](guides/index.md) — G.\n"
-)
 
 
 def find_link_problems(root: Path) -> list[str]:
-    link_check = LinkCheck(root)
+    link_check = Checker(root).link_check
     return [str(p) for doc in Checker(root).doc_set for p in link_check.check(doc)]
 
 
@@ -219,6 +226,17 @@ def test_run_uses_default_status_note_texts_without_settings(docs_tree: Path) ->
     assert [p for p in Checker(docs_tree).run(include_staged=False) if p.path == "meta/s.md"] == []
 
 
+@pytest.mark.parametrize("optional_checks", [frozenset(), frozenset({OptionalCheck.CODE})])
+def test_run_reports_unknown_code_component(docs_tree: Path, optional_checks: frozenset[OptionalCheck]) -> None:
+    (docs_tree / ProjectConfig.CONFIG_FILE).write_text('[code-components]\n"example.api" = ["core", "backned"]\n')
+    problems = Checker(docs_tree).run(include_staged=False, optional_checks=optional_checks)
+    assert (
+        'docspecsite.toml: "code-components" of "example.api" has an unknown component: "backned" '
+        "(add it to architecture/components.md)"
+    ) in [str(p) for p in problems]
+    assert not [p for p in problems if "unknown component" in p.message and '"core"' in p.message]
+
+
 def test_run_reports_invalid_config(docs_tree: Path) -> None:
     (docs_tree / ProjectConfig.CONFIG_FILE).write_text("[code-components\n")
     (docs_tree / "docs" / "meta" / "bad.md").write_text("# Bad\n")
@@ -327,6 +345,19 @@ def test_run_reports_a_package_in_two_code_dirs(code_tree: Path) -> None:
     ]
 
 
+def test_package_dir_with_dot_is_problem_and_left_out(code_tree: Path) -> None:
+    package_dir = code_tree / "tools/sample/src/a.b"
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text('"""See :meth:`nope`."""\n', encoding="utf-8")
+    write_roles_module(code_tree, 'def f() -> None:\n    """See :meth:`gone`."""\n')
+    problems = [
+        str(p) for p in Checker(code_tree).run(include_staged=False, optional_checks=frozenset({OptionalCheck.CODE}))
+    ]
+    assert 'tools/sample/src/a.b: directory name "a.b" is not a valid Python package name' in problems
+    assert any(problem.startswith("tools/sample/src/sample/roles.py:2:") for problem in problems), problems
+    assert not any("nope" in problem for problem in problems), problems
+
+
 def test_run_reports_docs_at_reserved_paths(docs_tree: Path) -> None:
     write_doc(docs_tree, "status.md")
     write_doc(docs_tree, "meta/a.md")
@@ -426,6 +457,14 @@ def test_check_code_reports_unknown_references(code_tree: Path) -> None:
     assert not any(".go`" in p for p in problems)
 
 
+def test_check_code_reports_empty_code_target_in_docstring(code_tree: Path) -> None:
+    write_roles_module(code_tree, 'def f() -> None:\n    """Go.\n\n    See [this](code:).\n    """\n')
+    problems = [
+        str(p) for p in Checker(code_tree).run(include_staged=False, optional_checks=frozenset({OptionalCheck.CODE}))
+    ]
+    assert "tools/sample/src/sample/roles.py:4: empty code: target" in problems
+
+
 def test_run_reports_unknown_code_link(code_tree: Path) -> None:
     write_doc(code_tree, "meta/x.md", "# X\n\nSee [t](code:sample.nope).\n")
     _list_in_meta_index(code_tree, "x")
@@ -522,3 +561,335 @@ def test_run_finds_code_in_the_repo_root(code_tree: Path) -> None:
     write_doc(code_tree, "meta/x.md", "# X\n\nSee [t](code:sample.mod.Thing).\n", code=["sample.mod"])
     _list_in_meta_index(code_tree, "x")
     assert [str(p) for p in Checker(code_tree).run(include_staged=False)] == []
+
+
+def write_vendor_shared(root: Path, *names: str) -> None:
+    (root / "vendor" / "shared").mkdir(parents=True)
+    for name in names:
+        (root / "vendor" / "shared" / name).write_text("x\n")
+
+
+def run_check(root: Path) -> str:
+    return "\n".join(str(p) for p in Checker(root).run(include_staged=False))
+
+
+def find_problems_at(root: Path, path: str) -> list[str]:
+    """Return the problems on a path relative to ``docs/`` or below it."""
+    return [
+        str(p)
+        for p in Checker(root).run(include_staged=False)
+        if p.under_docs and (p.path == path or p.path.startswith(f"{path}/"))
+    ]
+
+
+@pytest.mark.parametrize(
+    ("symlink", "target", "where", "linked"),
+    [
+        ("guides/alias.md", "setup.md", "to a doc", "docs/guides/setup.md"),
+        ("guides/setup.png", "setup.md", "to a doc", "docs/guides/setup.md"),
+        ("guides/alias.md", "other-alias.md", "to a doc", "docs/guides/setup.md"),
+        ("howto", "guides", "to a directory with docs", "docs/guides"),
+    ],
+)
+def test_check_symlink_to_docs_inside_docs(docs_tree: Path, symlink: str, target: str, where: str, linked: str) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "docs" / "guides" / "other-alias.md").symlink_to("setup.md")
+    (docs_tree / "docs" / symlink).symlink_to(target)
+    assert (
+        f'docs/{symlink}: symlink to "{target}" leads {where}\n'
+        f'  hint: link to "{linked}" in the text instead, and remove the symlink'
+    ) in run_check(docs_tree)
+
+
+@pytest.mark.parametrize(
+    ("symlink", "target", "where", "old_place"),
+    [
+        ("reference/shared.md", "../../vendor/shared.md", "to a doc", "vendor/shared.md"),
+        ("shared", "../vendor/shared", "to a directory with docs", "vendor/shared"),
+    ],
+)
+def test_check_symlink_to_docs_outside_docs(
+    docs_tree: Path, symlink: str, target: str, where: str, old_place: str
+) -> None:
+    write_vendor_shared(docs_tree, "index.md", "notes.md")
+    (docs_tree / "vendor" / "shared.md").write_text("x\n")
+    (docs_tree / "docs" / "reference").mkdir()
+    (docs_tree / "docs" / symlink).symlink_to(target)
+    assert (
+        f'docs/{symlink}: symlink to "{target}" leads {where}\n'
+        f'  hint: move "{old_place}" to "docs/{symlink}", and put the symlink at "{old_place}" instead'
+    ) in run_check(docs_tree)
+
+
+def test_check_symlink_hint_to_move_a_doc_adds_md(docs_tree: Path) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "vendor").mkdir()
+    (docs_tree / "vendor" / "shared.md").write_text("x\n")
+    (docs_tree / "docs" / "guides" / "setup-copy").symlink_to("../../vendor/shared.md")
+    assert (
+        'docs/guides/setup-copy: symlink to "../../vendor/shared.md" leads to a doc\n'
+        '  hint: move "vendor/shared.md" to "docs/guides/setup-copy.md", and put the symlink at "vendor/shared.md" '
+        "instead"
+    ) in run_check(docs_tree)
+
+
+def test_check_symlink_to_nothing(docs_tree: Path) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "docs" / "guides" / "old.md").symlink_to("gone.md")
+    assert (
+        'docs/guides/old.md: symlink to "gone.md" leads to nothing\n'
+        "  hint: remove the symlink; its target does not exist"
+    ) in run_check(docs_tree)
+
+
+def test_check_symlink_out_of_the_repo_has_no_hint(docs_tree: Path) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "docs" / "guides" / "notes.md").symlink_to("/srv/notes/setup.md")
+    assert find_problems_at(docs_tree, "guides/notes.md") == [
+        'docs/guides/notes.md: symlink to "/srv/notes/setup.md" leads out of the repo'
+    ]
+
+
+def test_symlink_needs_no_index_entry(docs_tree: Path) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "docs" / "guides" / "alias.md").symlink_to("setup.md")
+    assert find_index_problems(docs_tree) == []
+
+
+@pytest.mark.parametrize(
+    ("symlink", "directory", "names"),
+    [("shared", "vendor/shared", ["notes.md"]), ("img", "static/img", ["flow.png", "logo.png"])],
+)
+def test_symlinked_directory_needs_no_index(docs_tree: Path, symlink: str, directory: str, names: list[str]) -> None:
+    (docs_tree / directory).mkdir(parents=True)
+    for name in names:
+        (docs_tree / directory / name).write_text("x\n")
+    (docs_tree / "docs" / symlink).symlink_to(f"../{directory}")
+    assert find_index_problems(docs_tree) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "target"),
+    [
+        ("note.md", "behavior-doc.md"),
+        ("shared", "../../../vendor/templates"),
+        ("extra", "/srv/templates"),
+        ("old.md", "gone.md"),
+    ],
+)
+def test_check_symlink_inside_templates_not_reported(docs_tree: Path, name: str, target: str) -> None:
+    templates = docs_tree / "docs" / "meta" / "templates"
+    templates.mkdir()
+    (templates / "behavior-doc.md").write_text("---\ntitle: <Name>\n---\n")
+    (docs_tree / "vendor" / "templates").mkdir(parents=True)
+    (docs_tree / "vendor" / "templates" / "a.md").write_text("x\n")
+    (templates / name).symlink_to(target)
+    assert find_problems_at(docs_tree, f"meta/templates/{name}") == []
+
+
+@pytest.mark.parametrize(
+    ("link", "message"),
+    [
+        ("guides/alias.md", "docs/guides/alias.md is a symlink, not a doc"),
+        ("shared/", "docs/shared is a symlinked directory of docs"),
+        ("shared/notes.md", "docs/shared/notes.md is inside a symlinked directory, not a doc"),
+    ],
+)
+def test_check_link_to_a_doc_through_a_symlink(docs_tree: Path, link: str, message: str) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "docs" / "guides" / "alias.md").symlink_to("setup.md")
+    write_vendor_shared(docs_tree, "notes.md", "diagram.png")
+    (docs_tree / "docs" / "shared").symlink_to("../vendor/shared")
+    file = write_doc(docs_tree, "index.md", f"{ROOT_INDEX_WITH_GUIDES}\nSee [it]({link}).\n")
+    line = file.read_text().splitlines().index(f"See [it]({link}).") + 1
+    assert f"docs/index.md:{line}: broken link: {message}" in find_link_problems(docs_tree)
+
+
+@pytest.mark.parametrize("field", ["related", "redirect_to"])
+def test_check_front_matter_link_to_a_symlinked_doc(docs_tree: Path, field: str) -> None:
+    (docs_tree / "docs" / "meta" / "alias.md").symlink_to("vocabulary.md")
+    front_matter: dict[str, object] = {field: ["meta/alias.md"]}
+    write_doc(docs_tree, "meta/a.md", "", **front_matter)
+    assert find_link_problems(docs_tree) == [
+        "docs/meta/a.md:1: broken link: docs/meta/alias.md is a symlink, not a doc"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("link", "message"),
+    [
+        ("img/notes", "docs/img/notes is a symlink, not a doc"),
+        ("img/shared", "docs/img/shared is a symlinked directory of docs"),
+    ],
+)
+def test_check_link_to_a_symlink_inside_a_symlinked_directory(docs_tree: Path, link: str, message: str) -> None:
+    write_vendor_shared(docs_tree, "notes.md")
+    (docs_tree / "vendor" / "notes.md").write_text("x\n")
+    (docs_tree / "static" / "img").mkdir(parents=True)
+    (docs_tree / "static" / "img" / "notes").symlink_to("../../vendor/notes.md")
+    (docs_tree / "static" / "img" / "shared").symlink_to("../../vendor/shared")
+    (docs_tree / "docs" / "img").symlink_to("../static/img")
+    write_doc(docs_tree, "meta/a.md", f"[x](../{link})\n")
+    [problem] = find_link_problems(docs_tree)
+    assert problem.endswith(f": broken link: {message}")
+
+
+def test_check_link_to_another_file_inside_a_symlinked_directory_resolves(docs_tree: Path) -> None:
+    write_vendor_shared(docs_tree, "notes.md", "diagram.png")
+    (docs_tree / "docs" / "shared").symlink_to("../vendor/shared")
+    write_doc(docs_tree, "meta/a.md", "[d](../shared/diagram.png)\n")
+    assert find_link_problems(docs_tree) == []
+
+
+def test_check_link_to_a_symlink_to_nothing_is_broken(docs_tree: Path) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "docs" / "guides" / "old.png").symlink_to("gone.png")
+    write_doc(docs_tree, "meta/a.md", "[o](../guides/old.png)\n")
+    [problem] = find_link_problems(docs_tree)
+    assert problem.endswith(": broken link: docs/guides/old.png does not exist")
+
+
+def test_check_symlinked_directory_with_docs_is_one_problem(docs_tree: Path) -> None:
+    write_vendor_shared(docs_tree, "index.md", "notes.md", "diagram.png")
+    (docs_tree / "vendor" / "shared" / "gone.png").symlink_to("nowhere.png")
+    (docs_tree / "docs" / "shared").symlink_to("../vendor/shared")
+    [problem] = find_problems_at(docs_tree, "shared")
+    assert problem.startswith('docs/shared: symlink to "../vendor/shared" leads to a directory with docs\n')
+
+
+def test_check_symlink_to_a_doc_inside_a_symlinked_directory_counts_as_a_doc(docs_tree: Path) -> None:
+    (docs_tree / "vendor").mkdir()
+    (docs_tree / "vendor" / "notes.md").write_text("x\n")
+    (docs_tree / "static" / "img").mkdir(parents=True)
+    (docs_tree / "static" / "img" / "flow.png").write_text("x\n")
+    (docs_tree / "static" / "img" / "notes").symlink_to("../../vendor/notes.md")
+    (docs_tree / "docs" / "img").symlink_to("../static/img")
+    [problem] = find_problems_at(docs_tree, "img")
+    assert problem.startswith('docs/img: symlink to "../static/img" leads to a directory with docs\n')
+
+
+def test_check_symlink_to_an_image_inside_a_symlinked_directory_is_allowed(docs_tree: Path) -> None:
+    (docs_tree / "static" / "img").mkdir(parents=True)
+    (docs_tree / "static" / "logo.png").write_text("x\n")
+    (docs_tree / "static" / "img" / "flow.png").write_text("x\n")
+    (docs_tree / "static" / "img" / "logo.png").symlink_to("../logo.png")
+    (docs_tree / "docs" / "img").symlink_to("../static/img")
+    assert find_problems_at(docs_tree, "img") == []
+
+
+@pytest.mark.parametrize(("target", "where"), [("/srv/logo.png", "out of the repo"), ("gone.png", "to nothing")])
+def test_check_symlink_inside_an_allowed_symlinked_directory(docs_tree: Path, target: str, where: str) -> None:
+    (docs_tree / "static" / "img" / "sub").mkdir(parents=True)
+    (docs_tree / "static" / "img" / "flow.png").write_text("x\n")
+    (docs_tree / "static" / "img" / "logo.png").symlink_to(target)
+    (docs_tree / "static" / "img" / "sub" / "logo.png").symlink_to(target)
+    (docs_tree / "docs" / "img").symlink_to("../static/img")
+    problem_lines = [p.partition("\n")[0] for p in find_problems_at(docs_tree, "img")]
+    assert problem_lines == [
+        f'docs/img/logo.png: symlink to "{target}" leads {where}',
+        f'docs/img/sub/logo.png: symlink to "{target}" leads {where}',
+    ]
+
+
+def test_check_symlinked_directory_that_links_back_to_docs(docs_tree: Path) -> None:
+    write_vendor_shared(docs_tree, "logo.png")
+    (docs_tree / "vendor" / "shared" / "back").symlink_to("../../docs")
+    (docs_tree / "docs" / "shared").symlink_to("../vendor/shared")
+    hint = "remove the symlink; its target does not exist"
+    assert find_problems_at(docs_tree, "shared") == [
+        f'docs/shared/back: symlink to "../../docs" leads to nothing\n  hint: {hint}'
+    ]
+
+
+def test_check_symlink_to_a_directory_it_lies_in(docs_tree: Path) -> None:
+    write_guides(docs_tree)
+    (docs_tree / "docs" / "guides" / "up").symlink_to("..")
+    assert find_problems_at(docs_tree, "guides/up") == [
+        'docs/guides/up: symlink to ".." leads to nothing\n  hint: remove the symlink; its target does not exist'
+    ]
+
+
+def test_check_symlinks_that_point_to_each_other(docs_tree: Path) -> None:
+    (docs_tree / "docs" / "a.md").symlink_to("b.md")
+    (docs_tree / "docs" / "b.md").symlink_to("a.md")
+    hint = "\n  hint: remove the symlink; its target does not exist"
+    assert find_problems_at(docs_tree, "a.md") == [f'docs/a.md: symlink to "b.md" leads to nothing{hint}']
+    assert find_problems_at(docs_tree, "b.md") == [f'docs/b.md: symlink to "a.md" leads to nothing{hint}']
+
+
+def test_check_names_question_mark(docs_tree: Path) -> None:
+    write_doc(docs_tree, "meta/faq?.md")
+    write_doc(docs_tree, "what?/index.md")
+    message = 'name contains "#", "%" or "?", which break links to the rendered page'
+    assert [str(p) for p in Checker(docs_tree).check_names()] == [
+        f"docs/meta/faq?.md: {message}",
+        f"docs/what?: {message}",
+    ]
+
+
+def test_check_non_utf8_name_under_docs(docs_tree: Path) -> None:
+    (docs_tree / "docs" / "meta" / os.fsdecode(b"caf\xe9.md")).write_text("no front matter\n")
+    (docs_tree / "docs" / os.fsdecode(b"caf\xe9.png")).write_text("x\n")
+    message = "name is not valid UTF-8, which breaks links to the rendered page"
+    assert run_check(docs_tree).splitlines() == [
+        f"docs/caf\\xe9.png: {message}",
+        f"docs/meta/caf\\xe9.md: {message}",
+    ]
+
+
+def test_template_subdirectory_index_not_required(docs_tree: Path) -> None:
+    write_doc(
+        docs_tree,
+        "meta/index.md",
+        "# Meta\n\n## Children\n\n"
+        "- [vocabulary.md](vocabulary.md) — Words.\n- [templates/](templates/index.md) — Templates.\n",
+    )
+    write_doc(docs_tree, "meta/templates/index.md", "# Templates\n\n## Children\n\n- [adr/](adr/index.md) — ADRs.\n")
+    (docs_tree / "docs" / "meta" / "templates" / "adr").mkdir()
+    (docs_tree / "docs" / "meta" / "templates" / "adr" / "index.md").write_text("<Index>\n")
+    (docs_tree / "docs" / "meta" / "templates" / "adr" / "x.md").write_text("<Template>\n")
+    (docs_tree / "docs" / "meta" / "templates" / "deeper" / "more").mkdir(parents=True)
+    assert [str(p) for p in Checker(docs_tree).run(include_staged=False)] == [
+        "docs/meta/templates/index.md: child deeper/ is not listed"
+    ]
+
+
+@pytest.mark.parametrize("link", ["guides/#setup", "guides#setup"])
+def test_directory_link_anchor_found(docs_tree: Path, link: str) -> None:
+    write_guides(docs_tree)
+    write_doc(docs_tree, "import.md", f"# Import\n\nSee [g]({link}).\n")
+    assert find_link_problems(docs_tree) == []
+
+
+@pytest.mark.parametrize("link", ["guides/#x", "guides#x"])
+def test_directory_link_anchor_checked(docs_tree: Path, link: str) -> None:
+    write_guides(docs_tree)
+    file = write_doc(docs_tree, "import.md", f"# Import\n\nSee [g]({link}).\n")
+    line = file.read_text().splitlines().index(f"See [g]({link}).") + 1
+    assert find_link_problems(docs_tree) == [f'docs/import.md:{line}: no heading "#x" in docs/guides/index.md']
+
+
+def test_directory_link_anchor_to_the_docs_root(docs_tree: Path) -> None:
+    write_doc(docs_tree, "meta/a.md", "[r](../#docs) [x](../#x)\n")
+    [problem] = find_link_problems(docs_tree)
+    assert problem.endswith(': no heading "#x" in docs/index.md')
+
+
+def test_body_parsed_once_with_code_check(code_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    parsed_texts: Counter[str] = Counter()
+    parse_tokens = MarkdownText.tokens.func
+
+    def count_parse(text: MarkdownText) -> list[Token]:
+        parsed_texts[text.text] += 1
+        return parse_tokens(text)
+
+    counting_tokens = cached_property(count_parse)
+    counting_tokens.__set_name__(MarkdownText, "tokens")
+    monkeypatch.setattr(MarkdownText, "tokens", counting_tokens)
+    write_doc(code_tree, "meta/x.md", "# X\n\nSee [t](code:sample.mod.Thing) and [v](vocabulary.md).\n")
+    _list_in_meta_index(code_tree, "x")
+    checker = Checker(code_tree)
+    assert checker.codebase is not None
+    assert checker.run(include_staged=False) == []
+    bodies = Counter(doc.body for doc in checker.doc_set)
+    assert {body: parsed_texts[body] for body in bodies} == bodies

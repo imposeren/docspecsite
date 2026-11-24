@@ -14,6 +14,7 @@ related:
   - behavior/commands.md
   - behavior/status-notes.md
   - behavior/doc-symlinks.md
+  - behavior/limits.md
 ---
 
 # Docs system requirements
@@ -32,7 +33,7 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
 
 ## Versioning
 
-> **Changed, not built yet.** Git is the only version control, and deletes and renames are rejected by `check --staged`, which also rejects the removal of a symlink.
+> **Changed, not built yet.** Git is the only version control, and deletes and renames are rejected by `check --staged`.
 
 - **DS-4** Versions come from the project's [version control](glossary.md), git by default: every [revision](glossary.md) on the [main line of history](glossary.md) that touches a doc is a version of it ([meta/versioning.md](../meta/versioning.md)).
   Where versions come from, and the choice of building without version control, is in [versioning-backends.md](versioning-backends.md) ([DS-40](versioning-backends.md#requirements), [DS-41](versioning-backends.md#requirements)).
@@ -64,12 +65,10 @@ Ids are never renumbered or reused: a new requirement gets the next free number,
   Other roles are shown as written.
   A target that is not found is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check does ([DS-36](#checks)).
 - **DS-35** The site is built in **parts**, and a build renders the parts it is asked for: `docs` (the hand-written docs, their versions and diffs, the index pages and `llms.txt`) and `code` (the code reference with its entry page); by default every part the repo has ([commands.md](commands.md#build)).
-  Links into a part that is not built never dangle: a `code:` link in a docs-only site is its text in code style, and a link from the code reference to a doc in a code-only site leads to the doc's Markdown file on the repo host (plain text without `source-url`).
+  Links into a part that is not built never dangle: a `code:` link in a docs-only site is its text in code style, and a link from the code reference to a doc in a code-only site leads to the doc's Markdown file on the repo host (plain text without `source-url`), and a link to another file of the part not built, such as an image, leads to that file on the repo host the same way.
   When the parts are built together, they link to each other as one site.
 
 ## Navigation and indexes
-
-> **Changed, not built yet.** A doc whose `priority` is not `must`, `should` or `could` is left off the status board. The lines of the machine listing are written without escaping, so a space or parenthesis in a path, or a bracket in a title, breaks the line.
 
 - **DS-14** Each page shows: breadcrumb (up), children (down), `related` and computed **backlinks** (across), status (every status of a partly built doc, [DS-49](status-notes.md#requirements)), components and tags.
 - **DS-15** Generated index pages: per tag, per component, and a **status board** grouping docs by `status`, then by `milestone` (in roadmap order) and `priority`; a partly built doc is listed under each of its statuses ([DS-48](status-notes.md#requirements)).
@@ -95,7 +94,7 @@ The HTTP API reference (DS-26, DS-27) is described in [web-api-reference.md](web
 
 ## Checks
 
-> **Changed, not built yet.** The deletes-and-renames check is still `check --staged`, which the `docs-check` hook runs. Every `web-api:` link is reported as a problem: there is no HTTP API reference for it to resolve to. Two things are not reported: names with `?`, and the [symlinks](doc-symlinks.md) that are a problem. A symlinked directory still needs an `index.md`, and a symlinked directory or doc an entry in its parent's `index.md`. The anchor of a body link to a directory is not checked, and the cases in [Input that cannot be used](commands.md#input-that-cannot-be-used) are not built yet.
+> **Changed, not built yet.** The deletes-and-renames check is still `check --staged`, which the `docs-check` hook runs. Every `web-api:` link is reported as a problem: there is no HTTP API reference for it to resolve to.
 
 - **DS-20** A check command validates: front-matter schema, `layer` matches directory, every directory has an `index.md` that lists each direct child doc and child directory with a description in its `## Children` section ([meta/structure.md](../meta/structure.md#every-directory-has-an-indexmd)), where a symlink is neither a directory that needs an `index.md` nor a child that an index lists ([DS-39](doc-symlinks.md#requirements)), all links (body, `related`, `redirect_to`, `code:`, `web-api:`) resolve, where a body link to a directory is a link to its `index.md`, and an anchor in it names a heading there ([commands.md](commands.md#check)), components are in the project's component list or the shared ones ([meta/vocabulary.md](../meta/vocabulary.md)), no `#`, `%` or `?` in file or directory names under `docs/` ([meta/structure.md](../meta/structure.md#naming)) and no file name under `docs/` that is not valid UTF-8 ([commands.md](commands.md#input-that-cannot-be-used)), no symlink under `docs/` that leads out of the repo, to nothing, to a doc or to a directory with a doc inside, whatever the symlink's own name ([DS-39](doc-symlinks.md#requirements)), every doc is readable UTF-8, every doc has its title in its place ([DS-52](#checks)), and no doc's page takes the URL of a generated page ([architecture/docs-tooling.md](../architecture/docs-tooling.md#output-layout)).
   It also checks that a partly built doc's statuses and its status notes agree ([DS-44](status-notes.md#requirements) to [DS-46](status-notes.md#requirements)).

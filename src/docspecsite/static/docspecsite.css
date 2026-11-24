@@ -134,4 +134,4 @@ aside .summary { display: block; color: var(--muted); }
 .marker.moved { color: #0969da; }
 .marker.code-current { color: #9a6700; }
 .marker.code-gone,
-.marker.missing { color: #c40000; }
+.marker.not-found { color: #c40000; }

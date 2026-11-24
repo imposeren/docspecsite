@@ -263,3 +263,10 @@ def test_load_records_an_unreadable_file(tmp_path: Path) -> None:
 
 def test_source_url_without_trailing_slash() -> None:
     assert ProjectConfig.from_bytes(b'source-url = "https://example.org/r/"\n').source_url == "https://example.org/r"
+
+
+def test_check_code_components_splits_known_and_unknown() -> None:
+    config = ProjectConfig((), "", {"a": ("core", "nope"), "b": ("core",), "c": ("gone", "nope")})
+    checked = config.check_code_components({"core"})
+    assert checked.known == {"a": ("core",), "b": ("core",), "c": ()}
+    assert checked.unknown == (("a", "nope"), ("c", "gone"), ("c", "nope"))

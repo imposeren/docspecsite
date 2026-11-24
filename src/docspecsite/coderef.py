@@ -5,6 +5,7 @@ It knows which dotted paths exist and where they are shown.
 Docs: architecture/docs-tooling.md
 """
 
+import keyword
 import posixpath
 import re
 import warnings
@@ -13,7 +14,7 @@ from dataclasses import dataclass
 from functools import cached_property, partial
 from pathlib import Path
 from types import MappingProxyType
-from typing import ClassVar, Self
+from typing import ClassVar, Self, assert_never
 
 import griffe
 from jinja2 import Template
@@ -21,11 +22,12 @@ from jinja2 import Template
 from .codeindex import CodeIndex, CodeTarget
 from .config import ProjectConfig
 from .errors import DocspecsiteError, DocspecsiteWarning
-from .links import parse_code_target
+from .links import EMPTY_CODE_TARGET_MESSAGE, is_empty_code_target, parse_code_target
 from .markdown import HtmlRenderer, Link, MarkdownText, RenderedLink
 from .pages import Page, PageLink, create_environment
 from .roles import RoleRef
-from .urls import CODE_INDEX_DOC, MARKERS, make_code_url, make_doc_url, make_relative_url
+from .symlinks import CODE_DIR_TO_FILE_REASON, LEFT_OUT_SYMLINK_REASON, DiskFiles, SymlinkFollower, SymlinkKind
+from .urls import CODE_INDEX_DOC, MARKERS, encode_href_path, make_code_url, make_doc_url, make_relative_url
 
 type Pieces = tuple[Piece, ...]
 
@@ -65,7 +67,35 @@ class Package:
     """The package directory."""
 
     repo_code_dir: str
-    """The code directory containing it, relative to the repo root (POSIX); ``.`` for the root."""
+    """The code directory containing it, relative to the repo root (POSIX); ``.`` for the root.
+
+    For a code directory that is a symlink, the directory it leads to.
+    """
+
+
+@dataclass(frozen=True)
+class UnusableInput:
+    """Input in the code directories that the code reference cannot use, and leaves out.
+
+    Docs: behavior/commands.md#input-that-cannot-be-used
+    """
+
+    path: str
+    """Repo path of the file or directory left out."""
+
+    reason: str
+    """Why it cannot be used, as the check's problem and the build's warning give it."""
+
+
+@dataclass(frozen=True)
+class FoundPackages:
+    """The packages found in the code directories, and what in them is left out."""
+
+    packages: tuple[Package, ...]
+    """The packages that can be loaded, by code directory and then by name."""
+
+    left_out: tuple[UnusableInput, ...]
+    """The package directories and code directories left out, with the reason for each."""
 
 
 @dataclass(frozen=True)
@@ -80,6 +110,9 @@ class BrokenReference:
 
     line_number: int
     """Line of the reference in the source file, from 1."""
+
+    is_empty_target: bool = False
+    """Whether the reference is a ``code:`` link with nothing after the scheme, which names no element to look for."""
 
 
 @dataclass(frozen=True)
@@ -125,6 +158,9 @@ class CodeLinkTarget:
 
     dotted_path: str | None
     """Full dotted path of the code element found; None when the codebase does not show it."""
+
+    is_empty_target: bool = False
+    """Whether the link is a ``code:`` link with nothing after the scheme; it has no role and no dotted path."""
 
 
 @dataclass(frozen=True)
@@ -240,15 +276,17 @@ class Codebase:
     """
 
     # Constants
-    CLOSING_QUOTES = re.compile(r'("""|\'\'\')\s*$')
-    """Closing quotes of a docstring, with the spaces after them."""
+    INVALID_PACKAGE_NAME_REASON = 'directory name "{name}" is not a valid Python package name'
 
-    OPENING_QUOTES = re.compile(r'^\s*[A-Za-z]{0,2}("""|\'\'\')')
-    """Opening quotes of a docstring, with its prefix and the indentation before it."""
+    OPENING_QUOTES = re.compile(r'^\s*[A-Za-z]{0,2}("""|\'\'\'|"|\')')
+    """Opening quotes of a docstring (group 1), with its prefix and the indentation before it."""
 
     # Loaded code
     index: CodeIndex
     """The ``code:`` link targets: every module and public member, by dotted path."""
+
+    left_out: tuple[UnusableInput, ...]
+    """The input in the code directories that was not loaded, with the reason for each."""
 
     modules: list[griffe.Module]
     """The loaded modules, sorted by path."""
@@ -260,15 +298,19 @@ class Codebase:
     source_lines_by_file: dict[Path, list[str]]
     """Lines of the source files read so far, by file, so that each file is read once."""
 
-    def __init__(self, modules: list[griffe.Module], packages: list[Package]) -> None:
+    def __init__(
+        self, modules: list[griffe.Module], packages: Sequence[Package], left_out: Sequence[UnusableInput] = ()
+    ) -> None:
         """Index the loaded modules.
 
         Args:
             modules: Loaded modules to index; their public members become code elements, sorted by path.
             packages: Packages the modules were loaded from; used to find the file defining an object.
+            left_out: Input in the code directories that was not loaded, for the check and the build to report.
         """
         self.modules = sorted(modules, key=lambda m: m.path)
         self.packages_by_name = {p.name: p for p in packages}
+        self.left_out = tuple(left_out)
         self.source_lines_by_file = {}
         targets: dict[str, CodeTarget] = {}
         for module in self.modules:
@@ -282,6 +324,7 @@ class Codebase:
         """Load the code of the packages in the code directories, without importing or running it.
 
         Docstrings are parsed as Google style. All packages share one collection, so aliases across packages resolve.
+        What :meth:`find_packages` leaves out is in the codebase's ``left_out`` attribute.
 
         Args:
             root: Directory holding the code: the repository root, or the code extracted from the ref.
@@ -293,10 +336,10 @@ class Codebase:
                 found in more than one code directory.
             griffe.GriffeError: griffe cannot load a package.
         """
-        packages = cls.find_packages(root, config)
+        found = cls.find_packages(root, config)
         collection = griffe.ModulesCollection()
         modules: list[griffe.Module] = []
-        for package in packages:
+        for package in found.packages:
             try:
                 loaded = griffe.load(
                     package.name,
@@ -311,13 +354,19 @@ class Codebase:
                 raise CodeError("cannot load the code of package %s: %s", package.name, error) from error
             if isinstance(loaded, griffe.Module):
                 modules.extend(cls.iter_modules(loaded))
-        return cls(modules, packages)
+        return cls(modules, found.packages, found.left_out)
 
-    @staticmethod
-    def find_packages(root: Path, config: ProjectConfig) -> list[Package]:
+    @classmethod
+    def find_packages(cls, root: Path, config: ProjectConfig) -> FoundPackages:
         """Return the packages of the code directories: each ``<code dir>/<pkg>/`` directory with an ``__init__.py``.
 
-        A ``.`` entry of :attr:`~docspecsite.config.ProjectConfig.code_dirs` is the root itself.
+        A ``.`` entry of :attr:`~docspecsite.config.ProjectConfig.code_dirs` is the root itself. A code directory
+        that is a symlink is followed under ``root``, where the code is read, and the directory it leads to is its
+        packages' code directory; one that leads to an absolute path, out of ``root`` or to nothing is left out. A
+        package directory whose name Python cannot import is left out too; only these top-level names are checked.
+
+        Docs: behavior/commands.md#input-that-cannot-be-used
+        Docs: behavior/commands.md#build
 
         Args:
             root: Directory holding the code: the repository root, or the code extracted from the ref.
@@ -328,17 +377,43 @@ class Codebase:
             CodeError: A package name is found in more than one code directory.
         """
         root = root.resolve()
+        follower = SymlinkFollower(DiskFiles(root))
         candidates: set[Path] = set()
         for code_dir_glob in config.code_dirs:
             candidates.update([root] if code_dir_glob == "." else root.glob(code_dir_glob))
-        packages: list[Package] = []
+        real_code_dirs: dict[str, None] = {}  # repo paths of the directories the code directories are, each once
+        left_out: list[UnusableInput] = []
         for code_dir in sorted(candidates):
             repo_code_dir = code_dir.relative_to(root).as_posix()
-            if not (code_dir.is_dir() and config.is_code_dir(repo_code_dir)):
+            if not config.is_code_dir(repo_code_dir):
                 continue
-            for package_dir in sorted(code_dir.iterdir()):
-                if package_dir.is_dir() and (package_dir / "__init__.py").is_file():
+            if follower.files.is_symlink(repo_code_dir):
+                target = follower.follow(repo_code_dir)
+                match target.kind:
+                    case SymlinkKind.OUT_OF_REPO | SymlinkKind.NOTHING:
+                        left_out.append(UnusableInput(repo_code_dir, LEFT_OUT_SYMLINK_REASON))
+                    case SymlinkKind.DIRECTORY:
+                        real_code_dirs[target.found_path] = None
+                    case SymlinkKind.DOC | SymlinkKind.OTHER_FILE:
+                        left_out.append(UnusableInput(repo_code_dir, CODE_DIR_TO_FILE_REASON))
+                    case _:
+                        assert_never(target.kind)
+            elif code_dir.is_dir():
+                real_code_dirs[repo_code_dir] = None
+        packages: list[Package] = []
+        for repo_code_dir in real_code_dirs:
+            for package_dir in sorted((root / repo_code_dir).iterdir()):
+                if not (package_dir.is_dir() and (package_dir / "__init__.py").is_file()):
+                    continue
+                if cls.is_package_name(package_dir.name):
                     packages.append(Package(package_dir.name, package_dir, repo_code_dir))
+                else:
+                    left_out.append(
+                        UnusableInput(
+                            posixpath.normpath(posixpath.join(repo_code_dir, package_dir.name)),
+                            cls.INVALID_PACKAGE_NAME_REASON.format(name=package_dir.name),
+                        )
+                    )
         # Repo paths of the code directories holding each package name, in code directory order.
         code_dirs_by_name: dict[str, list[str]] = {}
         for package in packages:
@@ -346,7 +421,16 @@ class Codebase:
         for name, repo_code_dirs in sorted(code_dirs_by_name.items()):
             if len(repo_code_dirs) > 1:
                 raise CodeError("package %s is in more than one code directory: %s", name, ", ".join(repo_code_dirs))
-        return packages
+        return FoundPackages(tuple(packages), tuple(left_out))
+
+    @staticmethod
+    def is_package_name(name: str) -> bool:
+        """Return whether Python can import a directory name as a package: an identifier that is not a keyword.
+
+        Args:
+            name: Name of a package directory.
+        """
+        return name.isidentifier() and not keyword.iskeyword(name)
 
     @classmethod
     def iter_modules(cls, module: griffe.Module) -> Iterator[griffe.Module]:
@@ -473,6 +557,8 @@ class Codebase:
         if href.startswith(RoleRef.SCHEME):
             role = RoleRef.parse(href[len(RoleRef.SCHEME) :])
             return CodeLinkTarget(role, self.find_role_target(role.target, owner))
+        if is_empty_code_target(href):
+            return CodeLinkTarget(None, None, is_empty_target=True)
         dotted_path = parse_code_target(href)
         if dotted_path is None:
             return None
@@ -515,7 +601,9 @@ class Codebase:
         lines = self.source_lines_by_file.get(filepath)
         if lines is None:
             try:
-                lines = filepath.read_text(encoding="utf-8").splitlines()
+                # Python counts a line only at "\n" (read_text turns "\r\n" and "\r" into it), where splitlines() also
+                # splits at form feeds and Unicode separators, which shifts every line number after them.
+                lines = filepath.read_text(encoding="utf-8").split("\n")
             except UnicodeDecodeError as error:
                 raise CodeError("%s is not valid UTF-8: %s", obj.path, error, file=self.get_repo_path(obj)) from error
             self.source_lines_by_file[filepath] = lines
@@ -534,43 +622,66 @@ class Codebase:
         if docstring.lineno is None:
             return []
         lines = self.read_source_lines(obj)[docstring.lineno - 1 : docstring.endlineno or docstring.lineno]
-        lines[0] = self.OPENING_QUOTES.sub("", lines[0])
-        lines[-1] = self.CLOSING_QUOTES.sub("", lines[-1])
+        opening = self.OPENING_QUOTES.match(lines[0])
+        if opening is None:
+            return lines
+        quotes = opening.group(1)
+        lines[0] = lines[0][opening.end() :]
+        # The closing quotes are the first of their kind on the last line (a docstring cannot hold them unescaped);
+        # what follows them, such as a comment, is not part of the docstring.
+        closing = re.search(rf"(?<!\\){re.escape(quotes)}", lines[-1])
+        if closing is not None:
+            lines[-1] = lines[-1][: closing.start()]
         return lines
+
+    @staticmethod
+    def find_docstring_holder(obj: griffe.Object) -> griffe.Object:
+        """Return the object whose docstring the code reference page shows for an object.
+
+        An overloaded function without a docstring of its own shows the docstring of its first documented overload.
+
+        Args:
+            obj: Module or public member.
+        """
+        if isinstance(obj, griffe.Function) and obj.docstring is None:
+            return next((overload for overload in obj.overloads or () if overload.docstring is not None), obj)
+        return obj
 
     def collect_broken_references_of(self, obj: griffe.Object) -> list[BrokenReference]:
         """Return the broken roles and ``code:`` links of the docstring of an object, with their lines.
 
         The texts scanned are those its code reference page renders (see :class:`ParsedDocstring`), and a link is
-        broken when :meth:`find_link_target` finds no code element for it. Objects of a namespace package have no
-        single file and are skipped.
+        broken when :meth:`find_link_target` finds no code element for it. The docstring is the one the page shows
+        (:meth:`find_docstring_holder`). Objects of a namespace package have no single file and are skipped.
 
         Args:
             obj: Module or public member whose docstring is scanned.
 
         Raises:
-            CodeError: The source file is not valid UTF-8, or a broken reference cannot be located in it.
+            CodeError: The file is outside the code directory of its package or not valid UTF-8, or a broken reference
+                cannot be located in it.
         """
-        docstring = obj.docstring
-        if docstring is None or docstring.lineno is None or isinstance(obj.filepath, list):
+        holder = self.find_docstring_holder(obj)
+        docstring = holder.docstring
+        if docstring is None or docstring.lineno is None or isinstance(holder.filepath, list):
             return []
-        # One (line of the rendered text holding the link, the link) per broken link, in source order.
-        broken_links: list[tuple[str, Link]] = []
-        for text in ParsedDocstring.parse(obj).iter_texts():
+        # One (rendered text line holding the link, the link, what it refers to) per broken link, in source order.
+        broken_links: list[tuple[str, Link, CodeLinkTarget]] = []
+        for text in ParsedDocstring.parse(holder).iter_texts():
             text_lines = text.splitlines()
             for link in MarkdownText(text, use_roles=True).extract_links():
-                target = self.find_link_target(link.target, obj)
+                target = self.find_link_target(link.target, holder)
                 if target is not None and target.dotted_path is None:
-                    broken_links.append((text_lines[link.line_number - 1].strip(), link))
+                    broken_links.append((text_lines[link.line_number - 1].strip(), link, target))
         if not broken_links:
             return []
-        file = self.get_repo_path(obj)
-        source_lines = self.read_docstring_lines(obj, docstring)
+        file = self.get_repo_path(holder)
+        source_lines = self.read_docstring_lines(holder, docstring)
         value_start = docstring.lineno + next(i for i, text in enumerate(source_lines) if text.strip())
         value_lines = [line.strip() for line in docstring.value.splitlines()]
         broken_references: list[BrokenReference] = []
         value_line_index = 0
-        for text_line, link in broken_links:
+        for text_line, link, target in broken_links:
             reference_text = link.role_source or link.target
             # A rendered line is a docstring line without its indentation, or without a table item's name and type.
             located_index = next(
@@ -579,11 +690,17 @@ class Codebase:
             if located_index is None:
                 raise CodeError("cannot locate %s in the docstring of %s", reference_text, obj.path, file=file)
             value_line_index = located_index
-            broken_references.append(BrokenReference(reference_text, file, value_start + value_line_index))
+            broken_references.append(
+                BrokenReference(
+                    reference_text, file, value_start + value_line_index, is_empty_target=target.is_empty_target
+                )
+            )
         return broken_references
 
     def collect_docs_lines_of(self, obj: griffe.Object) -> list[DocsLine]:
         """Return the ``Docs:`` lines of the docstring of an object, with their locations in the source file.
+
+        The docstring is the one the page shows (:meth:`find_docstring_holder`).
 
         Args:
             obj: Module or public member whose docstring is scanned; its source file is read to find the line numbers.
@@ -592,17 +709,18 @@ class Codebase:
         Raises:
             CodeError: The source file is not valid UTF-8, or a line cannot be located in it.
         """
-        docstring = obj.docstring
-        if docstring is None or docstring.lineno is None or isinstance(obj.filepath, list):
+        holder = self.find_docstring_holder(obj)
+        docstring = holder.docstring
+        if docstring is None or docstring.lineno is None or isinstance(holder.filepath, list):
             return []
         targets, _ = split_docs_lines(docstring.value)
         if not targets:
             return []
-        source_lines = self.read_docstring_lines(obj, docstring)
+        source_lines = self.read_docstring_lines(holder, docstring)
         line_numbers = [docstring.lineno + i for i, text in enumerate(source_lines) if DOCS_LINE.match(text)]
+        file = self.get_repo_path(holder)
         if len(line_numbers) != len(targets):
-            raise CodeError("cannot locate Docs: lines of %s", obj.path, file=self.get_repo_path(obj))
-        file = self.get_repo_path(obj)
+            raise CodeError("cannot locate Docs: lines of %s", obj.path, file=file)
         return [DocsLine(target, file, line_number) for target, line_number in zip(targets, line_numbers, strict=True)]
 
 
@@ -731,6 +849,9 @@ class CodeReference:
     locate_doc: Callable[[str], str | None]
     """See :meth:`__init__`."""
 
+    changed_paths: frozenset[str]
+    """See :meth:`__init__`."""
+
     def __init__(
         self,
         codebase: Codebase,
@@ -739,6 +860,7 @@ class CodeReference:
         titles: Mapping[str, str] = INDEX_TITLES,
         *,
         locate_doc: Callable[[str], str | None],
+        changed_paths: frozenset[str] = frozenset(),
     ) -> None:
         """Prepare the pages of a codebase.
 
@@ -752,12 +874,15 @@ class CodeReference:
                 links; a doc missing from it is shown by its path.
             locate_doc: Gives the URL that a ``Docs:`` line links its doc to, from the doc's path relative to
                 ``docs/``: site-root-relative for a doc page, or external; None shows the doc's path as text.
+            changed_paths: Repo paths of the code files whose contents are not those of the commit the source links
+                show, such as files new or changed in the working tree; their pages have no source links.
         """
         self.codebase = codebase
         self.config = config
         self.blob_base_url = blob_base_url
         self.titles = titles
         self.locate_doc = locate_doc
+        self.changed_paths = changed_paths
 
     @classmethod
     def for_commit(
@@ -768,6 +893,7 @@ class CodeReference:
         titles: Mapping[str, str] = INDEX_TITLES,
         *,
         locate_doc: Callable[[str], str | None],
+        changed_paths: frozenset[str] = frozenset(),
     ) -> CodeReference:
         """Prepare the pages of a codebase whose source links show the files at a commit.
 
@@ -781,10 +907,12 @@ class CodeReference:
                 links; a doc missing from it is shown by its path.
             locate_doc: Gives the URL that a ``Docs:`` line links its doc to, from the doc's path relative to
                 ``docs/``: site-root-relative for a doc page, or external; None shows the doc's path as text.
+            changed_paths: Repo paths of the code files that differ from those at ``commit``, such as files new or
+                changed in the working tree; their pages have no source links.
         """
         source_url = config.source_url
         blob_base_url = f"{source_url}/blob/{commit}" if source_url else ""
-        return cls(codebase, config, blob_base_url, titles, locate_doc=locate_doc)
+        return cls(codebase, config, blob_base_url, titles, locate_doc=locate_doc, changed_paths=changed_paths)
 
     @cached_property
     def template(self) -> Template:
@@ -985,7 +1113,8 @@ class CodePage:
 
         A role's link text becomes the found element's dotted path, as its :class:`~docspecsite.roles.RoleRef` says.
         A ``code:`` target or a role that the code reference does not show keeps its text and gets the "no longer
-        exists" marker; for a role, this also issues a :class:`~docspecsite.errors.DocspecsiteWarning`.
+        exists" marker; for a role, this also issues a :class:`~docspecsite.errors.DocspecsiteWarning`. A ``code:`` link
+        with nothing after the scheme keeps its text with no marker; :meth:`build_docstring` warns about it.
 
         Args:
             href: Percent-decoded target of a link in a docstring; a Python role's link starts with ``role:``.
@@ -994,6 +1123,8 @@ class CodePage:
         target = self.reference.codebase.find_link_target(href, owner)
         if target is None:
             return RenderedLink(href)
+        if target.is_empty_target:
+            return RenderedLink(None)  # build_docstring warns about it with its place in the source
         if target.dotted_path is None:
             if target.role is not None:
                 warnings.warn(
@@ -1021,7 +1152,10 @@ class CodePage:
     def make_source_url(self, obj: griffe.Object, *, link_whole_file: bool = False) -> str | None:
         """Return the URL of the source of an object on the repository host, or None when there is no such link.
 
-        There is none when the reference has no source link base, or when the object has no single file or line.
+        There is none when the reference has no source link base, when the object has no single file or line, and
+        when its file is one of the reference's changed files.
+
+        Docs: architecture/docs-tooling.md#code-reference
 
         Args:
             obj: Module or member whose defining file (and lines) the link points at.
@@ -1033,18 +1167,37 @@ class CodePage:
             or (not link_whole_file and obj.lineno is None)
         ):
             return None
-        url = f"{self.reference.blob_base_url}/{self.reference.codebase.get_repo_path(obj)}"
+        repo_path = self.reference.codebase.get_repo_path(obj)
+        if repo_path in self.reference.changed_paths:
+            return None
+        url = f"{self.reference.blob_base_url}/{encode_href_path(repo_path)}"
         return url if link_whole_file else f"{url}#L{obj.lineno}-L{obj.endlineno or obj.lineno}"
 
     def build_docstring(self, obj: griffe.Object) -> tuple[tuple[Section, ...], Pieces]:
         """Split the docstring of an object into its rendered sections and the links of its ``Docs:`` lines.
 
         The ``Docs:`` lines themselves are not part of the sections. A ``Docs:`` link shows the doc's title, or the
-        doc's path as plain text when :attr:`CodeReference.locate_doc` gives it no URL.
+        doc's path as plain text when :attr:`CodeReference.locate_doc` gives it no URL. Each empty ``code:`` link of
+        the docstring issues a :class:`~docspecsite.errors.DocspecsiteWarning` with its place in the source. When the
+        docstring's source cannot be scanned for them (:meth:`Codebase.collect_broken_references_of` raises
+        :class:`CodeError`), none is reported here (``check`` reports why), and the page is still rendered.
 
         Args:
             obj: Module or member whose docstring is rendered; its parent context lets griffe parse the sections.
         """
+        try:
+            broken_references = self.reference.codebase.collect_broken_references_of(obj)
+        except CodeError:
+            # The code check reports why the source cannot be scanned; the page itself does not need the scan.
+            broken_references: list[BrokenReference] = []
+        for broken in broken_references:
+            if broken.is_empty_target:
+                warnings.warn(
+                    DocspecsiteWarning(
+                        "%s:%s: %s; left out", broken.file, broken.line_number, EMPTY_CODE_TARGET_MESSAGE
+                    ),
+                    stacklevel=1,
+                )
         parsed = ParsedDocstring.parse(obj)
         docs: list[Piece] = []
         for target in parsed.docs_targets:
@@ -1082,15 +1235,9 @@ class CodePage:
             obj: Public member of the module (or of a class on it); a class's members are described with it.
         """
         overloads: tuple[Pieces, ...] = ()
-        if isinstance(obj, griffe.Function) and obj.overloads:
-            overloads = tuple(self.build_function_pieces(o) for o in obj.overloads)
-            if obj.docstring is None:
-                documented = next((o for o in obj.overloads if o.docstring is not None), None)
-                sections, docs = self.build_docstring(obj if documented is None else documented)
-            else:
-                sections, docs = self.build_docstring(obj)
-        else:
-            sections, docs = self.build_docstring(obj)
+        if isinstance(obj, griffe.Function):
+            overloads = tuple(self.build_function_pieces(o) for o in obj.overloads or ())
+        sections, docs = self.build_docstring(Codebase.find_docstring_holder(obj))
         decorators: tuple[Pieces, ...] = ()
         members: tuple[Member, ...] = ()
         inherited_groups: tuple[Inherited, ...] = ()
@@ -1105,7 +1252,7 @@ class CodePage:
             inherited_groups = self.find_inherited(obj)
         elif isinstance(obj, griffe.Attribute):
             if self.is_property(obj):
-                decorators = ((Piece("@property"),),)
+                decorators = ((Piece("@cached_property" if "cached" in obj.labels else "@property"),),)
             signature = self.build_attribute_pieces(obj)
         elif isinstance(obj, griffe.TypeAlias):
             signature = (Piece(f"type {obj.name}"), *self.build_type_params(obj.type_parameters), Piece(" = "))
@@ -1128,7 +1275,9 @@ class CodePage:
 
     @staticmethod
     def is_property(attribute: griffe.Attribute) -> bool:
-        """Return whether an attribute is a property, shown with ``@property`` and without its value.
+        """Return whether an attribute is a property, shown with its decorator and without its value.
+
+        A ``functools.cached_property`` counts as one; it is shown as ``@cached_property``.
 
         Args:
             attribute: Module constant, class attribute or property.
@@ -1325,13 +1474,15 @@ class CodePage:
         inherited_groups: list[Inherited] = []
         for base in mro:
             base_href = self.make_code_href(base.path)
+            # Names of a base that is not shown (a private mixin) still hide those of later bases, as in Python.
+            hidden_names = seen_names.copy()
+            seen_names.update(base.members)
             if base_href is None:
                 continue
             links: list[Piece] = []
             for member in Codebase.iter_members(base):
-                if member.name not in seen_names:
+                if member.name not in hidden_names:
                     links.append(Piece(member.name, self.make_code_href(member.path)))
-            seen_names.update(base.members)
             if links:
                 inherited_groups.append(Inherited(Piece(base.name, base_href), tuple(links)))
         return tuple(inherited_groups)

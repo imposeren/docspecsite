@@ -7,6 +7,8 @@ from .errors import DocspecsiteError
 NOT_UTF8_MESSAGE = "not valid UTF-8 (%s at byte %d)"
 """Message template for text that is not valid UTF-8, filled with the decoding error's reason and byte offset."""
 
+NON_UTF8_NAME_MESSAGE = "name is not valid UTF-8, which breaks links to the rendered page"
+
 
 class UnreadableTextError(DocspecsiteError):
     """Error for a text file that cannot be read or is not valid UTF-8."""
@@ -23,6 +25,31 @@ def decode_text(data: bytes) -> str:
             ``data``, a byte-order mark included.
     """
     return data.decode("utf-8").removeprefix("\ufeff")
+
+
+def is_utf8_name(name: str) -> bool:
+    """Return whether a file name or path read from disk or from git is valid UTF-8.
+
+    Docs: behavior/commands.md#input-that-cannot-be-used
+
+    Args:
+        name: Name as Python decodes it from file-system bytes, each byte that is not UTF-8 kept as a surrogate escape.
+    """
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def show_name_bytes(text: str) -> str:
+    """Return text for printing, with each byte of a file name that is not UTF-8 shown as ``\\x`` and two hex digits.
+
+    Args:
+        text: Text that may hold file names as Python decodes them, bytes that are not UTF-8 kept as surrogate
+            escapes, such as a problem report or a warning.
+    """
+    return text.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
 
 
 def read_text(file: Path) -> str:

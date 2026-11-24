@@ -8,11 +8,13 @@ from typing import Self, TypeGuard
 
 import yaml
 
-from .markdown import MarkdownText
+from .markdown import FrontMatterSplit, MarkdownText, split_source_lines
 
 DOCS_DIR = "docs/"
 """Directory of the docs, as a prefix of repository-relative POSIX paths."""
 TEMPLATES_DIR = "meta/templates/"
+DOC_SUFFIX = ".md"
+"""File name suffix of a doc."""
 DIR_INDEX_NAME = "index.md"
 """File name of a directory's index doc."""
 
@@ -112,6 +114,14 @@ class Doc:
         return self.body_line + body_line_number - 1
 
     @cached_property
+    def body_markdown(self) -> MarkdownText:
+        """The body parsed as Markdown on first use, then shared by everything that reads it, such as the checks.
+
+        The parsed tokens live as long as the doc, so this is meant for the latest docs, such as the working tree's.
+        """
+        return MarkdownText(self.body)
+
+    @cached_property
     def status(self) -> DocStatus:
         """The front matter's ``status``; no values when the front matter did not load."""
         return DocStatus.from_front_matter(self.front_matter or {})
@@ -122,7 +132,7 @@ class Doc:
         return is_redirect(self.front_matter or {})
 
     @classmethod
-    def parse(cls, path: str, text: str) -> Self:
+    def parse(cls, path: str, text: str, split: FrontMatterSplit | None = None) -> Self:
         """Split the text of a doc into front matter and body.
 
         Unreadable front matter is not raised: :attr:`front_matter` is None and :attr:`error` says why.
@@ -131,9 +141,12 @@ class Doc:
             path: Doc path relative to ``docs/``; only stored in :attr:`path`, nothing is read from it.
             text: Whole file text, front matter included; :attr:`body_line` keeps the body's line numbers relative
                 to it.
+            split: The front matter's YAML and the body's line, as
+                :meth:`docspecsite.markdown.MarkdownText.split_front_matter` gives them, when already known (kept in
+                the body cache); the text is then not parsed as Markdown.
         """
-        source, body_line = MarkdownText(text).split_front_matter()
-        body = "\n".join(text.splitlines()[body_line - 1 :])
+        source, body_line = split if split is not None else MarkdownText(text).split_front_matter()
+        body = "\n".join(split_source_lines(text)[body_line - 1 :])
         if source is None:
             return cls(path, None, body, body_line, "no front matter")
         try:
@@ -190,6 +203,15 @@ def derive_doc_path(repo_path: str) -> str | None:
     return repo_path.removeprefix(DOCS_DIR) if repo_path.startswith(DOCS_DIR) else None
 
 
+def is_in_templates_dir(path: str) -> bool:
+    """Return whether a path lies in the doc templates' directory ``meta/templates/``, its ``index.md`` included.
+
+    Args:
+        path: Path relative to ``docs/``.
+    """
+    return path.startswith(TEMPLATES_DIR)
+
+
 def is_template(path: str) -> bool:
     """Return whether a path is a template rather than a doc.
 
@@ -199,7 +221,23 @@ def is_template(path: str) -> bool:
         path: Path relative to ``docs/`` to classify; any file, not only Markdown (assets in ``meta/templates/`` count
             as templates too).
     """
-    return path.startswith(TEMPLATES_DIR) and path != f"{TEMPLATES_DIR}index.md"
+    return is_in_templates_dir(path) and path != f"{TEMPLATES_DIR}index.md"
+
+
+def is_doc(path: str, *, is_symlink: bool, is_under_symlinked_dir: bool) -> bool:
+    """Return whether a path under ``docs/`` is a doc: a regular ``.md`` file that is not a template.
+
+    A symlink is never a doc, and neither is anything reached through a symlinked directory, whatever they lead to.
+
+    Docs: architecture/docs-tooling.md#history-model
+    Docs: behavior/doc-symlinks.md#requirements
+
+    Args:
+        path: Path relative to ``docs/`` of any file, from the working tree or a revision's tree.
+        is_symlink: The file at the path is a symlink.
+        is_under_symlinked_dir: A directory between the path and ``docs/`` is a symlink.
+    """
+    return path.endswith(DOC_SUFFIX) and not is_template(path) and not is_symlink and not is_under_symlinked_dir
 
 
 def make_dir_index_path(directory: str) -> str:
@@ -218,14 +256,3 @@ def is_dir_index(path: str) -> bool:
         path: Doc path relative to ``docs/``, or a bare file name.
     """
     return posixpath.basename(path) == DIR_INDEX_NAME
-
-
-def is_docs_asset(path: str) -> bool:
-    """Return whether a repo file is copied into the site as it is: a non-Markdown file under ``docs/``.
-
-    Templates are left out.
-
-    Args:
-        path: Repo path of the file to classify.
-    """
-    return path.startswith(DOCS_DIR) and not path.endswith(".md") and not is_template(path.removeprefix(DOCS_DIR))

@@ -4,6 +4,7 @@ import abc
 from dataclasses import dataclass, field
 
 from .docs import Doc
+from .text import show_name_bytes
 
 
 @dataclass(frozen=True, order=True)
@@ -50,7 +51,7 @@ class Problem:
         report = f"{where}: {self.message}"
         if show_hint and self.hint is not None:
             report += f"\n  hint: {self.hint}"
-        return report.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
+        return show_name_bytes(report)
 
 
 class DocCheck(abc.ABC):

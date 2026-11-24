@@ -2,7 +2,7 @@
 title: Symlinked docs — scenarios
 summary: Exact cases for symlinks under docs/, judged by what they lead to — first, for each kind of symlink, what the check, the listings and the site do with it, also inside a symlinked directory; then what is particular to the check (hints, indexes, templates, links, removing a symlink), to the site (versions, previews, the built revision) and to loops of symlinks.
 layer: scenarios
-status: [specified, implemented]
+status: [implemented, changed]
 milestone: hardening
 priority: must
 components: [checks, site]
@@ -302,6 +302,17 @@ Feature: Symlinks in the check
     And a doc links to "guides/old.png"
     When I run the check
     Then the check reports a broken link for "guides/old.png"
+```
+
+### Removing and renaming a symlink
+
+> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, so these scenarios run through `check --staged`.
+
+```gherkin
+Feature: Removing and renaming a symlink
+  As a docs author
+  I want to remove or rename a symlink under docs/ without a check problem
+  So that the rule never to delete or rename docs does not hold back a symlink, which never was a doc
 
   Scenario: Removing a symlink is allowed
     Given the git backend is in use
@@ -320,8 +331,6 @@ Feature: Symlinks in the check
 ```
 
 ### A symlinked image in the check
-
-> **Built.**
 
 ```gherkin
 Feature: A symlinked image in the check
@@ -397,8 +406,6 @@ Feature: Symlinks on the site
 ```
 
 ### A symlinked image in a preview
-
-> **Built.**
 
 ```gherkin
 Feature: A symlinked image in a preview of the working tree

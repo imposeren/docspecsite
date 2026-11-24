@@ -94,6 +94,12 @@ def _helper() -> None:
     """Private."""
 '''
 
+GUIDES_INDEX = "# Guides\n\n## Setup\n\n## Children\n\n- [setup.md](setup.md) — Setup.\n"
+ROOT_INDEX_WITH_GUIDES = (
+    "## Children\n\n- [roadmap.md](roadmap.md) — M.\n- [meta/index.md](meta/index.md) — R.\n"
+    "- [architecture/index.md](architecture/index.md) — A.\n- [guides/](guides/index.md) — G.\n"
+)
+
 
 class HistoryRepo(NamedTuple):
     """A test repository whose commits are known by name."""
@@ -231,6 +237,44 @@ def make_commit(root: Path, message: str, date: str = "2026-11-01T12:00:00+00:00
     return run_git(root, "rev-parse", "HEAD")
 
 
+def init_git_repo(root: Path) -> None:
+    """Make a directory a git repository on branch ``main``, with a committer identity and no commits.
+
+    Args:
+        root: Existing directory to make a repository.
+    """
+    run_git(root, "init", "-q", "-b", "main")
+    run_git(root, "config", "user.name", "Test")
+    run_git(root, "config", "user.email", "test@example.invalid")
+
+
+def add_files(root: Path, files: Mapping[str, bytes | str]) -> None:
+    """Write files and symlinks at repo paths, with the directories they lie in.
+
+    Args:
+        root: Repository root.
+        files: Contents of each file by repo path; a str is a symlink's target instead.
+    """
+    for path, content in files.items():
+        file = root / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, str):
+            file.symlink_to(content)
+        else:
+            file.write_bytes(content)
+
+
+def write_guides(root: Path) -> None:
+    """Write ``docs/guides/`` with its index and ``setup.md``, listed in a root index with its title heading.
+
+    Args:
+        root: Tree holding ``docs/``.
+    """
+    write_doc(root, "index.md", f"# Docs\n\n{ROOT_INDEX_WITH_GUIDES}")
+    write_doc(root, "guides/index.md", GUIDES_INDEX)
+    write_doc(root, "guides/setup.md", "# Setup\n")
+
+
 def edit_text(file: Path, edit: Callable[[str], str]) -> None:
     """Replace the text of a UTF-8 file with what a function makes of it.
 
@@ -269,9 +313,7 @@ def git_repo(docs_tree: Path) -> Path:
     Args:
         docs_tree: Tree that is made a repository on branch ``main``.
     """
-    run_git(docs_tree, "init", "-q", "-b", "main")
-    run_git(docs_tree, "config", "user.name", "Test")
-    run_git(docs_tree, "config", "user.email", "test@example.invalid")
+    init_git_repo(docs_tree)
     make_commit(docs_tree, "init")
     return docs_tree
 

@@ -1,4 +1,6 @@
+import re
 import warnings
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -13,14 +15,27 @@ from docspecsite.coderef import (
     CodeError,
     CodeReference,
     DocsLine,
+    FoundPackages,
     Package,
+    ParsedDocstring,
+    UnusableInput,
     split_docs_lines,
 )
 from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteWarning
+from docspecsite.markdown import MarkdownText
 from docspecsite.pages import Page, PageLink
 from docspecsite.urls import make_doc_url
 
+OVERLOADED = (
+    "from typing import overload\n\n\n"
+    "@overload\n"
+    "def f(x: int) -> int:\n"
+    '    """Uses :meth:`.nope`.\n\n    Docs: missing.md\n    """\n\n\n'
+    "@overload\n"
+    "def f(x: str) -> str: ...\n\n\n"
+    "def f(x):\n    return x\n"
+)
 SAMPLE_MODULE_PATH = "tools/sample/src/sample/mod.py"
 ROLES_MODULE = """from sample.base import Base
 
@@ -49,9 +64,46 @@ class S:
 
 
 def test_find_packages(code_tree: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
-    packages = Codebase.find_packages(code_tree, ProjectConfig.load(code_tree))
-    assert packages == [Package("sample", code_tree / "tools/sample/src/sample", "tools/sample/src")]
-    assert Codebase.find_packages(tmp_path_factory.mktemp("empty"), ProjectConfig.from_bytes(None)) == []
+    found = Codebase.find_packages(code_tree, ProjectConfig.load(code_tree))
+    assert found == FoundPackages((Package("sample", code_tree / "tools/sample/src/sample", "tools/sample/src"),), ())
+    empty = Codebase.find_packages(tmp_path_factory.mktemp("empty"), ProjectConfig.from_bytes(None))
+    assert empty == FoundPackages((), ())
+
+
+def test_find_packages_leaves_out_names_python_cannot_import(code_tree: Path) -> None:
+    src = code_tree / "tools/sample/src"
+    for name in ("a.b", "class", "1pkg", "a-b"):
+        (src / name).mkdir()
+        (src / name / "__init__.py").write_text("", encoding="utf-8")
+    (src / "not_a_package.d").mkdir()  # no __init__.py: not a package, so its name is not checked
+    found = Codebase.find_packages(code_tree, ProjectConfig.load(code_tree))
+    assert [package.name for package in found.packages] == ["sample"]
+    assert found.left_out == tuple(
+        UnusableInput(f"tools/sample/src/{name}", f'directory name "{name}" is not a valid Python package name')
+        for name in ("1pkg", "a-b", "a.b", "class")
+    )
+
+
+def test_find_packages_follows_a_symlinked_code_dir_to_its_target(code_tree: Path) -> None:
+    target = code_tree / "lib/python/other"
+    target.mkdir(parents=True)
+    (target / "__init__.py").write_text("", encoding="utf-8")
+    (code_tree / "tools/linked").mkdir()
+    (code_tree / "tools/linked/src").symlink_to("../../lib/python")
+    (code_tree / "tools/broken").mkdir()
+    (code_tree / "tools/broken/src").symlink_to("../../nowhere")
+    found = Codebase.find_packages(code_tree, ProjectConfig.load(code_tree))
+    assert Package("other", code_tree / "lib/python/other", "lib/python") in found.packages
+    assert found.left_out == (
+        UnusableInput("tools/broken/src", "symlink to an absolute path, outside the repo or to a missing file"),
+    )
+
+
+def test_codebase_without_valid_packages_has_no_modules(code_tree: Path) -> None:
+    (code_tree / "tools/sample/src/sample").rename(code_tree / "tools/sample/src/a.b")
+    codebase = Codebase.load(code_tree, ProjectConfig.load(code_tree))
+    assert codebase.modules == []
+    assert [left_out.path for left_out in codebase.left_out] == ["tools/sample/src/a.b"]
 
 
 def test_find_packages_rejects_a_name_in_two_code_dirs(code_tree: Path) -> None:
@@ -124,6 +176,113 @@ def test_docs_lines_two_in_one_docstring(code_tree: Path) -> None:
         DocsLine("a.md", SAMPLE_MODULE_PATH, 8),
         DocsLine("b.md#x", SAMPLE_MODULE_PATH, 9),
     ]
+
+
+def test_docs_line_in_single_quoted_docstring(code_tree: Path) -> None:
+    assert _docs_lines_for(code_tree, '"Docs: a.md"\n') == [DocsLine("a.md", SAMPLE_MODULE_PATH, 1)]
+    assert _docs_lines_for(code_tree, "r'Docs: b.md'\n") == [DocsLine("b.md", SAMPLE_MODULE_PATH, 1)]
+
+
+def test_docs_line_in_docstring_with_trailing_comment(code_tree: Path) -> None:
+    source = '"""Title.\n\nDocs: a.md\n"""  # noqa\n'
+    assert _docs_lines_for(code_tree, source) == [DocsLine("a.md", SAMPLE_MODULE_PATH, 3)]
+    assert _docs_lines_for(code_tree, '"""Docs: b.md"""  # a "#" """ b\n') == [DocsLine("b.md", SAMPLE_MODULE_PATH, 1)]
+
+
+def test_form_feed_and_line_separator_keep_docstring_lines(code_tree: Path) -> None:
+    source = (
+        '# x\x0c\n# y\u2028z\x85\ndef f() -> None:\n    """F.\n\n    Docs: b.md\n\n    See :meth:`.nope`.\n    """\n'
+    )
+    write_roles_module(code_tree, source)
+    codebase = load_sample_code(code_tree)
+    roles_path = "tools/sample/src/sample/roles.py"
+    assert codebase.collect_docs_lines() == [
+        DocsLine("meta/vocabulary.md", SAMPLE_MODULE_PATH, 3),
+        DocsLine("b.md", roles_path, 6),
+    ]
+    assert codebase.collect_broken_references() == [BrokenReference(":meth:`.nope`", roles_path, 8)]
+
+
+def test_overload_docstring_checked(code_tree: Path) -> None:
+    write_roles_module(code_tree, OVERLOADED)
+    codebase = load_sample_code(code_tree)
+    roles_path = "tools/sample/src/sample/roles.py"
+    assert DocsLine("missing.md", roles_path, 8) in codebase.collect_docs_lines()
+    assert codebase.collect_broken_references() == [BrokenReference(":meth:`.nope`", roles_path, 6)]
+
+
+def test_implementation_docstring_wins_over_overload_docstring(code_tree: Path) -> None:
+    write_roles_module(code_tree, OVERLOADED.replace("    return x\n", '    """Impl."""\n    return x\n'))
+    codebase = load_sample_code(code_tree)
+    assert codebase.collect_broken_references() == []
+    assert [d for d in codebase.collect_docs_lines() if d.file.endswith("roles.py")] == []
+
+
+def test_empty_code_target_in_docstring_problem_and_plain_text(code_tree: Path) -> None:
+    write_roles_module(
+        code_tree, 'def f() -> None:\n    """Go.\n\n    See [this](code:) and [that](code:sample.gone).\n    """\n'
+    )
+    codebase = load_sample_code(code_tree)
+    roles_path = "tools/sample/src/sample/roles.py"
+    assert codebase.collect_broken_references() == [
+        BrokenReference("code:", roles_path, 4, is_empty_target=True),
+        BrokenReference("code:sample.gone", roles_path, 4),
+    ]
+    code_reference = CodeReference.for_commit(
+        codebase, ProjectConfig.load(code_tree), "c0ffee", locate_doc=make_doc_url
+    )
+    module = next(m for m in codebase.modules if m.path == "sample.roles")
+    with pytest.warns(DocspecsiteWarning, match=r"^tools/sample/src/sample/roles\.py:4: empty code: target; left out$"):
+        body = code_reference.build_page(module, ()).body_html
+    assert "See this and" in body
+    assert 'class="marker code-gone">no longer exists</span>' in body
+    assert body.count("no longer exists") == 1
+
+
+def test_unlocatable_broken_reference_still_renders_the_page(code_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_roles_module(code_tree, 'def f() -> None:\n    """Go to [this](code:).\n    """\n')
+    codebase = load_sample_code(code_tree)
+    original_iter_texts = ParsedDocstring.iter_texts
+
+    def iter_unlocatable_texts(parsed: ParsedDocstring) -> Iterator[str]:
+        # A rendered line that is in no line of the docstring's source cannot be placed.
+        return (text.replace("Go to", "Gone to") for text in original_iter_texts(parsed))
+
+    monkeypatch.setattr(ParsedDocstring, "iter_texts", iter_unlocatable_texts)
+    code_reference = CodeReference.for_commit(
+        codebase, ProjectConfig.load(code_tree), "c0ffee", locate_doc=make_doc_url
+    )
+    module = next(m for m in codebase.modules if m.path == "sample.roles")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        body = code_reference.build_page(module, ()).body_html
+    assert "Go to this" in body
+
+
+def test_unreadable_docstring_source_still_renders_the_page(code_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_roles_module(code_tree, 'def f() -> None:\n    """Go to [this](code:).\n    """\n')
+    codebase = load_sample_code(code_tree)
+
+    def raise_not_utf8(_codebase: Codebase, obj: griffe.Object, _docstring: griffe.Docstring) -> list[str]:
+        raise CodeError("source of %s is not valid UTF-8", obj.path)
+
+    monkeypatch.setattr(Codebase, "read_docstring_lines", raise_not_utf8)
+    code_reference = CodeReference.for_commit(
+        codebase, ProjectConfig.load(code_tree), "c0ffee", locate_doc=make_doc_url
+    )
+    module = next(m for m in codebase.modules if m.path == "sample.roles")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        body = code_reference.build_page(module, ()).body_html
+    assert "Go to this" in body
+
+
+def test_code_module_template_anchor_exists() -> None:
+    root = Path(__file__).parents[1]
+    template = (root / "src/docspecsite/templates/code_module.html").read_text(encoding="utf-8")
+    [anchor] = re.findall(r"docs-tooling\.md#([\w-]+)", template.splitlines()[0])
+    tooling = MarkdownText((root / "docs/architecture/docs-tooling.md").read_text(encoding="utf-8"))
+    assert anchor in tooling.collect_heading_anchors()
 
 
 def _build_module_pages(
@@ -299,6 +458,28 @@ def test_code_pages_without_source_url_have_no_source_links(code_tree: Path) -> 
         assert 'class="source"' not in page.body_html, page.url
 
 
+def test_code_pages_of_changed_files_have_no_source_links(code_tree: Path) -> None:
+    config = ProjectConfig.load(code_tree)
+    codebase = Codebase.load(code_tree, config)
+    code_reference = CodeReference.for_commit(
+        codebase,
+        config,
+        "c0ffee",
+        locate_doc=make_doc_url,
+        changed_paths=frozenset({"tools/sample/src/sample/mod.py"}),
+    )
+    pages = {module.path: code_reference.build_page(module, []) for module in codebase.modules}
+    assert "/blob/" not in pages["sample.mod"].body_html
+    assert "https://github.com/o/r/blob/c0ffee/tools/sample/src/sample/base.py#L" in pages["sample.base"].body_html
+
+
+def test_source_link_percent_encodes_path(code_tree: Path) -> None:
+    (code_tree / "tools/sample").rename(code_tree / "tools/s #%?")
+    pages = _build_pages(code_tree)
+    body = pages["reference/code/sample.mod.html"].body_html
+    assert 'href="https://github.com/o/r/blob/c0ffee/tools/s%20%23%25%3F/src/sample/mod.py#L' in body
+
+
 def test_code_page_griffe_error_is_code_error(code_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def raise_griffe_error(*args: object) -> str:
         raise griffe.GriffeError("cannot resolve sample.gone")
@@ -370,12 +551,12 @@ def test_collect_broken_references(code_tree: Path) -> None:
         '    """\n',
     )
     found = load_sample_code(code_tree).collect_broken_references()
-    file = "tools/sample/src/sample/roles.py"
+    roles_path = "tools/sample/src/sample/roles.py"
     assert found == [
-        BrokenReference(":meth:`.nope`", file, 5),
-        BrokenReference("CODE:sample.gone", file, 5),
-        BrokenReference(":meth:`.nope2`", file, 10),
-        BrokenReference(":class:`.gone`", file, 13),
+        BrokenReference(":meth:`.nope`", roles_path, 5),
+        BrokenReference("CODE:sample.gone", roles_path, 5),
+        BrokenReference(":meth:`.nope2`", roles_path, 10),
+        BrokenReference(":class:`.gone`", roles_path, 13),
     ]
 
 
@@ -383,3 +564,29 @@ def test_collect_broken_references_skips_namespace_package(tmp_path: Path) -> No
     namespace = griffe.Module("ns", filepath=[tmp_path / "a" / "ns", tmp_path / "b" / "ns"])
     namespace.docstring = griffe.Docstring("See :meth:`.nope`.", lineno=1, endlineno=1, parent=namespace)
     assert Codebase([namespace], []).collect_broken_references() == []
+
+
+def test_cached_property_shown_as_cached_property(code_tree: Path) -> None:
+    write_roles_module(
+        code_tree,
+        "from functools import cached_property\n\n\n"
+        "class C:\n"
+        '    @cached_property\n    def slow(self) -> int:\n        """Slow."""\n        return 1\n\n'
+        '    @property\n    def fast(self) -> int:\n        """Fast."""\n        return 1\n',
+    )
+    body = _build_pages(code_tree)["reference/code/sample.roles.html"].body_html
+    assert '<span class="decorator">@cached_property</span>' in body
+    assert body.count('<span class="decorator">@property</span>') == 1
+
+
+def test_inherited_member_from_private_mixin_not_credited_to_later_base(code_tree: Path) -> None:
+    write_roles_module(
+        code_tree,
+        "class _Mixin:\n    def run(self) -> None: ...\n\n    def only_mixin(self) -> None: ...\n\n\n"
+        "class Base:\n    def run(self) -> None: ...\n\n    def only_base(self) -> None: ...\n\n\n"
+        'class C(_Mixin, Base):\n    """C."""\n',
+    )
+    body = _build_pages(code_tree)["reference/code/sample.roles.html"].body_html
+    inherited = body[body.index("Inherited from") :]
+    assert "only_base" in inherited
+    assert ">run<" not in inherited

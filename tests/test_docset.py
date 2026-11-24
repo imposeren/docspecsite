@@ -51,3 +51,29 @@ def test_load_reports_impossible_date(docs_tree: Path) -> None:
     doc = DocSet.load(docs_tree).by_path["bad-date.md"]
     assert doc.front_matter is None
     assert doc.error is not None and doc.error.startswith("front matter is not valid YAML: ")
+
+
+def test_front_matter_with_line_separator_keeps_body(docs_tree: Path) -> None:
+    # U+2028 and U+0085 are valid in YAML and split lines for str.splitlines, but not for Markdown.
+    text = '---\ntitle: "A\u2028B\u0085C"\n---\n\n# X\n\nText.\n'
+    (docs_tree / "docs" / "sep.md").write_text(text, encoding="utf-8")
+    doc = DocSet.load(docs_tree).by_path["sep.md"]
+    assert doc.error is None
+    assert doc.body_line == 4
+    assert doc.body == "\n# X\n\nText.\n"
+    assert doc.get_file_line_number(2) == 5
+
+
+def test_docset_skips_symlinks_and_symlinked_dirs(docs_tree: Path) -> None:
+    (docs_tree / "docs/alias.md").symlink_to("roadmap.md")
+    (docs_tree / "docs/linked").symlink_to("meta")
+    (docs_tree / "docs/dangling.md").symlink_to("nowhere.md")
+    paths = [d.path for d in DocSet.load(docs_tree)]
+    assert paths == [
+        "architecture/components.md",
+        "architecture/index.md",
+        "index.md",
+        "meta/index.md",
+        "meta/vocabulary.md",
+        "roadmap.md",
+    ]

@@ -24,7 +24,7 @@ Every command reads the file as it is on disk in the checked-out files, never a 
 
 ## Settings
 
-> **Changed, not built yet.** The `[versioning]` table in the example and the link patterns of `source-url` do not exist yet. Unknown components in `code-components` are not reported.
+> **Changed, not built yet.** The `[versioning]` table in the example and the link patterns of `source-url` do not exist yet.
 
 `check` reports an unknown key (such as a misspelled `adr_prefix`), a value of the wrong kind and a file that is not valid TOML as problems on `docspecsite.toml`: a setting with a wrong value takes its default, and a file that is not valid TOML makes `check` skip the ADR file-name rule, since the repo's prefix is unknown.
 `list` and `build` stop with an error on a file that is not valid TOML or a value of the wrong kind; they warn about an unknown key and ignore it, so a setting from a newer docspecsite release doesn't stop an older one.

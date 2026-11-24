@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Self
 
 from .config import ProjectConfig
-from .docs import DOCS_DIR, Doc, derive_doc_path, is_template
+from .docs import DOCS_DIR, Doc, derive_doc_path, is_doc
 from .links import DocLinks
 from .query import Backlink, Filters
 from .text import UnreadableTextError, read_text
@@ -57,19 +57,23 @@ class DocSet:
     def load(cls, root: Path) -> Self:
         """Return the docs of a repository's working tree, sorted by path.
 
-        Every ``docs/**/*.md`` is read except templates. A doc that cannot be read or is not valid UTF-8 is left out,
-        with its error in :attr:`read_errors_by_path`.
+        Every ``docs/**/*.md`` is read except templates, symlinks and what lies in a symlinked directory. A doc that
+        cannot be read or is not valid UTF-8 is left out, with its error in :attr:`read_errors_by_path`.
 
         Args:
             root: Repository root; docs are read from its ``docs/`` directory in the working tree, not from git.
         """
         docs_dir = root / "docs"
-        files = {f.relative_to(docs_dir).as_posix(): f for f in docs_dir.rglob("*.md") if f.is_file()}
+        # Path.walk does not enter a symlinked directory, so no file it lists lies under one.
+        files = {
+            file.relative_to(docs_dir).as_posix(): file
+            for directory, _, names in docs_dir.walk()
+            for file in (directory / name for name in names)
+            if is_doc(file.relative_to(docs_dir).as_posix(), is_symlink=file.is_symlink(), is_under_symlinked_dir=False)
+        }
         docs: list[Doc] = []
         read_errors_by_path: dict[str, UnreadableTextError] = {}
         for path in sorted(files):
-            if is_template(path):
-                continue
             try:
                 docs.append(Doc.parse(path, read_text(files[path])))
             except UnreadableTextError as error:

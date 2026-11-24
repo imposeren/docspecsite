@@ -10,13 +10,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .docs import Doc, make_string_tuple
-from .markdown import MarkdownText
 from .problems import Problem
 
 type RefKind = Literal["body", "related", "redirect_to", "superseded_by"]
 
 SCHEME_PATTERN = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*):")
 WEB_SCHEMES = {"http", "https", "mailto"}
+EMPTY_CODE_TARGET_MESSAGE = "empty code: target"
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,11 @@ class CodeRef:
     line_number: int
     """Line of the link in the doc file, from 1; the front matter's first line for a ``code`` entry."""
 
+    @property
+    def is_body(self) -> bool:
+        """Whether the link is a ``code:`` link in the doc's text, not an entry of the ``code`` front-matter field."""
+        return self.kind == "body"
+
 
 @dataclass(frozen=True)
 class Ref:
@@ -52,6 +57,11 @@ class Ref:
     anchor: str | None
     """Heading anchor of the link, without ``#``; None when it has none."""
 
+    @property
+    def is_body(self) -> bool:
+        """Whether the link is written in the doc's text, not in a front-matter field (which must name a doc)."""
+        return self.kind == "body"
+
 
 def parse_code_target(href: str) -> str | None:
     """Return the dotted path a ``code:`` link names (empty when the link has no path), or None for any other link.
@@ -63,6 +73,15 @@ def parse_code_target(href: str) -> str | None:
     if scheme_match is None or scheme_match.group(1).lower() != "code":
         return None
     return href[scheme_match.end() :].strip()
+
+
+def is_empty_code_target(href: str) -> bool:
+    """Return whether a link is a ``code:`` link with nothing after the scheme, such as ``code:``.
+
+    Args:
+        href: Link target to inspect; its scheme is matched case-insensitively.
+    """
+    return parse_code_target(href) == ""
 
 
 def parse_body_ref(doc_path: str, href: str, line_number: int) -> Ref | CodeRef | Problem | None:
@@ -86,10 +105,10 @@ def parse_body_ref(doc_path: str, href: str, line_number: int) -> Ref | CodeRef 
         scheme_name = scheme_match.group(1).lower()
         if scheme_name in WEB_SCHEMES:
             return None
+        if is_empty_code_target(href):
+            return Problem(doc_path, line_number, EMPTY_CODE_TARGET_MESSAGE)
         dotted_path = parse_code_target(href)
         if dotted_path is not None:
-            if not dotted_path:
-                return Problem(doc_path, line_number, "empty code: target")
             return CodeRef(dotted_path, "body", line_number)
         if scheme_name == "web-api":
             return Problem(doc_path, line_number, f"web-api: links cannot be resolved yet (no API schema): {href}")
@@ -150,7 +169,7 @@ class DocLinks:
         """
         return [
             parse_body_ref(self.doc.path, link.target, self.doc.get_file_line_number(link.line_number))
-            for link in MarkdownText(self.doc.body).extract_links()
+            for link in self.doc.body_markdown.extract_links()
         ]
 
     def build_front_matter_refs(self) -> list[Ref]:

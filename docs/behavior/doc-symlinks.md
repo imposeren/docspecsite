@@ -2,7 +2,7 @@
 title: Symlinked docs
 summary: A symlink under docs/ is judged by what it leads to, never by its own name — one that leads to a doc, to a directory with a doc inside, out of the repo or to nothing is a check problem, with a hint that depends on where it leads, and listings and the site leave such docs out; one that leads to another file, such as an image, or to a directory without docs is allowed and reaches the site as what it leads to.
 layer: behavior
-status: specified
+status: [implemented, changed]
 milestone: hardening
 priority: must
 components: [checks, site]
@@ -26,6 +26,8 @@ This is a limit of docspecsite, not a rule of the docs method ([meta/index.md](.
 The limit comes from how the tool reads and renders docs, like the reserved paths (the doc paths docspecsite keeps for its generated pages) and the UTF-8 rule (every doc is readable UTF-8 text) ([DS-20](requirements.md#checks)).
 
 ## Requirements
+
+> **Changed, not built yet.** The `git:staged` check is still the `--staged` option.
 
 This requirement continues the numbering of [requirements.md](requirements.md):
 
@@ -118,7 +120,7 @@ In the hint to move a doc, the doc's new place is the symlink's path; when the s
 A symlinked directory with a doc inside is one problem, on the directory's symlink: the check reports nothing for what is inside it.
 Inside a symlinked directory that is allowed, the check reports a symlink that leads out of the repo or to nothing, at its path below the directory's symlink.
 A symlink is not checked any further as a doc: the check looks at what it leads to only to decide the problem and its hint.
-A symlink inside `docs/meta/templates/` is not reported, whatever it leads to, since doc templates are skipped in every check (that directory's own `index.md` is a doc like any other).
+A symlink anywhere in `docs/meta/templates/`, `index.md` included, is not reported, whatever it leads to and whatever its name, since doc templates are skipped in every check.
 No symlink under `docs/` is a directory that needs an `index.md` or a child that an `index.md` lists ([commands.md](commands.md#check)).
 
 ## Listings and links

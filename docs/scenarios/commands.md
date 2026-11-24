@@ -2,7 +2,7 @@
 title: Commands — scenarios
 summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for input that docspecsite cannot use, for unknown components in `code-components`, for the backlinks of a doc template, and for output into a pipe that closes early.
 layer: scenarios
-status: [specified, implemented, changed]
+status: implemented
 components: [site, code-reference, checks, queries]
 tags: [cli, rendering]
 milestone: hardening
@@ -19,13 +19,11 @@ These scenarios pin down parts of `docspecsite build` in [Commands](../behavior/
 The first is which [revision](../behavior/glossary.md) a build shows when no `--ref` is given, with or without a preview of the working tree (the files as they are now on disk), built with `--include-worktree`.
 The second is which code pages of such a preview link to their source.
 The third is which link targets count as found, and how a body link (a link in a doc's text) whose target is not found is shown.
-Further cases cover the source links of a code directory that is a symlink, unknown components in the `[code-components]` setting ([configuration.md](../behavior/configuration.md#settings)), and input that docspecsite cannot use, such as a file name that is not UTF-8.
+Further cases cover the source links of a path in `code-dirs` that is a symlink, unknown components in the `[code-components]` setting ([configuration.md](../behavior/configuration.md#settings)), and input that docspecsite cannot use, such as a file name that is not UTF-8.
 The cases of `backlinks` are a path that names a doc template and, with `list`, output into a pipe that closes early.
 The rest of the commands is pinned down by [commands.md](../behavior/commands.md) and the tests; the check's rules have scenarios of their own ([requirements.md](requirements.md), [doc-symlinks.md](doc-symlinks.md)).
 
 ## Building what is checked out
-
-> **Changed, not built yet.** Without `--ref`, a build still shows the branch `main`, whatever is checked out; a preview on another branch then shows everything in which the working tree differs from `main` as the working copy.
 
 ```gherkin
 Feature: Building what is checked out
@@ -55,8 +53,6 @@ Feature: Building what is checked out
 ```
 
 ### A preview measured against a named ref
-
-> **Built.**
 
 ```gherkin
 Feature: A preview measured against a named ref
@@ -140,8 +136,6 @@ Feature: Links whose target is not found
 
 ### Uncommitted files in a preview
 
-> **Built.**
-
 ```gherkin
 Feature: Uncommitted files in a preview
   As a docs author
@@ -157,8 +151,6 @@ Feature: Uncommitted files in a preview
 ```
 
 ### Warnings for the latest version only
-
-> **Built.**
 
 ```gherkin
 Feature: Warnings about links for the latest version only

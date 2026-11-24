@@ -1,26 +1,45 @@
+import os
 import re
 import warnings
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
 import griffe
 import pytest
-from conftest import HistoryRepo, edit_text, extract_aside, make_commit, move_sample_package_to_root, run_git, write_doc
+from conftest import (
+    HistoryRepo,
+    add_files,
+    edit_text,
+    extract_aside,
+    make_commit,
+    move_sample_package_to_root,
+    run_git,
+    write_doc,
+)
 
 from docspecsite.build import BuildError, BuildResult, SiteBuilder, SiteWriter, run_build
 from docspecsite.coderef import Codebase, CodeError, CodeReference
 from docspecsite.config import ProjectConfig
 from docspecsite.errors import DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
-from docspecsite.git import UnknownRefError
+from docspecsite.git import Git, UnknownRefError
 from docspecsite.history import Version
 from docspecsite.indexes import IndexRenderer
+from docspecsite.markdown import FrontMatterSplit, MarkdownText
 from docspecsite.pages import Page, PageLink, Templates
 from docspecsite.parts import Part
 
 _LINK = re.compile(r'(?:href|src)="([^"]*)"')
 _EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+_LEFT_OUT_SYMLINK = "{}: symlink to an absolute path, outside the repo or to a missing file; left out"
+_INVALID_PACKAGE_NAME_WARNING = (
+    'tools/sample/src/a.b: directory name "a.b" is not a valid Python package name; left out'
+)
+_NOT_FOUND_MARKER = '<span class="marker not-found">not found</span>'
+_UNKNOWN_COMPONENT_WARNING = (
+    'docspecsite.toml: "code-components" of "sample" has an unknown component: "backned"; ignored'
+)
 _FIVE_SECTIONS = "Summary.\n\n" + "".join(f"## S{i}\n\n### Sub{i}\n\n" for i in range(1, 6))
 
 
@@ -500,6 +519,36 @@ def test_build_code_error_is_a_warning(repo: HistoryRepo, tmp_path: Path, monkey
     assert "cannot load code: cannot locate Docs: lines of sample.mod" in _get_messages(recorded)
 
 
+def _commit_unknown_code_component(root: Path) -> None:
+    (root / ProjectConfig.CONFIG_FILE).write_text(
+        'source-url = "https://github.com/o/r"\ncode-dirs = ["tools/*/src"]\n\n'
+        '[code-components]\nsample = ["core", "backned"]\n',
+        encoding="utf-8",
+    )
+    make_commit(root, "add an unknown component", "2026-11-07T12:00:00+00:00")
+
+
+def test_build_warns_about_unknown_code_component_and_leaves_it_out(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    _commit_unknown_code_component(root)
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(root, site_dir)
+    assert messages.count(_UNKNOWN_COMPONENT_WARNING) == 1
+    page = _read(site_dir, "reference/code/sample.mod.html")
+    assert "components/core.html" in page
+    assert "backned" not in page
+    assert not (site_dir / "components/backned.html").exists()
+
+
+def test_docs_only_build_does_not_warn_about_unknown_code_component(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    _commit_unknown_code_component(root)
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        run_build(root, "main", tmp_path / "site", parts=frozenset({Part.DOCS}))
+    assert _UNKNOWN_COMPONENT_WARNING not in _get_messages(recorded)
+
+
 def test_build_package_in_two_code_dirs_is_a_warning(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
     other = root / "tools/other/src/sample"
@@ -513,6 +562,31 @@ def test_build_package_in_two_code_dirs_is_a_warning(repo: HistoryRepo, tmp_path
     assert not (site_dir / "reference/code/sample.html").exists()
     expected = "cannot load code: package sample is in more than one code directory: tools/other/src, tools/sample/src"
     assert expected in _get_messages(recorded)
+
+
+def test_package_dir_with_dot_is_problem_and_left_out(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    package_dir = root / "tools/sample/src/a.b"
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text('"""Not importable."""\n', encoding="utf-8")
+    make_commit(root, "add a package Python cannot import", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(root, site_dir)
+    assert _INVALID_PACKAGE_NAME_WARNING in messages
+    assert (site_dir / "reference/code/sample.mod.html").is_file()
+    assert build_result.failed_count == 0
+
+
+def test_no_valid_package_builds_without_modules(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    run_git(root, "mv", "tools/sample/src/sample", "tools/sample/src/a.b")
+    make_commit(root, "rename the package to a name Python cannot import", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(root, site_dir)
+    assert _INVALID_PACKAGE_NAME_WARNING in messages
+    assert not [message for message in messages if message.startswith("cannot load code")]
+    assert build_result.failed_count == 0
+    assert not list((site_dir / "reference/code").glob("*.html"))
 
 
 def test_build_code_page_error_is_local(repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -601,7 +675,7 @@ def test_build_worktree_copies_docs_files(repo: HistoryRepo, tmp_path: Path, rec
     run_build(root, "main", site_dir, include_worktree=True)
     assert (site_dir / "meta/new.png").read_bytes() == b"new"
     assert 'src="new.png"' in _read(site_dir, "meta/a.html")
-    assert "doc no longer exists" not in _read(site_dir, "meta/a.html")
+    assert "not found" not in _read(site_dir, "meta/a.html")
     assert not any("new.png" in m for m in _get_messages(recwarn))
 
 
@@ -921,10 +995,11 @@ def test_build_worktree_copies_only_files_git_sees(
     secret.write_text("secret", encoding="utf-8")
     (root / "docs/meta/link.txt").symlink_to(secret)
     site_dir = tmp_path / "site"
-    run_build(root, "main", site_dir, include_worktree=True)
+    _, messages = _build_and_record(root, site_dir, include_worktree=True)
     assert (site_dir / "meta/new.png").read_bytes() == b"new"
     assert not (site_dir / "meta/ignored.png").exists()
     assert not (site_dir / "meta/link.txt").exists()
+    assert _LEFT_OUT_SYMLINK.format("docs/meta/link.txt") in messages
 
 
 def test_build_latest_version_not_utf8(repo: HistoryRepo, tmp_path: Path) -> None:
@@ -1253,6 +1328,78 @@ def test_build_code_only(repo: HistoryRepo, tmp_path: Path) -> None:
     assert f'<a href="{docs_blob_url}/meta/x.md">X doc</a>' in extract_aside(mod, "described-in")
 
 
+def _add_docs_part_image_file(root: Path) -> None:
+    (root / "docs/img").mkdir()
+    (root / "docs/img/x.png").write_bytes(b"\x89PNG")
+
+
+def _add_docs_part_image_symlink(root: Path) -> None:
+    (root / "assets").mkdir()
+    (root / "assets/x.png").write_bytes(b"\x89PNG")
+    (root / "docs/img").mkdir()
+    (root / "docs/img/x.png").symlink_to("../../assets/x.png")
+
+
+def _add_docs_part_image_below_symlinked_dir(root: Path) -> None:
+    (root / "assets").mkdir()
+    (root / "assets/x.png").write_bytes(b"\x89PNG")
+    (root / "docs/img").symlink_to("../assets", target_is_directory=True)
+
+
+@pytest.mark.parametrize(
+    "add_image",
+    [_add_docs_part_image_file, _add_docs_part_image_symlink, _add_docs_part_image_below_symlinked_dir],
+)
+def test_build_code_only_links_to_docs_part_file_go_to_repo_host(
+    repo: HistoryRepo, tmp_path: Path, add_image: Callable[[Path], None]
+) -> None:
+    root, _ = repo
+    _add_code_only_docs(root)
+    add_image(root)
+    write_doc(root, "reference/code/index.md", "See [X](../../img/x.png).\n", title="Code reference")
+    sha = make_commit(root, "spec: show an image of the docs part")
+    site_dir = tmp_path / "site"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DocspecsiteWarning)
+        run_build(root, "main", site_dir, parts=frozenset({Part.CODE}), is_strict=True)
+    assert not (site_dir / "img/x.png").exists()
+    page = _read(site_dir, "reference/code/index.html")
+    assert f'href="https://github.com/o/r/blob/{sha}/docs/img/x.png"' in page
+    assert _NOT_FOUND_MARKER not in page
+
+
+def test_build_code_only_links_to_worktree_new_docs_part_file_go_to_repo_host(
+    repo: HistoryRepo, tmp_path: Path
+) -> None:
+    root, _ = repo
+    head_sha = _add_code_only_docs(root)
+    _add_docs_part_image_file(root)
+    write_doc(root, "reference/code/index.md", "See [X](../../img/x.png).\n", title="Code reference")
+    site_dir = tmp_path / "site"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DocspecsiteWarning)
+        run_build(root, "main", site_dir, include_worktree=True, parts=frozenset({Part.CODE}), is_strict=True)
+    assert not (site_dir / "img/x.png").exists()
+    page = _read(site_dir, "reference/code/index.html")
+    assert f'href="https://github.com/o/r/blob/{head_sha}/docs/img/x.png"' in page
+    assert _NOT_FOUND_MARKER not in page
+
+
+def test_build_docs_only_links_to_code_part_file_go_to_repo_host(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    _add_code_only_docs(root)
+    write_doc(root, "meta/z.md", "See [the diagram](../reference/code/diagram.png).\n", title="Z doc")
+    sha = make_commit(root, "spec: link a file of the code part")
+    site_dir = tmp_path / "site"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DocspecsiteWarning)
+        run_build(root, "main", site_dir, parts=frozenset({Part.DOCS}), is_strict=True)
+    assert not (site_dir / "reference/code/diagram.png").exists()
+    page = _read(site_dir, "meta/z.html")
+    assert f'href="https://github.com/o/r/blob/{sha}/docs/reference/code/diagram.png"' in page
+    assert _NOT_FOUND_MARKER not in page
+
+
 def test_build_code_only_without_entry_page(repo: HistoryRepo, tmp_path: Path) -> None:
     root, _ = repo
     site_dir = tmp_path / "site"
@@ -1348,3 +1495,542 @@ def test_build_leaves_out_unsafe_symlinks_in_code_dirs(repo: HistoryRepo, tmp_pa
             in messages
         )
     assert (site_dir / "reference/code/sample.mod.html").is_file()
+
+
+def test_code_at_ref_ignores_export_attributes(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    pkg = root / "tools/sample/src/sample"
+    (pkg / "stamp.py").write_text('"""Stamp $Format:%H$."""\n', encoding="utf-8")
+    (root / ".gitattributes").write_text(
+        "tools/sample/src/sample/base.py export-ignore\ntools/sample/src/sample/stamp.py export-subst\n",
+        encoding="utf-8",
+    )
+    make_commit(root, "add attributes", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir)
+    assert (site_dir / "reference/code/sample.base.html").is_file()
+    assert "$Format:%H$" in _read(site_dir, "reference/code/sample.stamp.html")
+
+
+def test_build_reads_tree_once(repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, _ = repo
+    calls: list[str] = []
+    for name in ("read_tree", "list_worktree_files"):
+        original = getattr(Git, name)
+
+        def count_call(self: Git, *args: Any, _name: str = name, _original: Any = original) -> Any:  # noqa: ANN401
+            calls.append(_name)
+            return _original(self, *args)
+
+        monkeypatch.setattr(Git, name, count_call)
+    run_build(root, "main", tmp_path / "site", include_worktree=True)
+    assert sorted(calls) == ["list_worktree_files", "read_tree"]
+
+
+def test_build_worktree_reads_a_symlinked_image_through_the_link(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    (root / "static").mkdir()
+    (root / "static/flow.png").write_bytes(b"old")
+    (root / "docs/guides").mkdir(exist_ok=True)
+    (root / "docs/guides/flow.png").symlink_to("../../static/flow.png")
+    make_commit(root, "add a symlinked image", "2026-11-07T12:00:00+00:00")
+    (root / "static/flow.png").write_bytes(b"changed")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir, include_worktree=True)
+    assert (site_dir / "guides/flow.png").read_bytes() == b"changed"
+
+
+def test_cached_rebuild_does_not_parse_markdown(
+    repo: HistoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = repo
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir)
+
+    def refuse(self: MarkdownText) -> FrontMatterSplit:
+        raise AssertionError("front matter was split by markdown-it on a warm cache")
+
+    monkeypatch.setattr(MarkdownText, "split_front_matter", refuse)
+    second_build = run_build(root, "main", site_dir)
+    assert second_build.rendered_count == 0
+
+
+def _find_site_files(site_dir: Path, path: str) -> list[str]:
+    """Return the site files at or below a path relative to ``docs/``, the pages of a doc at it included."""
+    stem = path.removesuffix(".md")
+    return sorted(
+        site_path
+        for file in site_dir.rglob("*")
+        if file.is_file()
+        and (
+            (site_path := file.relative_to(site_dir).as_posix()) in (path, f"{stem}.html")
+            or site_path.startswith((f"{path}/", f"{stem}/"))
+        )
+    )
+
+
+def _build_and_record(root: Path, site_dir: Path, *, include_worktree: bool = False) -> tuple[BuildResult, list[str]]:
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        build_result = run_build(root, "main", site_dir, include_worktree=include_worktree)
+    return build_result, _get_messages(recorded)
+
+
+def _list_version_ids(site_dir: Path, path: str) -> set[str]:
+    return {file.stem for file in (site_dir / path / "v").glob("*.html") if not file.name.endswith(".diff.html")}
+
+
+@pytest.mark.parametrize(
+    ("symlink_path", "files"),
+    [
+        ("guides/notes.md", {"docs/guides/notes.md": "/srv/notes/setup.md"}),
+        ("guides/notes.md", {"docs/guides/notes.md": "../../../notes.md"}),
+        (
+            "guides/notes.md",
+            {"docs/guides/notes.md": "out-notes.md", "docs/guides/out-notes.md": "/srv/notes/setup.md"},
+        ),
+        ("guides/flow.png", {"docs/guides/flow.png": "/srv/img/flow.png"}),
+        ("shared", {"docs/shared": "../../shared"}),
+        ("guides/old.md", {"docs/guides/old.md": "gone"}),
+        ("guides/old", {"docs/guides/old": "gone"}),
+        ("guides/old.png", {"docs/guides/old.png": "gone"}),
+        ("guides/old.md", {"docs/guides/old.md": "other-old.md", "docs/guides/other-old.md": "gone.md"}),
+        ("guides/old.png", {"docs/guides/old.png": "old.png"}),
+    ],
+)
+@pytest.mark.parametrize("include_worktree", [False, True])
+def test_build_leaves_out_symlinks_out_of_the_repo_or_to_nothing(
+    git_repo: Path, tmp_path: Path, symlink_path: str, files: Mapping[str, str], *, include_worktree: bool
+) -> None:
+    add_files(git_repo, files)
+    make_commit(git_repo, "add symlinks", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir, include_worktree=include_worktree)
+    assert _find_site_files(site_dir, symlink_path) == []
+    assert _LEFT_OUT_SYMLINK.format(f"docs/{symlink_path}") in messages
+
+
+@pytest.mark.parametrize(
+    ("symlink_path", "files", "expected_site_files"),
+    [
+        ("guides/alias.md", {"docs/guides/alias.md": "setup.md"}, []),
+        ("guides/setup-copy", {"docs/guides/setup-copy": "setup.md"}, []),
+        ("guides/setup.png", {"docs/guides/setup.png": "setup.md"}, []),
+        (
+            "reference/shared.md",
+            {"docs/reference/shared.md": "../../vendor/shared.md", "vendor/shared.md": b"# Shared\n"},
+            [],
+        ),
+        ("howto", {"docs/howto": "guides"}, []),
+        (
+            "shared",
+            {
+                "docs/shared": "../vendor/shared",
+                "vendor/shared/img/flow.png": b"png",
+                "vendor/shared/img/notes.md": b"# Notes\n",
+            },
+            ["shared/img/flow.png"],
+        ),
+    ],
+)
+def test_build_gives_symlinks_to_docs_no_pages(
+    git_repo: Path, tmp_path: Path, symlink_path: str, files: Mapping[str, bytes | str], expected_site_files: list[str]
+) -> None:
+    write_doc(git_repo, "guides/setup.md", "Setup.\n")
+    add_files(git_repo, files)
+    make_commit(git_repo, "add symlinks", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(git_repo, site_dir)
+    assert _find_site_files(site_dir, symlink_path) == expected_site_files
+    assert build_result.errors == ()
+    assert not [m for m in messages if f"docs/{symlink_path}" in m]
+
+
+@pytest.mark.parametrize(
+    ("symlink_path", "files", "site_path", "source_path"),
+    [
+        (
+            "guides/flow.png",
+            {"docs/guides/flow.png": "../../static/flow.png", "static/flow.png": b"static"},
+            "guides/flow.png",
+            "static/flow.png",
+        ),
+        (
+            "guides/alias.md",
+            {"docs/guides/alias.md": "flow.png", "docs/guides/flow.png": b"image"},
+            "guides/alias.md",
+            "docs/guides/flow.png",
+        ),
+        (
+            "guides/flow.png",
+            {
+                "docs/guides/flow.png": "../../static/current.png",
+                "static/current.png": "flow.png",
+                "static/flow.png": b"static",
+            },
+            "guides/flow.png",
+            "static/flow.png",
+        ),
+        ("img", {"docs/img": "../static/img", "static/img/flow.png": b"img"}, "img/flow.png", "static/img/flow.png"),
+    ],
+)
+def test_build_copies_what_an_allowed_symlink_leads_to(
+    git_repo: Path,
+    tmp_path: Path,
+    symlink_path: str,
+    files: Mapping[str, bytes | str],
+    site_path: str,
+    source_path: str,
+) -> None:
+    add_files(git_repo, files)
+    make_commit(git_repo, "add symlinks", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    assert (site_dir / site_path).read_bytes() == (git_repo / source_path).read_bytes()
+    assert not [path for path in _find_site_files(site_dir, symlink_path) if path.endswith(".html")]
+    assert not [m for m in messages if f"docs/{symlink_path}" in m]
+
+
+def test_build_leaves_out_docs_inside_a_symlinked_directory(git_repo: Path, tmp_path: Path) -> None:
+    add_files(
+        git_repo,
+        {
+            "vendor/shared/index.md": b"# Shared\n",
+            "vendor/shared/notes.md": b"# Notes\n",
+            "vendor/shared/diagram.png": b"diagram",
+            "docs/shared": "../vendor/shared",
+        },
+    )
+    make_commit(git_repo, "add a symlinked directory", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(git_repo, site_dir)
+    assert _find_site_files(site_dir, "shared") == ["shared/diagram.png"]
+    assert (site_dir / "shared/diagram.png").read_bytes() == b"diagram"
+    assert build_result.errors == ()
+    assert not [m for m in messages if "docs/shared" in m]
+
+
+def test_build_leaves_out_a_symlink_to_a_doc_inside_a_symlinked_directory(git_repo: Path, tmp_path: Path) -> None:
+    add_files(
+        git_repo,
+        {
+            "vendor/notes.md": b"# Notes\n",
+            "static/img/flow.png": b"flow",
+            "static/img/notes": "../../vendor/notes.md",
+            "docs/img": "../static/img",
+        },
+    )
+    make_commit(git_repo, "add a symlinked directory", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(git_repo, site_dir)
+    assert _find_site_files(site_dir, "img") == ["img/flow.png"]
+    assert build_result.errors == ()
+    assert not [m for m in messages if "docs/img" in m]
+
+
+def test_build_follows_a_symlink_inside_a_symlinked_directory(git_repo: Path, tmp_path: Path) -> None:
+    add_files(
+        git_repo,
+        {
+            "static/logo.png": b"logo",
+            "static/img/flow.png": b"flow",
+            "static/img/logo.png": "../logo.png",
+            "docs/img": "../static/img",
+        },
+    )
+    make_commit(git_repo, "add a symlinked directory", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    assert (site_dir / "img/flow.png").read_bytes() == b"flow"
+    assert (site_dir / "img/logo.png").read_bytes() == b"logo"
+    assert not [m for m in messages if "docs/img" in m]
+
+
+@pytest.mark.parametrize("target", ["/srv/logo.png", "gone.png"])
+def test_build_leaves_out_a_broken_symlink_inside_a_symlinked_directory(
+    git_repo: Path, tmp_path: Path, target: str
+) -> None:
+    add_files(git_repo, {"static/img/flow.png": b"flow", "static/img/logo.png": target, "docs/img": "../static/img"})
+    make_commit(git_repo, "add a symlinked directory", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    assert (site_dir / "img/flow.png").read_bytes() == b"flow"
+    assert not (site_dir / "img/logo.png").exists()
+    assert [m for m in messages if "docs/img" in m] == [_LEFT_OUT_SYMLINK.format("docs/img/logo.png")]
+
+
+def test_build_keeps_the_versions_in_which_a_doc_was_a_file(git_repo: Path, tmp_path: Path) -> None:
+    write_doc(git_repo, "guides/install.md", "Install.\n")
+    add_files(git_repo, {"docs/guides/setup.md": "install.md"})
+    symlink_sha = make_commit(git_repo, "add a symlink", "2026-11-02T12:00:00+00:00")
+    (git_repo / "docs/guides/setup.md").unlink()
+    write_doc(git_repo, "guides/setup.md", "Setup.\n")
+    file_sha = make_commit(git_repo, "replace the symlink", "2026-11-03T12:00:00+00:00")
+    write_doc(git_repo, "guides/setup.md", "Setup, changed.\n")
+    changed_sha = make_commit(git_repo, "change setup", "2026-11-04T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(git_repo, "main", site_dir)
+    assert _list_version_ids(site_dir, "guides/setup") == {_shorten_sha(file_sha), _shorten_sha(changed_sha)}
+    assert _shorten_sha(symlink_sha) not in _read(site_dir, "guides/setup.html")
+
+
+def test_build_gives_a_doc_replaced_by_a_symlink_no_pages(git_repo: Path, tmp_path: Path) -> None:
+    write_doc(git_repo, "guides/install.md", "Install.\n")
+    write_doc(git_repo, "guides/setup.md", "Setup.\n")
+    make_commit(git_repo, "add setup", "2026-11-02T12:00:00+00:00")
+    write_doc(git_repo, "guides/setup.md", "Setup, changed.\n")
+    make_commit(git_repo, "change setup", "2026-11-03T12:00:00+00:00")
+    (git_repo / "docs/guides/setup.md").unlink()
+    add_files(git_repo, {"docs/guides/setup.md": "install.md"})
+    make_commit(git_repo, "replace setup by a symlink", "2026-11-04T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(git_repo, "main", site_dir)
+    assert _find_site_files(site_dir, "guides/setup.md") == []
+
+
+def test_build_worktree_shows_a_symlink_replaced_by_a_file_as_a_new_doc(git_repo: Path, tmp_path: Path) -> None:
+    write_doc(git_repo, "guides/setup.md", "Setup.\n")
+    add_files(git_repo, {"docs/guides/alias.md": "setup.md"})
+    make_commit(git_repo, "add a symlink", "2026-11-02T12:00:00+00:00")
+    (git_repo / "docs/guides/alias.md").unlink()
+    write_doc(git_repo, "guides/alias.md", "Alias.\n")
+    site_dir = tmp_path / "site"
+    run_build(git_repo, "main", site_dir, include_worktree=True)
+    assert _list_version_ids(site_dir, "guides/alias") == {"worktree"}
+
+
+def test_build_worktree_has_no_working_copy_of_a_doc_replaced_by_a_symlink(git_repo: Path, tmp_path: Path) -> None:
+    write_doc(git_repo, "guides/install.md", "Install.\n")
+    write_doc(git_repo, "guides/setup.md", "Setup.\n")
+    first_sha = make_commit(git_repo, "add setup", "2026-11-02T12:00:00+00:00")
+    write_doc(git_repo, "guides/setup.md", "Setup, changed.\n")
+    second_sha = make_commit(git_repo, "change setup", "2026-11-03T12:00:00+00:00")
+    (git_repo / "docs/guides/setup.md").unlink()
+    add_files(git_repo, {"docs/guides/setup.md": "install.md"})
+    site_dir = tmp_path / "site"
+    run_build(git_repo, "main", site_dir, include_worktree=True)
+    assert _list_version_ids(site_dir, "guides/setup") == {_shorten_sha(first_sha), _shorten_sha(second_sha)}
+
+
+@pytest.mark.parametrize(
+    ("symlink_path", "target", "missing_path"),
+    [
+        ("guides/flow.png", "../../static/gone.png", "static/gone.png"),
+        ("img", "../static/img", "static/img/flow.png"),
+    ],
+)
+def test_build_leaves_out_a_symlink_whose_target_the_revision_lacks(
+    git_repo: Path, tmp_path: Path, symlink_path: str, target: str, missing_path: str
+) -> None:
+    add_files(git_repo, {f"docs/{symlink_path}": target})
+    make_commit(git_repo, "add a symlink", "2026-11-02T12:00:00+00:00")
+    add_files(git_repo, {missing_path: b"not committed"})
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    assert _find_site_files(site_dir, symlink_path) == []
+    assert _LEFT_OUT_SYMLINK.format(f"docs/{symlink_path}") in messages
+
+
+def test_build_worktree_leaves_out_a_symlinked_image_whose_target_git_ignores(git_repo: Path, tmp_path: Path) -> None:
+    add_files(git_repo, {".gitignore": b"build/\n", "docs/guides/flow.png": "../../build/flow.png"})
+    make_commit(git_repo, "add a symlink", "2026-11-02T12:00:00+00:00")
+    add_files(git_repo, {"build/flow.png": b"ignored"})
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir, include_worktree=True)
+    assert not (site_dir / "guides/flow.png").exists()
+    assert _LEFT_OUT_SYMLINK.format("docs/guides/flow.png") in messages
+
+
+def test_build_shows_a_link_to_a_left_out_symlink_as_not_found(git_repo: Path, tmp_path: Path) -> None:
+    add_files(git_repo, {"docs/guides/flow.png": "/srv/img/flow.png"})
+    write_doc(git_repo, "guides/setup.md", "See [the flow](flow.png).\n")
+    make_commit(git_repo, "add a symlink", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _build_and_record(git_repo, site_dir)
+    page = _read(site_dir, "guides/setup.html")
+    assert f"the flow{_NOT_FOUND_MARKER}" in page
+    assert 'href="flow.png"' not in page
+
+
+def test_build_stops_at_a_symlink_back_to_docs(git_repo: Path, tmp_path: Path) -> None:
+    add_files(
+        git_repo,
+        {"vendor/shared/logo.png": b"logo", "vendor/shared/back": "../../docs", "docs/shared": "../vendor/shared"},
+    )
+    make_commit(git_repo, "add a loop", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    assert _find_site_files(site_dir, "shared") == ["shared/logo.png"]
+    assert [m for m in messages if "docs/shared" in m] == [_LEFT_OUT_SYMLINK.format("docs/shared/back")]
+
+
+@pytest.mark.parametrize("target", ["img/flow.png", "missing.md", "../../src/pkg/gone.py"])
+def test_build_marks_a_link_to_a_missing_target_as_not_found(git_repo: Path, tmp_path: Path, target: str) -> None:
+    write_doc(git_repo, "meta/x.md", f"See [the target]({target}).\n")
+    sha = make_commit(git_repo, "add x", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    page = _read(site_dir, "meta/x.html")
+    assert f"the target{_NOT_FOUND_MARKER}" in page
+    assert f'href="{target}"' not in page
+    assert f"docs/meta/x.md@{_shorten_sha(sha)}: unresolvable link: {target}" in messages
+
+
+def test_build_marks_an_old_link_to_a_renamed_file_as_not_found(git_repo: Path, tmp_path: Path) -> None:
+    add_files(git_repo, {"src/pkg/old.py": b"OLD = 1\n"})
+    write_doc(git_repo, "meta/x.md", "See [old](../../src/pkg/old.py).\n")
+    old_sha = make_commit(git_repo, "add x", "2026-11-02T12:00:00+00:00")
+    run_git(git_repo, "mv", "src/pkg/old.py", "src/pkg/new.py")
+    write_doc(git_repo, "meta/x.md", "See [new](../../src/pkg/new.py).\n")
+    make_commit(git_repo, "rename old", "2026-11-03T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _build_and_record(git_repo, site_dir)
+    assert f"old{_NOT_FOUND_MARKER}" in _read(site_dir, f"meta/x/v/{_shorten_sha(old_sha)}.html")
+
+
+def test_build_marks_a_link_to_a_symlinked_doc_as_not_found(git_repo: Path, tmp_path: Path) -> None:
+    write_doc(git_repo, "guides/setup.md", "Setup.\n")
+    add_files(git_repo, {"docs/guides/alias.md": "setup.md"})
+    write_doc(git_repo, "guides/usage.md", "See [the alias](alias.md).\n")
+    sha = make_commit(git_repo, "add a symlinked doc", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    page = _read(site_dir, "guides/usage.html")
+    assert f"the alias{_NOT_FOUND_MARKER}" in page
+    assert f"docs/guides/usage.md@{_shorten_sha(sha)}: unresolvable link: alias.md" in messages
+
+
+def test_build_worktree_does_not_find_an_uncommitted_doc_template(git_repo: Path, tmp_path: Path) -> None:
+    write_doc(git_repo, "meta/templates/note.md", "Template.\n")
+    edit_text(git_repo / "docs/meta/index.md", lambda text: text + "\nSee [the note](templates/note.md).\n")
+    site_dir = tmp_path / "site"
+    _build_and_record(git_repo, site_dir, include_worktree=True)
+    assert f"the note{_NOT_FOUND_MARKER}" in _read(site_dir, "meta/index/v/worktree.html")
+
+
+def test_worktree_build_no_source_link_for_changed_code(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    head_sha = run_git(root, "rev-parse", "HEAD")
+    package_dir = root / "tools/sample/src/sample"
+    (package_dir / "new.py").write_text('"""New module."""\n\nNEW = 1\n', encoding="utf-8")
+    edit_text(package_dir / "mod.py", lambda text: text + "\nCHANGED = 1\n")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir, include_worktree=True)
+    for module in ("sample.new", "sample.mod"):
+        assert "/blob/" not in _read(site_dir, f"reference/code/{module}.html"), module
+    base_page = _read(site_dir, "reference/code/sample.base.html")
+    assert f"https://github.com/o/r/blob/{head_sha}/tools/sample/src/sample/base.py#L" in base_page
+
+
+@pytest.mark.parametrize("include_worktree", [False, True])
+def test_symlinked_code_dir_source_links_use_target_path(
+    repo: HistoryRepo, tmp_path: Path, *, include_worktree: bool
+) -> None:
+    root, _ = repo
+    add_files(
+        root,
+        {
+            "lib/python/other/__init__.py": b'"""Other package."""\n',
+            "lib/python/other/mod.py": b'"""Other module."""\n\n\ndef f() -> None:\n    """Go."""\n',
+            "tools/linked/src": "../../lib/python",
+        },
+    )
+    head_sha = make_commit(root, "add a symlinked code directory", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(root, site_dir, include_worktree=include_worktree)
+    assert build_result.failed_count == 0
+    assert not [message for message in messages if "tools/linked" in message], messages
+    other_page = _read(site_dir, "reference/code/other.mod.html")
+    assert f"https://github.com/o/r/blob/{head_sha}/lib/python/other/mod.py#L" in other_page
+    assert "tools/linked/src/other" not in other_page
+    sample_page = _read(site_dir, "reference/code/sample.mod.html")
+    assert f"https://github.com/o/r/blob/{head_sha}/tools/sample/src/sample/mod.py#L" in sample_page
+
+
+def test_symlinked_code_dir_inside_another_code_dir_is_followed(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    edit_text(
+        root / "docspecsite.toml",
+        lambda text: text.replace('code-dirs = ["tools/*/src"]', 'code-dirs = ["tools/*/src", "tools/sample/src/ext"]'),
+    )
+    add_files(
+        root,
+        {
+            "tools/sample/src/vendor/other/__init__.py": b'"""Other package."""\n',
+            "tools/sample/src/ext": "vendor",
+        },
+    )
+    head_sha = make_commit(root, "add a symlinked code directory inside another", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, _ = _build_and_record(root, site_dir)
+    assert build_result.failed_count == 0
+    other_page = _read(site_dir, "reference/code/other.html")
+    assert f"https://github.com/o/r/blob/{head_sha}/tools/sample/src/vendor/other/__init__.py" in other_page
+
+
+def test_symlinked_code_dir_whose_link_text_passes_another_symlink_is_followed_quietly(
+    repo: HistoryRepo, tmp_path: Path
+) -> None:
+    root, _ = repo
+    edit_text(
+        root / "docspecsite.toml",
+        lambda text: text.replace('code-dirs = ["tools/*/src"]', 'code-dirs = ["tools/*/src", "tools/sample/src/ext"]'),
+    )
+    add_files(
+        root,
+        {
+            "lib/python/other/__init__.py": b'"""Other package."""\n',
+            "lib/alias": "python",
+            "tools/sample/src/ext": "../../../lib/alias",
+        },
+    )
+    make_commit(root, "add a code directory symlink through another symlink", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(root, site_dir)
+    assert build_result.failed_count == 0
+    assert [message for message in messages if "ext" in message] == []
+    assert (site_dir / "reference/code/other.html").is_file()
+
+
+@pytest.mark.parametrize("include_worktree", [False, True])
+def test_symlinked_code_dir_to_a_file_left_out_with_warning(
+    repo: HistoryRepo, tmp_path: Path, *, include_worktree: bool
+) -> None:
+    root, _ = repo
+    add_files(root, {"tools/linked/src": "../../README.md", "README.md": b"Readme.\n"})
+    make_commit(root, "add a code directory symlink to a file", "2026-11-07T12:00:00+00:00")
+    build_result, messages = _build_and_record(root, tmp_path / "site", include_worktree=include_worktree)
+    assert [message for message in messages if "tools/linked" in message] == [
+        "tools/linked/src: symlink to a file, not a directory; left out"
+    ]
+    assert build_result.failed_count == 0
+
+
+@pytest.mark.parametrize("include_worktree", [False, True])
+@pytest.mark.parametrize("target", ["/usr/lib", "../../../outside", "../../nowhere"])
+def test_symlinked_code_dir_out_of_repo_left_out_with_warning(
+    repo: HistoryRepo, tmp_path: Path, target: str, *, include_worktree: bool
+) -> None:
+    root, _ = repo
+    add_files(root, {"tools/linked/src": target})
+    make_commit(root, "add a code directory symlink that leads nowhere usable", "2026-11-07T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    build_result, messages = _build_and_record(root, site_dir, include_worktree=include_worktree)
+    linked_messages = [message for message in messages if "tools/linked" in message]
+    assert linked_messages == [_LEFT_OUT_SYMLINK.format("tools/linked/src")]
+    assert build_result.failed_count == 0
+    assert (site_dir / "reference/code/sample.mod.html").is_file()
+
+
+def test_build_leaves_out_a_non_utf8_name_inside_a_symlinked_directory(git_repo: Path, tmp_path: Path) -> None:
+    add_files(
+        git_repo,
+        {"static/img/flow.png": b"flow", os.fsdecode(b"static/img/caf\xe9.png"): b"cafe", "docs/img": "../static/img"},
+    )
+    make_commit(git_repo, "add a symlinked directory", "2026-11-02T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    _, messages = _build_and_record(git_repo, site_dir)
+    assert _find_site_files(site_dir, "img") == ["img/flow.png"]
+    non_utf8_path = os.fsdecode(b"docs/img/caf\xe9.png")
+    non_utf8_warning = f"{non_utf8_path}: name is not valid UTF-8, which breaks links to the rendered page; left out"
+    assert [m for m in messages if "docs/img" in m] == [non_utf8_warning]

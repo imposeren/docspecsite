@@ -4,14 +4,15 @@ Docs: architecture/docs-tooling.md
 """
 
 import json
+import os
 import posixpath
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import ClassVar, Literal
 
-from .docs import Doc, DocStatus
-from .text import collapse_to_one_line
+from .docs import Doc, DocStatus, is_doc
+from .text import collapse_to_one_line, show_name_bytes
 
 type Format = Literal["text", "json"]
 
@@ -116,17 +117,20 @@ def format_text_field(value: object) -> str:
 def format_list(docs: list[Doc], fmt: Format) -> str:
     """Format docs as a listing, one entry per doc in the given order.
 
-    The result is tab-separated lines, or a JSON list with the ``json`` format.
+    The result is tab-separated lines, or a JSON list with the ``json`` format. A path that is not valid UTF-8
+    shows each invalid byte as ``\\x`` and two hex digits.
 
     Args:
         docs: Docs to print in the given order, one line or JSON item each.
         fmt: ``json`` for a JSON list with the listed fields, else tab-separated path, status, title and summary.
     """
     if fmt == "json":
-        items = [{"path": d.path, **{k: read_list_field(d, k) for k in LIST_FIELDS}} for d in docs]
+        items = [{"path": show_name_bytes(d.path), **{k: read_list_field(d, k) for k in LIST_FIELDS}} for d in docs]
         return json.dumps(items, indent=2, ensure_ascii=False, default=str) + "\n"
     return "".join(
-        "\t".join([d.path, *(format_text_field(read_list_field(d, k)) for k in TEXT_LIST_FIELDS)]) + "\n" for d in docs
+        "\t".join([show_name_bytes(d.path), *(format_text_field(read_list_field(d, k)) for k in TEXT_LIST_FIELDS)])
+        + "\n"
+        for d in docs
     )
 
 
@@ -149,40 +153,56 @@ class Backlink:
 def resolve_doc_path(root: Path, path: str) -> str | None:
     """Return the path relative to ``docs/`` of the doc a given path names, or None if it names no existing doc.
 
-    The result is a POSIX path such as ``meta/x.md``, whatever form the given path has.
+    The result is a POSIX path such as ``meta/x.md``, whatever form the given path has. No link below the repository
+    root is followed: ``..`` is worked out on the path's text, and a template, a symlink and a path inside a symlinked
+    directory are no docs. An absolute path may reach the root itself through symlinks, such as a shell's working
+    directory below a symlinked parent directory.
+
+    Docs: architecture/docs-tooling.md#history-model
 
     Args:
         root: Repository root; relative paths are resolved against it or its ``docs/``.
         path: An absolute path, a path from the repo root (``docs/x.md``, ``./docs/x.md``) or a path relative to
             ``docs/`` (``x.md``).
     """
-    docs_dir = (root / "docs").resolve()
-    given = Path(path.replace("\\", "/"))
-    if given.is_absolute():
-        candidate = given
-    elif posixpath.normpath(given.as_posix()).split("/")[0] == "docs":
-        candidate = root / given
+    root_dir = posixpath.normpath(root.absolute().as_posix())
+    docs_dir = posixpath.join(root_dir, "docs")
+    given = path.replace("\\", "/")
+    if posixpath.isabs(given):
+        candidate = posixpath.normpath(given)
+        # Shortest first, so the ancestor taken for the root is above docs/ and no link inside the repo is followed.
+        for ancestor in reversed(PurePosixPath(candidate).parents):
+            if os.path.exists(ancestor) and os.path.samefile(ancestor, root_dir):
+                candidate = posixpath.join(root_dir, posixpath.relpath(candidate, ancestor))
+                break
+    elif posixpath.normpath(given).split("/")[0] == "docs":
+        candidate = posixpath.normpath(posixpath.join(root_dir, given))
     else:
-        candidate = docs_dir / given
-    candidate = candidate.resolve()
-    if candidate.suffix != ".md" or not candidate.is_file():
+        candidate = posixpath.normpath(posixpath.join(docs_dir, given))
+    doc_path = posixpath.relpath(candidate, docs_dir)
+    if doc_path == ".." or doc_path.startswith("../") or not Path(candidate).is_file():
         return None
-    try:
-        return candidate.relative_to(docs_dir).as_posix()
-    except ValueError:
-        return None
+    is_under_symlinked_dir = any(
+        Path(docs_dir, parent).is_symlink() for parent in PurePosixPath(doc_path).parents if str(parent) != "."
+    )
+    return (
+        doc_path
+        if is_doc(doc_path, is_symlink=Path(candidate).is_symlink(), is_under_symlinked_dir=is_under_symlinked_dir)
+        else None
+    )
 
 
 def format_backlinks(links: Sequence[Backlink], fmt: Format) -> str:
     """Format backlinks as a listing, one entry per backlink in the given order.
 
-    The result is tab-separated lines, or a JSON list with the ``json`` format.
+    The result is tab-separated lines, or a JSON list with the ``json`` format. A source path that is not valid UTF-8
+    shows each invalid byte as ``\\x`` and two hex digits.
 
     Args:
         links: Backlinks to print in the given order.
         fmt: ``json`` for a JSON list, else tab-separated source, kinds and title.
     """
     if fmt == "json":
-        items = [{"source": b.doc.path, "title": b.title, "kinds": list(b.kinds)} for b in links]
+        items = [{"source": show_name_bytes(b.doc.path), "title": b.title, "kinds": list(b.kinds)} for b in links]
         return json.dumps(items, indent=2, ensure_ascii=False) + "\n"
-    return "".join(f"{b.doc.path}\t{','.join(b.kinds)}\t{b.title}\n" for b in links)
+    return "".join(f"{show_name_bytes(b.doc.path)}\t{','.join(b.kinds)}\t{b.title}\n" for b in links)

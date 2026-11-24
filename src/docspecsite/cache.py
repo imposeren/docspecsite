@@ -17,13 +17,14 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from . import __version__
-from .markdown import RenderedLink
+from .markdown import FrontMatterSplit, RenderedLink
 
 
 class BodyCache:
     """On-disk cache of rendered page bodies.
 
-    It has two levels: link hrefs per blob and body HTML per blob and rendering, with diff HTML per pair of blobs.
+    It has link hrefs and front matter splits per blob and body HTML per blob and rendering, with diff HTML per pair of
+    blobs.
     Entries this instance did not use are removed by :meth:`prune`.
     """
 
@@ -34,6 +35,16 @@ class BodyCache:
 
     MARKER_FILENAME = ".docspecsite-cache-root"
     """Name of the file that marks a cache root as made by this cache, so :meth:`prune` may remove it."""
+
+    # Entry directories
+    BODIES_DIR = "bodies"
+    """Directory of a cache root holding the body and diff HTML entries."""
+
+    FRONT_MATTER_DIR = "front-matter"
+    """Directory of a cache root holding the front matter splits, one JSON entry per blob."""
+
+    HREFS_DIR = "hrefs"
+    """Directory of a cache root holding the link hrefs, one JSON entry per blob."""
 
     # Fingerprint inputs
     PACKAGE_DIR = Path(__file__).parent
@@ -139,17 +150,79 @@ class BodyCache:
             blob_sha: Git blob SHA hash of the doc's text; names the entry, so all versions with the same text share it.
             compute: Called only on a miss or an unreadable entry to extract the hrefs; its result is stored.
         """
-        path = self.root / "hrefs" / f"{blob_sha}.json"
+        return self._get_json(
+            self.root / self.HREFS_DIR / f"{blob_sha}.json", compute, parse=self._parse_hrefs, to_json=lambda h: h
+        )
+
+    def get_front_matter_split(self, blob_sha: str, compute: Callable[[], FrontMatterSplit]) -> FrontMatterSplit:
+        """Return the front matter's YAML and the body's line of a blob, from the cache or else computed (and cached).
+
+        Args:
+            blob_sha: Git blob SHA hash of the doc's text; names the entry, so all versions with the same text share it.
+            compute: Called only on a miss or an unreadable entry to split the text, as
+                :meth:`~docspecsite.markdown.MarkdownText.split_front_matter` does; its result is stored.
+        """
+        return self._get_json(
+            self.root / self.FRONT_MATTER_DIR / f"{blob_sha}.json",
+            compute,
+            parse=self._parse_front_matter_split,
+            to_json=list,
+        )
+
+    @staticmethod
+    def _parse_hrefs(cached: object) -> list[str] | None:
+        """Return the hrefs a cache entry holds; None when it holds no list of strings.
+
+        Args:
+            cached: The entry's JSON value.
+        """
+        if isinstance(cached, list) and all(isinstance(item, str) for item in cached):
+            return [str(item) for item in cached]
+        return None
+
+    @staticmethod
+    def _parse_front_matter_split(cached: object) -> FrontMatterSplit | None:
+        """Return the front matter split a cache entry holds; None when it holds no valid one.
+
+        Args:
+            cached: The entry's JSON value, a list of the YAML text (or None) and the body's line number from 1.
+        """
+        if (
+            isinstance(cached, list)
+            and len(cached) == 2
+            and (cached[0] is None or isinstance(cached[0], str))
+            and type(cached[1]) is int
+            and cached[1] >= 1
+        ):
+            return FrontMatterSplit(cached[0], cached[1])
+        return None
+
+    def _get_json[T](
+        self,
+        path: Path,
+        compute: Callable[[], T],
+        *,
+        parse: Callable[[object], T | None],
+        to_json: Callable[[T], object],
+    ) -> T:
+        """Return a value stored as JSON in a cache entry, or else computed and stored.
+
+        Args:
+            path: The entry's file; it counts as used, so :meth:`prune` keeps it.
+            compute: Called on a miss, or when the entry cannot be read or holds no valid value; its result is stored.
+            parse: Gives the value the entry's JSON holds; None when it holds no valid one.
+            to_json: Gives the JSON form of a computed value.
+        """
         self.used_paths.add(path)
         try:
-            cached_hrefs = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(cached_hrefs, list) and all(isinstance(item, str) for item in cached_hrefs):
-                return cached_hrefs
+            cached = parse(json.loads(path.read_text(encoding="utf-8")))
         except OSError, ValueError:
-            pass
-        hrefs = compute()
-        self.store(path, json.dumps(hrefs).encode())
-        return hrefs
+            cached = None
+        if cached is not None:
+            return cached
+        value = compute()
+        self.store(path, json.dumps(to_json(value)).encode())
+        return value
 
     def get_body(self, blob_sha: str, key: str, compute: Callable[[], str]) -> str:
         """Return the body HTML of a blob rendered for given link targets.
@@ -164,7 +237,7 @@ class BodyCache:
             compute: Called only on a miss to render the body HTML; its result is stored.
         """
         entry_name = hashlib.sha256(f"{self.root.name}\0{blob_sha}\0{key}".encode()).hexdigest()
-        path = self.root / "bodies" / f"{entry_name}.html"
+        path = self.root / self.BODIES_DIR / f"{entry_name}.html"
         self.used_paths.add(path)
         try:
             text = path.read_text(encoding="utf-8")
@@ -244,7 +317,7 @@ class BodyCache:
                     and (child / self.MARKER_FILENAME).is_file()
                 ):
                     shutil.rmtree(child, ignore_errors=True)
-            for sub in ("hrefs", "bodies"):
+            for sub in (self.HREFS_DIR, self.FRONT_MATTER_DIR, self.BODIES_DIR):
                 folder = self.root / sub
                 if not folder.is_dir():
                     continue

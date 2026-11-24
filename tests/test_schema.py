@@ -162,6 +162,12 @@ def test_adr_valid() -> None:
         ({"decision": "maybe", "date": "2026-11-18"}, '"decision" must be one of'),
         ({"decision": "accepted"}, 'ADR needs "date"'),
         ({"decision": "accepted", "date": "18.11.2026"}, '"date" must be'),
+        ({"decision": "accepted", "date": "2026-02-31"}, '"date" must be'),
+        ({"decision": "accepted", "date": datetime.datetime(2026, 11, 18, 10, 0)}, '"date" must be'),
+        (
+            {"decision": "accepted", "date": "2026-11-18", "superseded_by": "architecture/decisions/DSS-0002-y.md"},
+            '"superseded_by" is only for ADRs with decision: superseded',
+        ),
         ({"decision": "superseded", "date": "2026-11-18"}, 'needs "superseded_by"'),
     ],
 )
@@ -171,6 +177,8 @@ def test_adr_rules(front_matter: dict[str, object], expected: str) -> None:
 
 def test_decision_only_on_adrs() -> None:
     assert_one(make_doc(decision="accepted"), '"decision" is only for ADRs')
+    assert_one(make_doc(date="2026-11-18"), '"date" is only for ADRs')
+    assert_one(make_doc(superseded_by="a.md"), '"superseded_by" is only for ADRs')
     assert collect_messages(make_doc("architecture/decisions/index.md")) == []
 
 

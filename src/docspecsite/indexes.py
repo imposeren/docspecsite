@@ -3,7 +3,8 @@
 Docs: architecture/docs-tooling.md
 """
 
-from collections.abc import Callable, Mapping
+import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from html import escape
@@ -15,7 +16,7 @@ from .pages import Page, PageLink
 from .query import format_text_field, make_status_json_value
 from .schema import LAYERS, PRIORITIES, STATUSES
 from .text import collapse_to_one_line
-from .urls import STATUS_PAGE, is_usable_tag, make_component_url, make_relative_url, make_tag_url
+from .urls import STATUS_PAGE, encode_href_path, is_usable_tag, make_component_url, make_relative_url, make_tag_url
 from .vocabulary import Vocabulary
 
 
@@ -83,6 +84,10 @@ class IndexEntry:
 
 class IndexRenderer:
     """The index pages of a site and its ``llms.txt``, rendered from the entries they list."""
+
+    # Markdown
+    LINK_TEXT_SPECIALS = re.compile(r"[\\\[\]]")
+    """Characters of a Markdown link's text that need a backslash before them, in ``llms.txt``."""
 
     # Status board groups
     NO_MILESTONE = "no milestone"
@@ -198,17 +203,34 @@ class IndexRenderer:
         """
         return self.NO_PRIORITY if entry.priority is None else entry.priority
 
+    @staticmethod
+    def order_groups(used: set[str], known: Sequence[str], none_name: str) -> list[str]:
+        """Return the status board's group names in their order: the known ones, the other used ones, then none.
+
+        Args:
+            used: Group names the listed docs have, the one for docs without a value included.
+            known: Group names in their own order, such as the roadmap's milestones.
+            none_name: Group name of the docs without a value, shown last.
+        """
+        extra = sorted(used - set(known) - {none_name})
+        return list(dict.fromkeys((*known, *extra, none_name)))
+
     def render_status_body(self) -> str:
         """Return the body HTML of the status board: docs by status, then milestone (roadmap order), then priority.
 
         A doc is listed under each of its status values; values outside :data:`~docspecsite.schema.STATUSES` are left
-        out. Milestones used by docs but not in the roadmap follow the roadmap's alphabetically, then docs without one.
+        out. Milestones used by docs but not in the roadmap follow the roadmap's by code point, then docs without one.
+        Priorities come as :data:`~docspecsite.schema.PRIORITIES`, then other values by code point, then docs without
+        one.
         The entry links are relative to :data:`~docspecsite.urls.STATUS_PAGE`.
         """
         parts: list[str] = []
-        used_milestones = {self.find_milestone_group(e) for e in self.entries}
-        extra_milestones = sorted(used_milestones - set(self.vocabulary.milestones) - {self.NO_MILESTONE})
-        milestone_order = dict.fromkeys((*self.vocabulary.milestones, *extra_milestones, self.NO_MILESTONE))
+        milestone_order = self.order_groups(
+            {self.find_milestone_group(e) for e in self.entries}, self.vocabulary.milestones, self.NO_MILESTONE
+        )
+        priority_order = self.order_groups(
+            {self.find_priority_group(e) for e in self.entries}, PRIORITIES, self.NO_PRIORITY
+        )
         for status in STATUSES:
             status_entries = [e for e in self.entries if status in e.status.values]
             if not status_entries:
@@ -219,7 +241,7 @@ class IndexRenderer:
                 if not milestone_entries:
                     continue
                 parts.append(f"<h3>{escape(milestone)}</h3>")
-                for priority in dict.fromkeys((*PRIORITIES, self.NO_PRIORITY)):
+                for priority in priority_order:
                     priority_entries = [e for e in milestone_entries if self.find_priority_group(e) == priority]
                     if priority_entries:
                         parts.append(f"<h4>{escape(priority)}</h4>")
@@ -255,6 +277,8 @@ class IndexRenderer:
         """Return the text of the site's ``llms.txt``.
 
         It is a plain-text list of the docs, grouped by layer; a doc whose ``layer`` is not a known layer is left out.
+        Each line stays one valid Markdown link: the URL is percent-encoded and ``\\``, ``[`` and ``]`` in the title
+        are escaped.
 
         Args:
             site_summary: Summary of the home doc, written as the quote under the heading; may be empty.
@@ -271,8 +295,9 @@ class IndexRenderer:
             for entry in layer_entries:
                 components_text = ", ".join(entry.components) or "none"
                 status_text = format_text_field(make_status_json_value(entry.status))
+                title = self.LINK_TEXT_SPECIALS.sub(r"\\\g<0>", collapse_to_one_line(entry.title))
                 llms_lines.append(
-                    f"- [{collapse_to_one_line(entry.title)}]({entry.url}): {collapse_to_one_line(entry.summary)} "
+                    f"- [{title}]({encode_href_path(entry.url)}): {collapse_to_one_line(entry.summary)} "
                     f"(status: {status_text}; components: {components_text}; source: docs/{entry.path})"
                 )
         return "\n".join(llms_lines) + "\n"

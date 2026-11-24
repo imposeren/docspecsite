@@ -114,6 +114,46 @@ def test_entries_with_unusable_status() -> None:
     assert 'class="status' not in page.body_html
 
 
+def test_status_board_unknown_priorities_after_known() -> None:
+    entries = [
+        _make_entry("a.md", priority="high"),
+        _make_entry("b.md", priority="Must"),
+        _make_entry("c.md"),
+        _make_entry("d.md", priority="could"),
+        _make_entry("e.md", priority="should"),
+        _make_entry("f.md", priority="must"),
+    ]
+    page = next(p for p in _build_index_pages(entries, [], (), site_title="Docs") if p.url == "status.html")
+    assert re.findall(r"<h4>(.*?)</h4>", page.body_html) == ["must", "should", "could", "Must", "high", "none"]
+    for path in ("a.html", "b.html", "c.html", "d.html", "e.html", "f.html"):
+        assert page.body_html.count(f'href="{path}"') == 1, path
+
+
+def test_status_board_milestone_order() -> None:
+    entries = [
+        _make_entry("a.md"),
+        _make_entry("b.md", milestone="zeta"),
+        _make_entry("c.md", milestone="second"),
+        _make_entry("d.md", milestone="Alpha"),
+        _make_entry("e.md", milestone="first"),
+    ]
+    page = next(
+        p for p in _build_index_pages(entries, [], ("first", "second"), site_title="Docs") if p.url == "status.html"
+    )
+    assert re.findall(r"<h3>(.*?)</h3>", page.body_html) == ["first", "second", "Alpha", "zeta", "no milestone"]
+
+
+def test_llms_txt_escapes_url_and_title() -> None:
+    entry = IndexEntry.from_front_matter(
+        "meta/a (b)é.md",
+        "meta/a (b)é.html",
+        {"title": "T [x] \\ y", "summary": "S", "status": "specified", "layer": "meta"},
+    )
+    text = IndexRenderer([entry], [], _NO_CONFIG, "Docs", _NO_VOCABULARY).render_llms_txt("All.")
+    assert "- [T \\[x\\] \\\\ y](meta/a%20%28b%29%C3%A9.html): S (" in text
+    assert "source: docs/meta/a (b)é.md)" in text
+
+
 def test_llms_txt() -> None:
     entries = [
         _make_entry("meta/a.md", title="A", summary="Sum.\n  More <b>", components=["core"], layer="meta"),

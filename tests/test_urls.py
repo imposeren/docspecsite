@@ -11,7 +11,7 @@ from docspecsite.errors import DocspecsiteWarning
 from docspecsite.git import Git
 from docspecsite.history import History, Version
 from docspecsite.markdown import RenderedLink
-from docspecsite.urls import MARKERS, PageLinks, Resolver, find_reserved_owner, make_relative_url
+from docspecsite.urls import MARKERS, DocPages, PageLinks, Resolver, find_reserved_owner, make_relative_url
 
 SOURCE = "https://github.com/o/r"
 CONFIG = ProjectConfig((), SOURCE, {})
@@ -74,9 +74,24 @@ def load_history_and_versions(repo: HistoryRepo) -> HistoryAndVersions:
 
 
 def make_resolver(
-    history: History, front_matter_of: Callable[[Version], Mapping[str, object] | None] = get_no_front_matter
+    history: History,
+    front_matter_of: Callable[[Version], Mapping[str, object] | None] = get_no_front_matter,
+    *,
+    code: Mapping[str, CodeTarget] | None = CODE,
+    config: ProjectConfig = CONFIG,
+    doc_pages: DocPages | None = None,
+    found_files: frozenset[str] | None = None,
 ) -> Resolver:
-    return Resolver(history, CODE, CONFIG, front_matter_of, doc_pages=_DocPages())
+    """Return a resolver over a history; by default every file of its tree is found and every doc is built."""
+    return Resolver(
+        history,
+        code,
+        config,
+        front_matter_of,
+        doc_pages=_DocPages() if doc_pages is None else doc_pages,
+        found_files=frozenset(history.tree) if found_files is None else found_files,
+        unbuilt_part_files=frozenset(),
+    )
 
 
 def test_latest_links_to_latest(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
@@ -163,15 +178,30 @@ def test_non_doc_targets(history_repo: HistoryRepo) -> None:
     assert make_link("../../tools/x/") == RenderedLink(f"{SOURCE}/tree/{sha}/tools/x")
     assert make_link("img.png") == RenderedLink("img.png")
     with pytest.warns(DocspecsiteWarning) as recorded:
-        assert make_link("missing.md") == RenderedLink(None, (MARKERS["missing"],))
+        assert make_link("missing.md") == RenderedLink(None, (MARKERS["not-found"],))
     assert [str(w.message) for w in recorded] == [f"docs/meta/a.md@{sha[:12]}: unresolvable link: missing.md"]
     assert make_link("#local") == RenderedLink("#local")
     assert make_link("https://e.org") == RenderedLink("https://e.org")
 
 
+def test_found_files_decide_file_links(history_repo: HistoryRepo) -> None:
+    root, _ = history_repo
+    (root / "docs/meta/img.png").write_bytes(b"\x89PNG")
+    make_commit(root, "add an image", "2026-11-06T12:00:00+00:00")
+    history = History.load(Git(root), "main")
+    latest_a = history.find_latest("meta/a.md")
+    link_resolver = make_resolver(history, found_files=frozenset({"docs/meta/alias.md", "docs/meta/shared/flow.png"}))
+    links = PageLinks(link_resolver, latest_a, "meta/a.html")
+    assert links.resolve_link("alias.md") == RenderedLink("alias.md")
+    assert links.resolve_link("shared/flow.png") == RenderedLink("shared/flow.png")
+    with pytest.warns(DocspecsiteWarning) as recorded:
+        assert links.resolve_link("img.png") == RenderedLink(None, (MARKERS["not-found"],))
+    assert [str(w.message) for w in recorded] == [f"docs/meta/a.md@{latest_a.short_id}: unresolvable link: img.png"]
+
+
 def test_resolve_code_link_without_code_part(history_repo: HistoryRepo, recwarn: pytest.WarningsRecorder) -> None:
     history, v, _ = load_history_and_versions(history_repo)
-    link_resolver = Resolver(history, None, CONFIG, get_no_front_matter, doc_pages=_DocPages())
+    link_resolver = make_resolver(history, code=None)
     links = PageLinks(link_resolver, v["a@c5"], "meta/a.html")
     assert links.resolve_link("code:a.b") == RenderedLink(None, use_code_style=True)
     assert not recwarn.list
@@ -219,7 +249,7 @@ def test_repo_links_without_source_url_are_plain_text(
     (root / "tools/x/f.py").write_text("", encoding="utf-8")
     make_commit(root, "add files", "2026-11-06T12:00:00+00:00")
     history = History.load(Git(root), "main")
-    link_resolver = Resolver(history, CODE, NO_SOURCE_CONFIG, get_no_front_matter, doc_pages=_DocPages())
+    link_resolver = make_resolver(history, config=NO_SOURCE_CONFIG)
 
     def make_link(href: str) -> RenderedLink:
         return PageLinks(link_resolver, history.find_latest("meta/a.md"), "meta/a.html").resolve_link(href)
@@ -273,7 +303,7 @@ def test_link_to_unbuilt_doc(history_repo: HistoryRepo, recwarn: pytest.Warnings
     history, v, _ = load_history_and_versions(history_repo)
 
     def make_link(doc_pages: _DocPages) -> RenderedLink:
-        link_resolver = Resolver(history, CODE, CONFIG, get_no_front_matter, doc_pages=doc_pages)
+        link_resolver = make_resolver(history, doc_pages=doc_pages)
         return PageLinks(link_resolver, v["a@c5"], "meta/a.html").resolve_link("b.md#x")
 
     unbuilt_docs = frozenset({"meta/b.md"})
@@ -284,9 +314,7 @@ def test_link_to_unbuilt_doc(history_repo: HistoryRepo, recwarn: pytest.Warnings
 
 def test_old_link_to_versionless_doc(history_repo: HistoryRepo) -> None:
     history, v, commits = load_history_and_versions(history_repo)
-    link_resolver = Resolver(
-        history, CODE, CONFIG, get_no_front_matter, doc_pages=_DocPages(versionless_docs=frozenset({"meta/b.md"}))
-    )
+    link_resolver = make_resolver(history, doc_pages=_DocPages(versionless_docs=frozenset({"meta/b.md"})))
     old_link = PageLinks(link_resolver, v["a@c3"], f"meta/a/v/{commits['c3'][:12]}.html").resolve_link("b.md#s")
     assert old_link == RenderedLink("../../b.html#s", (MARKERS["code-current"],))
 

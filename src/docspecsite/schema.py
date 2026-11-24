@@ -364,6 +364,24 @@ class FrontMatterCheck:
         elif not (self.is_non_blank_str(target) or (is_str_list(target) and target)):
             self.report('"redirect_to" must be a path or a list of paths')
 
+    def is_iso_date(self, value: object) -> bool:
+        """Return whether a value is a calendar date: a ``date`` (not a ``datetime``) or ``YYYY-MM-DD`` text.
+
+        Args:
+            value: A front-matter value as YAML loaded it, such as an ADR's ``date``.
+        """
+        if isinstance(value, datetime.datetime):
+            return False
+        if isinstance(value, datetime.date):
+            return True
+        if not (isinstance(value, str) and self.DATE_PATTERN.match(value)):
+            return False
+        try:
+            datetime.date.fromisoformat(value)
+        except ValueError:
+            return False
+        return True
+
     def check_adr_rules(self) -> None:
         """Record any violations of the ADR rules for ``decision``, ``date`` and ``superseded_by``.
 
@@ -371,8 +389,9 @@ class FrontMatterCheck:
         """
         front_matter = self.front_matter
         if not is_adr(self.doc.path):
-            if "decision" in front_matter:
-                self.report('"decision" is only for ADRs (architecture/decisions/<PREFIX>-NNNN-<slug>.md)')
+            for field in ("decision", "date", "superseded_by"):
+                if field in front_matter:
+                    self.report(f'"{field}" is only for ADRs (architecture/decisions/<PREFIX>-NNNN-<slug>.md)')
             return
         decision = front_matter.get("decision")
         if decision is None:
@@ -382,7 +401,11 @@ class FrontMatterCheck:
         date = front_matter.get("date")
         if date is None:
             self.report('ADR needs "date" (YYYY-MM-DD)')
-        elif not (isinstance(date, datetime.date) or (isinstance(date, str) and self.DATE_PATTERN.match(date))):
+        elif not self.is_iso_date(date):
             self.report('"date" must be YYYY-MM-DD')
-        if decision == "superseded" and not self.is_non_blank_str(front_matter.get("superseded_by")):
-            self.report('decision: superseded needs "superseded_by"')
+        superseded_by = front_matter.get("superseded_by")
+        if decision == "superseded":
+            if not self.is_non_blank_str(superseded_by):
+                self.report('decision: superseded needs "superseded_by"')
+        elif superseded_by is not None:
+            self.report('"superseded_by" is only for ADRs with decision: superseded')

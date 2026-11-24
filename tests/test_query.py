@@ -205,6 +205,12 @@ def test_resolve_doc_path_absolute_and_outside_paths(tmp_path: Path) -> None:
     assert resolve_doc_path(tmp_path, "../README.md") is None
 
 
+def test_resolve_doc_path_in_directory_whose_name_starts_with_two_dots(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "..notes").mkdir(parents=True)
+    (tmp_path / "docs" / "..notes" / "x.md").write_text("x")
+    assert resolve_doc_path(tmp_path, "..notes/x.md") == "..notes/x.md"
+
+
 @pytest.mark.parametrize(
     ("config", "expected_adrs"),
     [
@@ -239,3 +245,37 @@ def test_select_lists_adrs_by_prefix_order(config: ProjectConfig, expected_adrs:
         "architecture/decisions/index.md",
         "architecture/z.md",
     ]
+
+
+def test_resolve_doc_path_does_not_follow_links(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "meta" / "templates").mkdir(parents=True)
+    (tmp_path / "docs" / "meta" / "x.md").write_text("x")
+    (tmp_path / "docs" / "meta" / "templates" / "t.md").write_text("t")
+    (tmp_path / "docs" / "alias.md").symlink_to("meta/x.md")
+    (tmp_path / "docs" / "linked").symlink_to("meta")
+    (tmp_path / "docs" / "meta" / "up").symlink_to("..")
+    (tmp_path / "outside.md").write_text("o")
+    assert resolve_doc_path(tmp_path, "docs/alias.md") is None
+    assert resolve_doc_path(tmp_path, "linked/x.md") is None
+    assert resolve_doc_path(tmp_path, "meta/templates/t.md") is None
+    assert resolve_doc_path(tmp_path, "docs/meta/x.md") == "meta/x.md"
+    assert resolve_doc_path(tmp_path, "meta/../meta/x.md") == "meta/x.md"
+    # ".." is worked out on the text, so a directory symlink is not walked through it.
+    assert resolve_doc_path(tmp_path, "meta/up/../x.md") == "meta/x.md"
+    assert resolve_doc_path(tmp_path, "../outside.md") is None
+    assert resolve_doc_path(tmp_path, str(tmp_path / "docs" / "alias.md")) is None
+
+
+def test_resolve_doc_path_absolute_through_a_symlinked_parent_of_the_repo(tmp_path: Path) -> None:
+    repo = tmp_path / "real" / "repo"
+    (repo / "docs" / "meta").mkdir(parents=True)
+    (repo / "docs" / "meta" / "x.md").write_text("x")
+    (repo / "docs" / "alias.md").symlink_to("meta/x.md")
+    (repo / "docs" / "root").symlink_to("..")
+    (tmp_path / "link").symlink_to("real")
+    linked_repo = tmp_path / "link" / "repo"
+    assert resolve_doc_path(repo, str(linked_repo / "docs" / "meta" / "x.md")) == "meta/x.md"
+    assert resolve_doc_path(linked_repo, str(repo / "docs" / "meta" / "x.md")) == "meta/x.md"
+    # Below the repo root no link is followed.
+    assert resolve_doc_path(repo, str(linked_repo / "docs" / "alias.md")) is None
+    assert resolve_doc_path(repo, str(linked_repo / "docs" / "root" / "docs" / "meta" / "x.md")) is None

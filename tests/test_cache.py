@@ -8,7 +8,7 @@ import pytest
 
 from docspecsite import cache
 from docspecsite.cache import BodyCache
-from docspecsite.markdown import Marker, RenderedLink
+from docspecsite.markdown import FrontMatterSplit, Marker, RenderedLink
 
 FP = "a" * 64
 
@@ -183,3 +183,37 @@ def test_write_failure_is_not_fatal(tmp_path: Path) -> None:
     assert cache.get_body("blob1", "k", lambda: "<p>x</p>") == "<p>x</p>"
     cache.prune()
     assert os.path.isfile(blocker)
+
+
+@pytest.mark.parametrize("split", [FrontMatterSplit("title: X\n", 4), FrontMatterSplit(None, 1)])
+def test_front_matter_split_cached_across_instances(tmp_path: Path, split: FrontMatterSplit) -> None:
+    calls: list[int] = []
+
+    def compute() -> FrontMatterSplit:
+        calls.append(1)
+        return split
+
+    assert BodyCache(tmp_path, FP, "docs").get_front_matter_split("blob1", compute) == split
+    assert BodyCache(tmp_path, FP, "docs").get_front_matter_split("blob1", compute) == split
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("content", ["not json", "[1, 2]", '["a", 0]', '["a", true]', '["a"]', '{"a": 1}'])
+def test_front_matter_split_wrong_entry_is_recomputed(tmp_path: Path, content: str) -> None:
+    cache = BodyCache(tmp_path, FP, "docs")
+    entry = cache.root / "front-matter" / "blob1.json"
+    entry.parent.mkdir(parents=True)
+    entry.write_text(content, encoding="utf-8")
+    assert cache.get_front_matter_split("blob1", lambda: FrontMatterSplit("title: X\n", 4)) == ("title: X\n", 4)
+    assert json.loads(entry.read_text(encoding="utf-8")) == ["title: X\n", 4]
+
+
+def test_prune_removes_unused_front_matter_entries(tmp_path: Path) -> None:
+    old_cache = BodyCache(tmp_path, FP, "docs")
+    old_cache.get_front_matter_split("old", lambda: FrontMatterSplit(None, 1))
+    old_cache.get_front_matter_split("kept", lambda: FrontMatterSplit(None, 1))
+    new_cache = BodyCache(tmp_path, FP, "docs")
+    new_cache.get_front_matter_split("kept", lambda: FrontMatterSplit(None, 1))
+    new_cache.prune()
+    assert not (new_cache.root / "front-matter" / "old.json").exists()
+    assert (new_cache.root / "front-matter" / "kept.json").exists()

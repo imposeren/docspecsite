@@ -1,17 +1,19 @@
 """Per-document versions along the first-parent history of a ref.
 
 Docs: meta/versioning.md
+Docs: architecture/docs-tooling.md#history-model
 """
 
 import re
+from bisect import bisect_left
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import ClassVar, Self
 
-from .docs import DOCS_DIR, derive_doc_path, is_template, make_dir_index_path
+from .docs import DOCS_DIR, derive_doc_path, is_doc, make_dir_index_path
 from .errors import DocspecsiteError
-from .git import Commit, Git
+from .git import Commit, Git, TreeEntry, WorktreeFile
 from .text import NOT_UTF8_MESSAGE, decode_text
 
 
@@ -84,12 +86,16 @@ class History:
     texts_by_sha: Mapping[str, str]
     """Decoded contents of the versions that are valid UTF-8, by blob SHA hash."""
 
-    tree: frozenset[str]
-    """Repository-relative paths of the files in the ref's tree."""
+    tree: Mapping[str, TreeEntry]
+    """The files of the ref's tree, by repository-relative path."""
 
     decode_errors_by_sha: Mapping[str, tuple[str, int]] = field(default_factory=dict)
     """Decoding errors of the blobs that are not valid UTF-8, by blob SHA hash: the error's reason and its byte
     offset."""
+
+    worktree_files: tuple[WorktreeFile, ...] = ()
+    """The files under ``docs/`` that git sees in the working tree, when the history was loaded with the working tree;
+    else none."""
 
     def find_latest(self, path: str) -> Version:
         """Return the newest version of a doc.
@@ -128,10 +134,11 @@ class History:
         """
         if at.is_worktree:
             return self.find_latest(path)
-        for version in self.versions_by_path[path]:
-            if not version.is_worktree and version.commit_index >= at.commit_index:
-                return version
-        return None
+        versions = self.versions_by_path[path]
+        committed = versions[1:] if versions[0].is_worktree else versions  # the working copy, if any, comes first
+        # Newest first is ascending commit position: the first version at or before the point in time is current then.
+        position = bisect_left(committed, at.commit_index, key=lambda version: version.commit_index)
+        return committed[position] if position < len(committed) else None
 
     def is_decodable(self, version: Version) -> bool:
         """Return whether the contents of a version are valid UTF-8, so that the ``read_text`` method can return them.
@@ -174,26 +181,42 @@ class History:
         commits = git.list_first_parent(head)
         commit_index_by_sha = {c.sha: i for i, c in enumerate(commits)}
         tree = git.read_tree(head)
+        tree_symlinks = {repo_path for repo_path, entry in tree.items() if entry.is_symlink}
         doc_paths = {
-            path for repo_path in tree if (path := derive_doc_path(repo_path)) is not None and cls.is_doc(path)
+            path
+            for repo_path, entry in tree.items()
+            if (path := derive_doc_path(repo_path)) is not None
+            and is_doc(
+                path,
+                is_symlink=entry.is_symlink,
+                is_under_symlinked_dir=cls._is_under_symlink(repo_path, tree_symlinks),
+            )
         }
 
         versions: dict[str, list[Version]] = {path: [] for path in doc_paths}
         for change in git.list_changes(head, DOCS_DIR):
             path = change.path.removeprefix(DOCS_DIR)
-            if path in doc_paths and change.blob_sha is not None:
+            if path in doc_paths and change.blob_sha is not None and not change.is_symlink:
                 commit_index = commit_index_by_sha[change.commit_sha]
                 versions[path].append(Version(path, commits[commit_index], commit_index, change.blob_sha))
 
         worktree_bytes_by_sha: dict[str, bytes] = {}
+        worktree_files: tuple[WorktreeFile, ...] = ()
         if worktree_root is not None:
+            worktree_files = tuple(git.list_worktree_files(DOCS_DIR))
+            worktree_symlinks = {file.path for file in worktree_files if file.is_symlink}
             worktree_doc_paths = [
-                repo_path
-                for repo_path in git.list_worktree_files(DOCS_DIR)
-                if cls.is_doc(repo_path.removeprefix(DOCS_DIR))
+                file.path
+                for file in worktree_files
+                if is_doc(
+                    file.path.removeprefix(DOCS_DIR),
+                    is_symlink=file.is_symlink,
+                    is_under_symlinked_dir=cls._is_under_symlink(file.path, worktree_symlinks),
+                )
             ]
             for repo_path, sha in git.hash_files(worktree_doc_paths).items():
-                if sha != tree.get(repo_path):
+                committed = tree.get(repo_path)
+                if committed is None or sha != committed.blob_sha:
                     path = repo_path.removeprefix(DOCS_DIR)
                     worktree_bytes_by_sha[sha] = (worktree_root / repo_path).read_bytes()
                     version = Version(path, None, -1, sha)
@@ -210,16 +233,17 @@ class History:
             except UnicodeDecodeError as error:
                 decode_errors_by_sha[sha] = (error.reason, error.start)
         versions_by_path = {path: tuple(vs) for path, vs in versions.items()}
-        return cls(head, versions_by_path, texts_by_sha, frozenset(tree), decode_errors_by_sha)
+        return cls(head, versions_by_path, texts_by_sha, tree, decode_errors_by_sha, worktree_files)
 
     @staticmethod
-    def is_doc(path: str) -> bool:
-        """Return whether a path is a Markdown doc rather than a template or other file.
+    def _is_under_symlink(repo_path: str, symlink_paths: set[str]) -> bool:
+        """Return whether a directory above a path is a symlink.
 
         Args:
-            path: Path relative to ``docs/`` from the git tree or working tree, of any file type.
+            repo_path: Path relative to the repository root.
+            symlink_paths: Repo paths of the symlinks of the same tree.
         """
-        return path.endswith(".md") and not is_template(path)
+        return any(str(parent) in symlink_paths for parent in PurePosixPath(repo_path).parents)
 
 
 class NotUtf8Error(DocspecsiteError, ValueError):

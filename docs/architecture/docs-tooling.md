@@ -2,8 +2,8 @@
 title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history through a versioning backend (git by default), renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: [changed, implemented, specified]
-code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices, docspecsite.docs, docspecsite.problems, docspecsite.markdown]
+status: [changed, implemented]
+code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.symlinks, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices, docspecsite.docs, docspecsite.problems, docspecsite.markdown]
 milestone: first-release
 priority: must
 components: [docs-system, cli, checks, queries, site, code-reference, distribution]
@@ -115,7 +115,8 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
   - the check's link check (`LinkCheck`), for whether a link's target is a doc, and its index check (`Checker.check_indexes`), for the children an index lists;
   - `SiteBuilder`'s copying of the docs files and the `Resolver`'s found files, where a file under `docs/` that is not a doc or a doc template is a file to copy;
   - `docspecsite.query.resolve_doc_path`, the path lookup of `backlinks`.
-- `resolve_doc_path` takes the path as written, relative to `docs/`, and follows no link: `..` is worked out on the path's text, and a path that leaves `docs/` that way is no doc.
+- `resolve_doc_path` takes the path as written, relative to `docs/`, and follows no link below the repository root: `..` is worked out on the path's text, and a path that leaves `docs/` that way is no doc.
+  An absolute path may reach the root itself through symlinks (a shell's working directory below a symlinked parent directory): its shortest ancestor that is the root stands for it.
   A `docs/` directory that is itself a symlink is outside this design.
 - One rule says what a symlink under `docs/` leads to, for `check` (whether the symlink is a problem, and its hint) and for the docs files `SiteBuilder` copies; [behavior/doc-symlinks.md](../behavior/doc-symlinks.md#how-a-symlink-is-followed) defines it and shows it as a diagram.
   The rule gives one of five kinds (out of the repo, nothing, a doc, a directory, another file) from the end of the symlink's chain alone, never from the symlink's own name.
@@ -200,6 +201,7 @@ The paths copied this way are the docs files the `Resolver` takes as found ([His
 The site is built in parts ([DS-35](../behavior/requirements.md#rendering)): `docs` is everything above except `reference/code/`, and `code` is `reference/code/` (module pages and the entry page `reference/code/index.html`).
 The build carries the set of parts it builds, and every link that crosses parts asks whether its target's part is in that set: the docs' resolver for `code:` links and the index entries of code modules (`llms.txt` lists docs only, [DS-16](../behavior/requirements.md#navigation-and-indexes)), the code pages for `Docs:` lines, "described in" lists, links to docs and the page chrome (breadcrumb, components, status badge).
 A link into a part that is not built becomes text, or, from the code reference to a doc, a link to the doc's Markdown file through the backend's `file-link` pattern (with git by default `<source-url>/blob/<commit>/docs/…`).
+A link to another file of a part that is not built (such as an image) is linked on the repository host like a file outside `docs/`, with no warning of its own; without a `source-url` it is plain text, and the one warning about the missing `source-url` applies as for any repo link ([behavior/commands.md](../behavior/commands.md#build)).
 A code-only build also writes the entry page as `index.html`, with its links relative to the root.
 Since the entry page has no old versions, a link to it from an old version of a doc leads to its latest page with the "current code" marker, like an old version's `code:` link.
 A build never reuses pages of an earlier build with other parts: a page's links depend on the parts, and the manifest leaves `--out` holding only what this build wrote.
@@ -219,8 +221,8 @@ It links to the same heading anchors that `docspecsite check` validates, and eve
 ## Code reference
 
 Python code is loaded once, from the code directories the backend gives for the built revision, with griffe: every package directly inside a `code-dirs` directory.
-At a ref, the git backend lists the code directories' files with `git ls-tree -r` and reads their blobs with the same `cat-file --batch` reader as the doc versions (`Git.read_blobs`), not with `git archive`: code at a ref is the committed bytes, as for doc versions, with no checkout filters, line-ending conversion or export attributes (`export-ignore`, `export-subst`). A code directory that is itself a symlink is resolved within the built revision's tree, and its target directory's files are read as that code directory, for `ProjectConfig.is_code_dir` and `SiteBuilder.find_code_dirs` too; one whose target is absolute, outside the repo or missing is left out with a warning, as a symlinked image under `docs/` is. The rule "out of the code directories" applies only to the symlinks below a code directory: such a symlink to an absolute path or out of the code directories is left out with a warning.
-A source link's path is the file's path in the repo: for a code directory that is a symlink, the path of the directory it leads to.
+At a ref, the git backend lists the code directories' files with `git ls-tree -r` and reads their blobs with the same `cat-file --batch` reader as the doc versions (`Git.read_blobs`), not with `git archive`: code at a ref is the committed bytes, as for doc versions, with no checkout filters, line-ending conversion or export attributes (`export-ignore`, `export-subst`). A code directory that is itself a symlink is resolved within the built revision's tree, and its target directory's files are read as that code directory, for `ProjectConfig.is_code_dir` and `SiteBuilder.find_code_dirs` too; one whose target is absolute, outside the repo or missing is left out with a warning, as a symlinked image under `docs/` is, and so is one whose target is a file. The rule "out of the code directories" applies only to the symlinks below a code directory: such a symlink to an absolute path or out of the code directories is left out with a warning.
+A source link's path is the file's path in the repo: for a path in `code-dirs` that is a symlink, the path of the directory it leads to.
 Only the **latest** code gets pages ([DS-18](../behavior/requirements.md#generated-reference-layer)): no version picker, no `/v/` pages; older code is read with git or an IDE.
 The hand-written entry page `docs/reference/code/index.md` follows the code: it is built from its latest version only, also in a full build ([DS-7](../behavior/requirements.md#rendering)).
 Each module gets one page, built from the code's structure as well as its docstrings, in the spirit of Sphinx's autodoc:
@@ -267,7 +269,7 @@ With `--strict`, the build sets `error` filters for both warning categories.
 
 ### Closed output pipe
 
-> **Not built yet.**
+> **Built.**
 
 The CLI entry point (`docspecsite.cli`) catches a closed pipe on stdout (`BrokenPipeError`), stops writing, also on the final flush, and exits with the exit code the command computed, so `list` and `backlinks` into `head` print no traceback ([behavior/commands.md](../behavior/commands.md#list)).
 
@@ -276,7 +278,7 @@ The CLI entry point (`docspecsite.cli`) catches a closed pipe on stdout (`Broken
 A cache in `.docspecsite-cache/` (gitignored; inside the checked repo, so it persists between container runs) keys rendered HTML by (the version's content key from the backend — git's blob sha —, hash of the resolved link targets, docspecsite version).
 Only changed versions and pages whose link targets moved are re-rendered ([DS-24](../behavior/requirements.md#running)).
 A diff page's body is kept by the content keys of its two versions, so an unchanged pair is not diffed again.
-The body cache also keeps each version's parsed front matter by its content key, so a rebuild in which every page comes from the cache reads no doc text with markdown-it.
+The body cache also keeps each version's front matter split from its body (the YAML text and the line where the body starts) by its content key, so a rebuild in which every page comes from the cache runs no markdown-it on doc text; the YAML is still loaded.
 The cache has one root per docspecsite version, set of built parts and versioning backend, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
 
 ## Docker image

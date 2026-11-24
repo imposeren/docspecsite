@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from .codeindex import CodeIndex, CodeTarget
 from .config import ProjectConfig
-from .docs import DOCS_DIR, derive_doc_path, is_docs_asset, is_redirect
+from .docs import DOCS_DIR, derive_doc_path, is_redirect, is_template
 from .errors import DocspecsiteWarning
 from .history import History, Version
 from .links import CodeRef, Ref, parse_body_ref
@@ -49,7 +49,7 @@ MARKERS: Mapping[str, Marker] = MappingProxyType(
         "moved": Marker("moved", "→ moved"),
         "code-current": Marker("code-current", "current code — may differ from this version"),
         "code-gone": Marker("code-gone", "no longer exists"),
-        "missing": Marker("missing", "doc no longer exists"),
+        "not-found": Marker("not-found", "not found"),
     }
 )
 
@@ -168,10 +168,10 @@ def make_component_url(component_id: str) -> str:
 
 
 def encode_href_path(path: str) -> str:
-    """Return a site path as an href, with each ``/``-separated part percent-encoded.
+    """Return a site or repo path as an href, with each ``/``-separated part percent-encoded.
 
     Args:
-        path: Unencoded site path, such as a tag or component index URL; ``/`` separators are kept.
+        path: Unencoded site or repo path, such as a tag index URL or a source file; ``/`` separators are kept.
     """
     return "/".join(quote(part, safe="") for part in path.split("/"))
 
@@ -249,9 +249,6 @@ class Resolver:
     dirs: frozenset[str]
     """Repo paths of the directories that hold a file or a doc."""
 
-    files: frozenset[str]
-    """Repo paths of the files that exist: the ref's tree and the extra files."""
-
     # Warnings
     is_dropped_repo_link_reported: bool
     """Whether a repository link turned into plain text has been warned about; only the first one is."""
@@ -275,6 +272,12 @@ class Resolver:
     doc_pages: DocPages
     """See :meth:`__init__`."""
 
+    found_files: frozenset[str]
+    """See :meth:`__init__`."""
+
+    unbuilt_part_files: frozenset[str]
+    """See :meth:`__init__`."""
+
     should_warn_on_dropped_repo_link: bool
     """See :meth:`__init__`."""
 
@@ -286,14 +289,17 @@ class Resolver:
         front_matter_of: Callable[[Version], Mapping[str, object] | None],
         *,
         doc_pages: DocPages,
-        extra_files: frozenset[str] = frozenset(),
+        found_files: frozenset[str],
+        unbuilt_part_files: frozenset[str],
         should_warn_on_dropped_repo_link: bool = True,
     ) -> None:
-        """Prepare to resolve links against the docs, files and code of the ref.
+        """Prepare to resolve links against the docs, found files and code of the ref.
+
+        Docs: behavior/commands.md#build
 
         Args:
             history: Doc versions at the build ref; decide which docs exist, which version a link from an old version
-                goes to, and which commit repository links point at. Its tree gives the existing repo files.
+                goes to, and which commit repository links point at.
             code: Public code elements that ``code:`` links may name, empty when the code is not loaded; None when the
                 code part is not built: ``code:`` links are then code-styled plain text, without a warning.
             config: Settings whose ``source-url`` is the base URL of the repository on its host, to which
@@ -303,22 +309,29 @@ class Resolver:
                 when it did not load.
             doc_pages: Tells which docs have their pages built and which have only a latest page, and where a link
                 to a doc whose pages are not built goes (plain text without a warning when nowhere).
-            extra_files: Repo paths that exist besides the ref's tree: the working-tree non-Markdown files under
-                ``docs/`` when building with the working tree, else none.
+            found_files: Repo paths of the files a link may lead to, besides the docs: the files of the ref's tree
+                that the site does not leave out, and the files under ``docs/`` that it copies (also from the working
+                tree, and at their paths below a symlinked directory). Those under ``docs/``, outside the doc
+                templates, are linked on the site, the others on the repository host.
+            unbuilt_part_files: Repo paths under ``docs/`` of files in found_files that the site does not copy because
+                their part is not built; they are linked on the repository host like files outside ``docs/``.
             should_warn_on_dropped_repo_link: Whether to warn about the first repository link of a latest version
                 turned into plain text for want of a ``source-url``; false when the caller reports the missing setting
                 itself.
         """
         self.history = history
-        self.files = history.tree | extra_files
         self.code = code
         self.config = config
         self.front_matter_of = front_matter_of
         self.issued_warnings = set()
         self.doc_pages = doc_pages
+        self.found_files = found_files
+        self.unbuilt_part_files = unbuilt_part_files
         self.should_warn_on_dropped_repo_link = should_warn_on_dropped_repo_link
         self.is_dropped_repo_link_reported = False
-        self.dirs = self.collect_directories([*self.files, *(f"{DOCS_DIR}{path}" for path in history.versions_by_path)])
+        self.dirs = self.collect_directories(
+            [*found_files, *(f"{DOCS_DIR}{path}" for path in history.versions_by_path)]
+        )
 
     @staticmethod
     def collect_directories(paths: list[str]) -> frozenset[str]:
@@ -456,8 +469,10 @@ class PageLinks:
     def resolve_path_link(self, ref: Ref, href: str) -> RenderedLink:
         """Resolve a local link.
 
-        It goes to a site page, an asset or the repository host. A target that does not exist becomes plain text with a
-        marker. Repository links use the version's commit (the ref's head for the working copy).
+        It goes to a site page, a file the site copies or the repository host. A file of a part that is not
+        built is linked on the repository host like a file outside ``docs/``. A target that is neither a doc nor a found
+        file becomes plain text with the "not found" marker. Repository links use the version's commit (the
+        ref's head for the working copy).
 
         Args:
             ref: Parsed local link; its repo-relative target decides where the link goes.
@@ -480,10 +495,12 @@ class PageLinks:
             return resolver.resolve_repo_link(self.version, href, f"tree/{commit_sha}{suffix}")
         if target in resolver.dirs:
             return resolver.resolve_repo_link(self.version, href, f"tree/{commit_sha}/{target}{suffix}")
-        if target not in resolver.files:
+        if target not in resolver.found_files:
             resolver.warn(self.version, "unresolvable link: %s", href)
-            return RenderedLink(None, (MARKERS["missing"],))
-        if is_docs_asset(target):
+            return RenderedLink(None, (MARKERS["not-found"],))
+        # A found file under docs/ is one the site copies, whatever its name, unless it is a doc template or its part
+        # is not built.
+        if doc_path is not None and not is_template(doc_path) and target not in resolver.unbuilt_part_files:
             return RenderedLink(make_relative_url(target.removeprefix(DOCS_DIR) + suffix, self.page_url))
         return resolver.resolve_repo_link(self.version, href, f"blob/{commit_sha}/{target}{suffix}")
 

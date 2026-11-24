@@ -7,7 +7,7 @@ Docs: architecture/docs-tooling.md#adr-ids
 import re
 import tomllib
 import warnings
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import ClassVar
@@ -20,6 +20,23 @@ from .text import decode_text
 
 class ConfigError(DocspecsiteError):
     """Error for a ``docspecsite.toml`` that cannot be used: unreadable, not valid TOML, or with an invalid value."""
+
+
+@dataclass(frozen=True)
+class CodeComponentsCheck:
+    """The ``[code-components]`` ids split into known and unknown ones.
+
+    :meth:`ProjectConfig.check_code_components` splits them.
+
+    Docs: architecture/docs-tooling.md#configuration
+    """
+
+    known: Mapping[str, tuple[str, ...]]
+    """The known component ids of each key, in the order the settings give them; a key keeps its entry when none is
+    known."""
+
+    unknown: tuple[tuple[str, str], ...]
+    """The unknown entries as ``(key, component)``, in the order the settings give them."""
 
 
 @dataclass(frozen=True)
@@ -150,6 +167,18 @@ class ProjectConfig:
         """
         path = PurePosixPath(directory)
         return any(path.full_match(pattern) for pattern in self.code_dirs)
+
+    def check_code_components(self, components: Collection[str]) -> CodeComponentsCheck:
+        """Split the ``code-components`` ids into known and unknown ones; the one owner of whether an id is known.
+
+        Docs: behavior/configuration.md#settings
+
+        Args:
+            components: The component vocabulary: the ids that have a page.
+        """
+        known = {key: tuple(c for c in ids if c in components) for key, ids in self.code_components.items()}
+        unknown = tuple((key, c) for key, ids in self.code_components.items() for c in ids if c not in components)
+        return CodeComponentsCheck(known, unknown)
 
     def find_components(self, dotted_path: str) -> tuple[str, ...]:
         """Return the component ids of a code element.

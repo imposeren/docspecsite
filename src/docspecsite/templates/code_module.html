@@ -1,4 +1,4 @@
-{#- The body of one code reference page (docs/architecture/docs-tooling.md#code-reference-referencecode).
+{#- The body of one code reference page (docs/architecture/docs-tooling.md#code-reference).
     Every href is already relative to the page; only Markdown HTML (``*_html``, ``html``) is passed as safe. -#}
 {% macro pieces(items) -%}
 {% for p in items %}{% if p.href is not none %}<a href="{{ p.href }}">{{ p.text }}</a>{% else %}{{ p.text }}{% endif %}{% endfor %}

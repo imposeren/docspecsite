@@ -17,6 +17,7 @@ related:
   - architecture/docs-tooling.md
   - behavior/versioning-backends.md
   - behavior/status-notes.md
+  - behavior/limits.md
 ---
 
 # Commands
@@ -38,7 +39,7 @@ A command-line error (an unknown option, or an option value that is not valid, s
 
 ## check
 
-> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`. Two things are not reported: names with `?`, and the [symlinks](doc-symlinks.md) that are a problem. The name problem still reads `name contains "#" or "%", which break links to the rendered page`. A symlinked directory still needs an `index.md`, and a symlinked directory or doc an entry in its parent's `index.md`. A link to a symlink is a problem only when the symlink's target does not exist. The staged check also reports a symlink that is removed or renamed. The anchor of a link to a directory is not checked.
+> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`.
 
 Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>:<line>: <message>` for a problem outside `docs/` (such as a `Docs:` line in code found by the `code` check); the line number, with its colon, is left out only when the problem concerns the whole file, such as an invalid `docspecsite.toml` (`docspecsite.toml: <message>`).
 A problem may carry a hint, which says how to fix this particular problem: it is printed on its own line right under the problem, indented by two spaces and starting with `hint: `.
@@ -151,8 +152,6 @@ The exit code is 0 when no problem is found, and 1 when there are problems.
 
 ## list
 
-> **Changed, not built yet.** When the program reading the output stops early, `list` ends with an error trace.
-
 `--status S` matches a doc that has `S` anywhere in its `status`, so a partly built doc is found under each of its statuses ([DS-47](status-notes.md#requirements)).
 Text output has one line per doc: path, status, title and summary, separated by tabs; a list of statuses is shown comma-separated without spaces, in the doc's order (`implemented,specified`).
 `--format json` prints a JSON list with the path and the fields `title`, `summary`, `layer`, `status`, `components`, `tags`, `milestone` and `priority`; `status` is a string for a single status and a list of strings for a list.
@@ -167,8 +166,6 @@ When the program that reads the output stops reading early, as in `docspecsite l
 
 ## backlinks
 
-> **Changed, not built yet.** A path that is a symlink is still looked up as the doc it points to. A doc template is still looked up as a doc: its backlinks are printed, with exit code 0. When the program reading the output stops early, `backlinks` ends with an error trace.
-
 `<path>` is `docs/x.md` (from the repo root), `x.md` (relative to `docs/`) or an absolute path.
 It is read as written, without following symlinks; a path that leaves `docs/` through `..` is not a doc.
 Each linking doc is printed on one line: its path, the kinds of its links (`body`, `related`, `redirect_to`, `superseded_by`) and its title, separated by tabs; `--format json` prints the same as a JSON list.
@@ -180,7 +177,7 @@ When the program that reads the output stops reading early, `backlinks` stops wr
 
 ## build
 
-> **Changed, not built yet.** Git is the only version control: there is no `versioning:` line, no `none` backend and no link patterns, and a code-only build links docs under `<source-url>/blob/<commit>/`. Without `--ref`, the build still shows `main`, whatever is checked out. Code pages built with `--include-worktree` link every file to its source. A link to a missing file is marked "doc no longer exists". A symlink that leads to a doc gets pages when its name ends in `.md`. Any other symlink under `docs/` is copied from the ref as the text of its link (the path the symlink stores), not as what it points to. A code directory that is a symlink is not followed at a ref, and its source links are not built. An unknown component in `[code-components]` is used without a warning. The code read from a ref leaves out the files that the repo's git attributes mark `export-ignore`, and fills in those marked `export-subst`.
+> **Changed, not built yet.** Git is the only version control: there is no `versioning:` line, no `none` backend and no link patterns, and a code-only build links docs under `<source-url>/blob/<commit>/`.
 
 The site is written to `--out` (default `site/`, relative to the current directory).
 Files of the previous build that are no longer produced are removed; nothing else in the directory is touched.
@@ -200,16 +197,18 @@ A docs-only build (`--parts docs`):
 
 - shows `code:` links, in every version of a doc, as their text in code style, with no link and no marker;
 - lists no code modules on component pages, and leaves the code reference's entry page out of `llms.txt` (which lists docs only, in every build);
-- leaves out the code reference's entry page; links to it are text.
+- leaves out the code reference's entry page; links to it are text;
+- links a file of the code part (such as an image under `reference/code/`) on the repository host, as a repo file outside `docs/` is linked.
 
 A code-only build (`--parts code`):
 
 - writes the code reference and its entry page, which is also the site's root page;
 - has no index pages and no `llms.txt`; the breadcrumb above the code reference, component labels and status badges are text;
-- links `Docs:` lines, "described in" lists and the entry page's backlinks to the doc's Markdown file on the repo host at the built revision, through the backend's [link pattern](glossary.md) ([DS-42](versioning-backends.md#requirements)), or shows the doc's path as text when there is no link pattern to use (without `source-url`, or with `none` and no pattern set) or for a doc not in the built revision (with `--include-worktree`).
+- links `Docs:` lines, "described in" lists and the entry page's backlinks to the doc's Markdown file on the repo host at the built revision, through the backend's [link pattern](glossary.md) ([DS-42](versioning-backends.md#requirements)), or shows the doc's path as text when there is no link pattern to use (without `source-url`, or with `none` and no pattern set) or for a doc not in the built revision (with `--include-worktree`);
+- links a file of the docs part (such as an image a doc uses) on the repository host, as a repo file outside `docs/` is linked.
 
 Code reference pages link each element to its source file at the built revision (with git, the built commit), through the `source-url` setting ([configuration.md](configuration.md#settings)); for pages built with `--include-worktree`, see that option above.
-For a code directory that is a symlink to a directory inside the repo, the links use the path of the directory it leads to, since that is where the file is in the repo.
+For a path in `code-dirs` that is a symlink to a directory inside the repo, the links use the path of the directory it leads to, since that is where the file is in the repo.
 Without `source-url`, a link pattern that uses `{source-url}` gives no link: code reference pages have no source links and body links to repo files are plain text, and `build` warns once about the missing setting.
 When `code-dirs` is set, it warns at the start of the build, and only when the `code` part is built.
 When `code-dirs` is not set, it warns at the first repo link it turns into plain text in the latest version of a doc, naming that version and link; links in older versions become plain text without a warning.
@@ -265,7 +264,7 @@ warning: docspecsite.toml: "code-components" of "example.api" has an unknown com
 ```
 
 A symlink in a code directory that points to an absolute path or out of the code directories is left out of the code read from the ref, with a warning naming it.
-A code directory that is itself a symlink is followed within the built revision: the files of the directory it leads to are read as that code directory; one that leads to an absolute path, out of the repo or to nothing is left out with a warning naming it, as a symlinked image under `docs/` is.
+A path in `code-dirs` that is a symlink is followed within the built revision: the files of the directory it leads to are read as that code directory; one that leads to an absolute path, out of the repo or to nothing is left out with a warning naming it, as a symlinked image under `docs/` is, and one that leads to a file is left out with a warning too ([Input that cannot be used](#input-that-cannot-be-used)).
 
 The last line counts the pages built, rendered afresh, taken from the cache and failed.
 
@@ -273,9 +272,8 @@ The exit code is 0 when every page was built, 1 when a page failed or the build 
 
 ## Input that cannot be used
 
-> **Changed, not built yet.** Today the cases below, other than an empty `code:` target in a doc's text, end with an error trace, or, for an empty `code:` target in a docstring, give the problem `unknown code element: code:` and the "no longer exists" marker.
-
 Input that docspecsite cannot use never ends a command with an error trace.
+The cases below are the ones docspecsite handles; for text that is not UTF-8, anything else is outside what it supports ([limits.md](limits.md#text-that-is-not-utf-8)).
 `check` gives one problem and `build` one warning, each naming the file (with the line, when there is one) and the reason; that thing is left out, and the rest goes on:
 
 ```
@@ -286,6 +284,7 @@ warning: <path>: <reason>; left out
 The known cases:
 
 - A package directory directly inside a code directory whose name Python cannot import (letters, digits and underscores, not starting with a digit, not a reserved word such as `class`), such as `src/a.b`: `directory name "a.b" is not a valid Python package name`. Only these top-level names are checked; subpackages are loaded as the code reference's reader handles them. With no valid package left, the code reference has no modules.
+- A path in `code-dirs` that is a symlink pointing to a file instead of a directory: `symlink to a file, not a directory`. That path is left out.
 - A link with nothing after `code:`, such as `[see](code:)`, in a doc's text or in a docstring: `empty code: target`. It is shown as its text, with no link and no marker. In a doc's text, `build` warns about it only for the doc's latest version, as for an unresolvable link.
 - A file under `docs/`, a doc or any other file, whose name is not valid UTF-8: `name is not valid UTF-8, which breaks links to the rendered page`. The build gives it no page and does not copy it; `list` still lists such a doc, and `backlinks` finds no links to it, since a link is text and cannot name it. Wherever such a name is printed, each byte that is not UTF-8 shows as `\x` and two hex digits, such as `docs/guides/caf\xe9.md`. Outside `docs/`, such as in the code, a file is read under its name as it is.
 - A commit subject that is not valid UTF-8: shown with `�` in place of each invalid byte sequence, with no problem or warning.

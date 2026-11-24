@@ -2,7 +2,7 @@
 title: Docs system requirements — scenarios
 summary: Exact cases for the docs check's rules on a doc's title (text before it, a doc without one, a second level-1 heading, docs whose front matter does not load, and the heading a page shows), on characters that file names may not contain, and on the anchors of links to a directory.
 layer: scenarios
-status: [implemented, changed, specified]
+status: implemented
 components: [checks]
 tags: [checks]
 related:
@@ -125,8 +125,6 @@ Feature: Checking a doc's title
 
 ## File and directory names
 
-> **Changed, not built yet.** Names with `#` and `%` are reported, with the message `name contains "#" or "%", which break links to the rendered page`; names with `?` are not reported.
-
 The check reports a name under `docs/` that contains `#`, `%` or `?`, since these characters have a meaning in web addresses and break links to the rendered page ([DS-20](../behavior/requirements.md#checks)).
 
 ```gherkin
@@ -156,8 +154,6 @@ Feature: Checking file and directory names
 ```
 
 ## Links to a directory
-
-> **Not built yet.**
 
 A link to a directory leads to that directory's `index.md` on the site, so the check looks for the link's anchor in that `index.md` ([commands.md](../behavior/commands.md#check)).
 

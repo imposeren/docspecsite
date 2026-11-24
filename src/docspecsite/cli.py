@@ -5,9 +5,10 @@ Docs: architecture/docs-tooling.md
 """
 
 import argparse
+import os
 import sys
 import warnings
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
@@ -28,7 +29,7 @@ from .query import (
     format_list,
     resolve_doc_path,
 )
-from .text import UnreadableTextError
+from .text import UnreadableTextError, show_name_bytes
 
 
 class CommandParser:
@@ -121,12 +122,15 @@ class CommandParser:
         build_parser = commands.add_parser(
             "build", help="render the static site from a ref's history", formatter_class=CommandParser.HelpFormatter
         )
-        build_parser.add_argument("--ref", default="main", help="the git ref to build")
+        build_parser.add_argument(
+            "--ref", help="the git ref to build: a branch, tag or commit (default: HEAD, the one checked out)"
+        )
         build_parser.add_argument("--out", default="site", help="output directory, relative to the current directory")
         build_parser.add_argument(
             "--include-worktree",
             action="store_true",
-            help="add uncommitted changes as a 'working copy' version, and read the code from the working tree",
+            help="add uncommitted doc changes as a 'working copy' version, and read the code and the files under "
+            "docs/ from the working tree",
         )
         build_parser.add_argument(
             "--strict",
@@ -187,7 +191,7 @@ def run_list_command(args: argparse.Namespace) -> int:
         with WarningPrinter.print_warnings():
             config = ProjectConfig.load(args.repo).require_valid()
     except ConfigError as error:
-        print(f"docspecsite list: {error}", file=sys.stderr)
+        print(f"docspecsite list: {show_name_bytes(str(error))}", file=sys.stderr)
         return 1
     filters = Filters(
         layer=args.layer,
@@ -200,7 +204,7 @@ def run_list_command(args: argparse.Namespace) -> int:
     try:
         doc_set = DocSet.load(args.repo).require_readable()
     except UnreadableTextError as error:
-        print(f"docspecsite list: {error}", file=sys.stderr)
+        print(f"docspecsite list: {show_name_bytes(str(error))}", file=sys.stderr)
         return 1
     sys.stdout.write(format_list(doc_set.select(filters, config), args.format))
     return 0
@@ -217,11 +221,11 @@ def run_backlinks_command(args: argparse.Namespace) -> int:
     try:
         doc_set = DocSet.load(args.repo).require_readable()
     except UnreadableTextError as error:
-        print(f"docspecsite backlinks: {error}", file=sys.stderr)
+        print(f"docspecsite backlinks: {show_name_bytes(str(error))}", file=sys.stderr)
         return 1
     target = resolve_doc_path(args.repo, args.path)
     if target is None:
-        print(f"not a doc: {args.path}", file=sys.stderr)
+        print(f"not a doc: {show_name_bytes(args.path)}", file=sys.stderr)
         return 2
     sys.stdout.write(format_backlinks(doc_set.backlinks_by_target.get(target, ()), args.format))
     return 0
@@ -256,7 +260,7 @@ class WarningPrinter:
             line: Source line of the warning, passed on for other warnings.
         """
         if issubclass(category, DOCSPECSITE_WARNINGS):
-            print(f"warning: {message}", file=file if file is not None else sys.stderr)
+            print(show_name_bytes(f"warning: {message}"), file=file if file is not None else sys.stderr)
         else:
             show_other(message, category, filename, lineno, file, line)
 
@@ -277,26 +281,29 @@ def run_build_command(args: argparse.Namespace) -> int:
 
     Args:
         args: Parsed ``build`` options; ``repo``, ``ref``, ``out``, ``include_worktree``, ``strict`` and ``parts`` (the
-            set of :class:`~docspecsite.parts.Part` to build; None means every part the repo has) are used.
+            set of :class:`~docspecsite.parts.Part` to build; None means every part the repo has) are used; a ``ref``
+            of None builds ``HEAD``, the checked-out commit.
     """
+    # Without --ref the build shows what is checked out; the option stays None so a default can be told from a choice.
+    ref = args.ref if args.ref is not None else "HEAD"
     with WarningPrinter.print_warnings():
         try:
             build_result = run_build(
                 args.repo,
-                args.ref,
+                ref,
                 Path(args.out),
                 include_worktree=args.include_worktree,
                 is_strict=args.strict,
                 parts=args.parts,
             )
         except UnknownRefError:
-            print(f"docspecsite build: unknown ref: {args.ref}", file=sys.stderr)
+            print(f"docspecsite build: unknown ref: {ref}", file=sys.stderr)
             return 2
         except (BuildError, GitError, OSError) as exc:
-            print(f"docspecsite build: {exc}", file=sys.stderr)
+            print(show_name_bytes(f"docspecsite build: {exc}"), file=sys.stderr)
             return 1
     for error in build_result.errors:
-        print(f"error: {error}", file=sys.stderr)
+        print(show_name_bytes(f"error: {error}"), file=sys.stderr)
     failed = f", {build_result.failed_count} failed" if build_result.failed_count else ""
     counts = f"{build_result.rendered_count} rendered, {build_result.cached_count} from cache{failed}"
     print(f"built {build_result.page_count} pages ({counts}) → {args.out}")
@@ -307,6 +314,9 @@ def main(argv: list[str] | None = None) -> int:
     """Run the ``docspecsite`` command line and return the exit status.
 
     Every command stops with exit status 1 when the checked repo is a subdirectory of a git repository.
+    When the reader of stdout closes the pipe, the command stops writing quietly and returns its own exit status.
+
+    Docs: behavior/commands.md#list
 
     Args:
         argv: Arguments after the program name, e.g. ``["check", "--staged"]``; None reads ``sys.argv``.
@@ -322,7 +332,76 @@ def main(argv: list[str] | None = None) -> int:
     except GitError as error:
         print(f"docspecsite: {error}", file=sys.stderr)
         return 1
-    return handler(args)
+    with ClosedPipeTolerantStdout.install():
+        return handler(args)
+
+
+class ClosedPipeTolerantStdout:
+    """Standard output that drops what is written once the reader has closed the pipe.
+
+    The command goes on to its end and returns its own exit status; only the output stops. After the first
+    ``BrokenPipeError``, the file descriptor points at the null device, so the flush at interpreter exit cannot fail.
+
+    Docs: architecture/docs-tooling.md#closed-output-pipe
+    """
+
+    def __init__(self, stream: TextIO) -> None:
+        """Wrap a stream.
+
+        Args:
+            stream: The text stream to write to, normally ``sys.stdout``.
+        """
+        self._stream = stream
+        self._closed = False
+
+    @classmethod
+    @contextmanager
+    def install(cls) -> Iterator[None]:
+        """Replace ``sys.stdout`` for the block and flush it at the end, inside the guard."""
+        original = sys.stdout
+        wrapper = cls(original)
+        sys.stdout = wrapper  # type: ignore[assignment]
+        try:
+            yield
+            wrapper.flush()
+        finally:
+            sys.stdout = original
+
+    def write(self, text: str) -> int:
+        """Write text, or drop it when the pipe is closed; return the length of the text.
+
+        Args:
+            text: Text to write to the wrapped stream.
+        """
+        if not self._closed:
+            try:
+                self._stream.write(text)
+            except BrokenPipeError:
+                self._silence()
+        return len(text)
+
+    def flush(self) -> None:
+        """Flush the stream, or do nothing when the pipe is closed."""
+        if not self._closed:
+            try:
+                self._stream.flush()
+            except BrokenPipeError:
+                self._silence()
+
+    def __getattr__(self, name: str) -> object:
+        """Give the wrapped stream's other attributes, such as ``encoding``.
+
+        Args:
+            name: Name of an attribute this class does not define.
+        """
+        return getattr(self._stream, name)
+
+    def _silence(self) -> None:
+        """Drop all later output: point the stream's file descriptor at the null device."""
+        self._closed = True
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, self._stream.fileno())
+        os.close(devnull)
 
 
 if __name__ == "__main__":

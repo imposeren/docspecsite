@@ -15,6 +15,7 @@ from html import escape
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from types import MappingProxyType
+from typing import assert_never
 
 import griffe
 
@@ -22,10 +23,10 @@ from .cache import BodyCache
 from .codeindex import CodeTarget
 from .coderef import Codebase, CodeError, CodeReference
 from .config import ConfigError, ProjectConfig
-from .docs import DOCS_DIR, Doc, DocStatus, is_docs_asset, is_redirect, make_string_tuple
+from .docs import DOCS_DIR, Doc, DocStatus, derive_doc_path, is_doc, is_redirect, is_template, make_string_tuple
 from .docset import DocSet
 from .errors import DOCSPECSITE_WARNINGS, DocspecsiteError, DocspecsiteWarning, InternalErrorWarning
-from .git import Git
+from .git import Git, TreeEntry, WorktreeFile
 from .history import History, Version
 from .indexes import IndexEntry, IndexRenderer
 from .links import list_front_matter_paths
@@ -42,8 +43,18 @@ from .pages import (
     make_picker_label,
 )
 from .parts import Part
+from .symlinks import (
+    CODE_DIR_TO_FILE_REASON,
+    LEFT_OUT_SYMLINK_REASON,
+    GitSeenFiles,
+    SymlinkFollower,
+    SymlinkKind,
+    TreeFiles,
+)
+from .text import NON_UTF8_NAME_MESSAGE, is_utf8_name
 from .urls import (
     CODE_INDEX_DOC,
+    CODE_PAGES_DIR,
     COMPONENT_PAGES_DIR,
     RESERVED_PATH_MESSAGE,
     STATUS_PAGE,
@@ -77,6 +88,17 @@ class BuildError(DocspecsiteError):
 
 class ReservedPathError(DocspecsiteError):
     """Error for a doc whose page would take the URL of a generated page."""
+
+
+@dataclass(frozen=True)
+class DocsFile:
+    """A file under ``docs/`` that the site copies, and where its contents are read."""
+
+    source_path: str
+    """Repo path of the contents: the file's own, or for a file reached through symlinks, the path they lead to."""
+
+    is_in_worktree: bool
+    """Whether the contents are read from the working tree; else from the built revision's tree."""
 
 
 @dataclass(frozen=True)
@@ -233,6 +255,12 @@ class SiteBuilder:
     MERMAID_MARK = '<pre class="mermaid">'
     """Start of a Mermaid diagram in a rendered page body."""
 
+    # Warnings
+    LEFT_OUT_WARNING = "%s: %s; left out"
+    """Warning template for input the build cannot use, filled with the file's repo path and the reason."""
+
+    UNKNOWN_CODE_COMPONENT_WARNING = '%s: "code-components" of "%s" has an unknown component: "%s"; ignored'
+
     # Helpers
     cache: BodyCache
     """Cache of the rendered page bodies."""
@@ -255,12 +283,6 @@ class SiteBuilder:
 
     latest_docs: DocSet
     """Latest version of each doc that is valid UTF-8."""
-
-    ref_tree: dict[str, str]
-    """Blob SHA hashes of the ref's files, by repo path."""
-
-    worktree_files: frozenset[str]
-    """Working-tree non-Markdown files under ``docs/`` with :attr:`include_worktree`, else none."""
 
     # Parts built
     parts: frozenset[Part]
@@ -350,20 +372,12 @@ class SiteBuilder:
         self.git = Git(root)
         self.include_worktree = include_worktree
         self.vendor_dir = vendor_dir
-        self.history = History.load(self.git, ref, worktree_root=root if include_worktree else None)
-        self.worktree_files = (
-            frozenset(p for p in self.git.list_worktree_files(DOCS_DIR) if not p.endswith(".md"))
-            if include_worktree
-            else frozenset[str]()
-        )
-        self.ref_tree = self.git.read_tree(self.history.head)
+        loaded_history = History.load(self.git, ref, worktree_root=root if include_worktree else None)
         self.site_files = {}
         self.page_urls = []
         self.templates = Templates()
         # Parsed docs by (doc path relative to docs/, blob SHA hash): each blob of a doc is parsed once.
         self.docs_by_path_and_blob = {}
-        latest_versions = (self.history.find_latest(path) for path in sorted(self.history.versions_by_path))
-        self.latest_docs = DocSet(self.parse_doc_version(v) for v in latest_versions if self.history.is_decodable(v))
         self.config = self.load_config()
         available_parts = self.get_available_parts()
         if parts is None:
@@ -371,7 +385,10 @@ class SiteBuilder:
         elif not parts <= available_parts:
             raise BuildError("the code part needs code-dirs in %s", ProjectConfig.CONFIG_FILE)
         self.parts = parts
+        self.history = self.leave_out_non_utf8_docs(loaded_history)
+        latest_versions = (self.history.find_latest(path) for path in sorted(self.history.versions_by_path))
         self.cache = BodyCache(root / self.CACHE_DIR, BodyCache.compute_fingerprint(), self.parts_label)
+        self.latest_docs = DocSet(self.parse_doc_version(v) for v in latest_versions if self.history.is_decodable(v))
         if not self.is_docs_part_built and CODE_INDEX_DOC not in self.latest_docs.by_path:
             warnings.warn(
                 DocspecsiteWarning(
@@ -391,6 +408,218 @@ class SiteBuilder:
         self.vocabulary = None
         self.index_renderer = None
 
+    @staticmethod
+    def compute_repo_path_part(repo_path: str) -> Part:
+        """Return the part of the site that a file or directory belongs to, by its repo path.
+
+        A path under the code reference's directory ``docs/reference/code/``, such as an image its entry page shows,
+        belongs to the code part, and so does a path outside ``docs/``, which is in the code directories; every other
+        path under ``docs/`` belongs to the docs part.
+
+        Docs: architecture/docs-tooling.md#parts
+
+        Args:
+            repo_path: Repo path of a doc, another file or a directory.
+        """
+        if repo_path.startswith(DOCS_DIR) and not repo_path.startswith(f"{DOCS_DIR}{CODE_PAGES_DIR}"):
+            return Part.DOCS
+        return Part.CODE
+
+    def is_repo_path_part_built(self, repo_path: str) -> bool:
+        """Return whether the part of the site that a file or directory belongs to is built.
+
+        Args:
+            repo_path: Repo path of a doc, another file or a directory.
+        """
+        return self.compute_repo_path_part(repo_path) in self.parts
+
+    @staticmethod
+    def is_doc_or_template(doc_path: str, *, is_symlink: bool) -> bool:
+        """Return whether a file under ``docs/`` is a doc or a doc template, which the site never copies.
+
+        Args:
+            doc_path: Path of the file relative to ``docs/``.
+            is_symlink: Whether the file is a symlink; a symlink is never a doc.
+        """
+        return is_template(doc_path) or is_doc(doc_path, is_symlink=is_symlink, is_under_symlinked_dir=False)
+
+    def warn_left_out(self, path: str, reason: str) -> None:
+        """Warn that input is left out of the site, when the part it belongs to is built.
+
+        Docs: behavior/commands.md#build
+
+        Args:
+            path: Repo path of the doc, file or directory left out.
+            reason: Why the build cannot use it.
+        """
+        if self.is_repo_path_part_built(path):
+            warnings.warn(DocspecsiteWarning(self.LEFT_OUT_WARNING, path, reason), stacklevel=2)
+
+    def leave_out_non_utf8_docs(self, history: History) -> History:
+        """Return a history without the docs whose name is not valid UTF-8, with a warning about each.
+
+        No link can name such a doc, and its pages could not be linked to.
+
+        Docs: behavior/commands.md#input-that-cannot-be-used
+
+        Args:
+            history: History whose docs are kept when their names are valid UTF-8.
+        """
+        versions_by_path: dict[str, tuple[Version, ...]] = {}
+        for path, versions in history.versions_by_path.items():
+            if is_utf8_name(path):
+                versions_by_path[path] = versions
+            else:
+                self.warn_left_out(f"{DOCS_DIR}{path}", NON_UTF8_NAME_MESSAGE)
+        return replace(history, versions_by_path=MappingProxyType(versions_by_path))
+
+    @cached_property
+    def tree_symlink_follower(self) -> SymlinkFollower:
+        """The rule for what a symlink leads to, applied to the built revision's tree."""
+        # Every symlink's target is read at once: the follower reads one per symlink it passes, a git process each.
+        link_texts_by_sha = self.git.read_blobs(
+            entry.blob_sha for entry in self.history.tree.values() if entry.is_symlink
+        )
+        return SymlinkFollower(TreeFiles(self.history.tree, lambda _shas: link_texts_by_sha))
+
+    @cached_property
+    def worktree_symlink_follower(self) -> SymlinkFollower:
+        """The rule for what a symlink leads to, applied to the files of the working tree that git sees."""
+        seen_paths = frozenset(file.path for file in self.git.list_worktree_files("."))
+        return SymlinkFollower(GitSeenFiles(self.root, seen_paths))
+
+    @cached_property
+    def docs_files(self) -> Mapping[str, DocsFile]:
+        """The files under ``docs/`` that the site copies, by repo path; their site path is that path within ``docs/``.
+
+        These are the files that are not docs or doc templates, from the built revision's tree, or with
+        :attr:`include_worktree` from the working tree, where the files git sees count (a file only the tree has
+        is read from it). A symlink counts by what it leads to, whatever its name: one to another file is that file,
+        and one to a directory gives the files inside it at their paths below the symlink. One that leads to a doc is
+        left out without a word, since ``check`` reports it; one that leads out of the repo or to nothing, and a file
+        whose name is not valid UTF-8, are left out with a warning.
+
+        Docs: architecture/docs-tooling.md#output-layout
+        Docs: behavior/doc-symlinks.md#other-files-under-docs
+        """
+        # The working tree's file, else the built revision's, by repo path.
+        sources_by_path: dict[str, WorktreeFile | TreeEntry] = {file.path: file for file in self.history.worktree_files}
+        for path, entry in self.history.tree.items():
+            if path.startswith(DOCS_DIR):
+                sources_by_path.setdefault(path, entry)
+        docs_files: dict[str, DocsFile] = {}
+        for path, source in sorted(sources_by_path.items()):
+            is_in_worktree = isinstance(source, WorktreeFile)
+            if self.is_doc_or_template(path.removeprefix(DOCS_DIR), is_symlink=source.is_symlink):
+                continue
+            if not is_utf8_name(path):
+                self.warn_left_out(path, NON_UTF8_NAME_MESSAGE)
+            elif source.is_symlink:
+                follower = self.worktree_symlink_follower if is_in_worktree else self.tree_symlink_follower
+                docs_files.update(self.follow_docs_symlink(path, follower, is_in_worktree=is_in_worktree))
+            else:
+                docs_files[path] = DocsFile(path, is_in_worktree)
+        return MappingProxyType(docs_files)
+
+    def follow_docs_symlink(self, path: str, follower: SymlinkFollower, *, is_in_worktree: bool) -> dict[str, DocsFile]:
+        """Return the files that a path under ``docs/`` gives the site through its symlinks, by repo path.
+
+        A path that leads out of the repo or to nothing gives none, with a warning naming it; a path that leads to a
+        doc gives none, without one.
+
+        Docs: behavior/doc-symlinks.md#other-files-under-docs
+
+        Args:
+            path: Repo path of a symlink under ``docs/``, or of an entry below a symlinked directory there.
+            follower: Rule for what the path leads to, applied where the build reads the path's contents.
+            is_in_worktree: Whether the contents are read from the working tree; else from the built revision's tree.
+        """
+        target = follower.follow(path)
+        match target.kind:
+            case SymlinkKind.OUT_OF_REPO | SymlinkKind.NOTHING:
+                self.warn_left_out(path, LEFT_OUT_SYMLINK_REASON)
+                return {}
+            case SymlinkKind.DOC:
+                return {}
+            case SymlinkKind.OTHER_FILE:
+                return {path: DocsFile(target.found_path, is_in_worktree)}
+            case SymlinkKind.DIRECTORY:
+                docs_files: dict[str, DocsFile] = {}
+                for name in follower.files.list_dir(target.found_path):
+                    child = f"{path}/{name}"
+                    if is_utf8_name(name):
+                        docs_files.update(self.follow_docs_symlink(child, follower, is_in_worktree=is_in_worktree))
+                    else:
+                        self.warn_left_out(child, NON_UTF8_NAME_MESSAGE)
+                return docs_files
+            case _:
+                assert_never(target.kind)
+
+    @cached_property
+    def built_docs_files(self) -> Mapping[str, DocsFile]:
+        """The files of :attr:`docs_files` that belong to the parts being built, which the site copies, by repo path."""
+        return MappingProxyType(
+            {path: file for path, file in self.docs_files.items() if self.is_repo_path_part_built(path)}
+        )
+
+    @cached_property
+    def unbuilt_part_files(self) -> frozenset[str]:
+        """Repo paths of the files of :attr:`docs_files` that belong to a part not built.
+
+        A link to one goes to the repository host, as the site does not copy it.
+
+        Docs: architecture/docs-tooling.md#parts
+        """
+        return frozenset(path for path in self.docs_files if not self.is_repo_path_part_built(path))
+
+    @cached_property
+    def found_files(self) -> frozenset[str]:
+        """Repo paths of the files that a link from a doc finds, besides the docs.
+
+        They are the built revision's files and the files the site copies (:attr:`built_docs_files`), less what the
+        site leaves out: under ``docs/``, a file of the tree that the site does not copy is found only when it is a doc
+        template or a Markdown file, and never when it is a symlink or its name is not valid UTF-8. A file of a part
+        that is not built is not copied but is found, as :attr:`unbuilt_part_files`.
+
+        Docs: behavior/commands.md#build
+        Docs: architecture/docs-tooling.md#parts
+        """
+        tree_paths = (
+            path
+            for path, entry in self.history.tree.items()
+            if (doc_path := derive_doc_path(path)) is None
+            or (not entry.is_symlink and is_utf8_name(path) and self.is_doc_or_template(doc_path, is_symlink=False))
+        )
+        return frozenset(tree_paths) | self.built_docs_files.keys() | self.unbuilt_part_files
+
+    def find_changed_code_paths(self, codebase: Codebase) -> frozenset[str]:
+        """Return the repo paths of the code files whose contents differ from the built revision's, or that it lacks.
+
+        Without :attr:`include_worktree` the code is read from the built revision, so there are none. A file counts as
+        changed as a working-tree doc does: git hashes it to a blob other than the one in the built revision's tree.
+
+        Docs: architecture/docs-tooling.md#code-reference
+
+        Args:
+            codebase: Code loaded for the pages, whose module files are compared.
+        """
+        if not self.include_worktree:
+            return frozenset()
+        repo_paths: set[str] = set()
+        for module in codebase.modules:
+            if isinstance(module.filepath, list):
+                continue  # a namespace package has no file, and no source link
+            try:
+                repo_paths.add(codebase.get_repo_path(module))
+            except CodeError:
+                continue  # its page reports the same error when it makes its source links
+        sha_by_path = self.git.hash_files(sorted(repo_paths))
+        return frozenset(
+            path
+            for path, sha in sha_by_path.items()
+            if (entry := self.history.tree.get(path)) is None or entry.blob_sha != sha
+        )
+
     def get_available_parts(self) -> frozenset[Part]:
         """Return every part the repo has the prerequisites for: the docs always, the code with ``code-dirs``."""
         return frozenset({Part.DOCS, Part.CODE} if self.config.code_dirs else {Part.DOCS})
@@ -403,7 +632,9 @@ class SiteBuilder:
         """
         key = (version.path, version.blob_sha)
         if key not in self.docs_by_path_and_blob:
-            self.docs_by_path_and_blob[key] = Doc.parse(version.path, self.history.read_text(version))
+            text = self.history.read_text(version)
+            split = self.cache.get_front_matter_split(version.blob_sha, lambda: MarkdownText(text).split_front_matter())
+            self.docs_by_path_and_blob[key] = Doc.parse(version.path, text, split)
         return self.docs_by_path_and_blob[key]
 
     def get_front_matter(self, version: Version) -> Mapping[str, object] | None:
@@ -530,7 +761,7 @@ class SiteBuilder:
             return None  # the code part's entry page, linked from the docs
         if not self.config.source_url:
             return None
-        if f"{DOCS_DIR}{path}" not in self.ref_tree:
+        if f"{DOCS_DIR}{path}" not in self.history.tree:
             return None  # a working-tree doc, not in the built commit
         return f"{self.config.source_url}/blob/{self.history.head}/{DOCS_DIR}{encode_href_path(path)}"
 
@@ -669,19 +900,24 @@ class SiteBuilder:
             raise BuildError(error.message, *error.values) from error
 
     def load_codebase(self, code_root: Path) -> Codebase | None:
-        """Load the project's code from a directory.
+        """Load the project's code from a directory, with a warning about each input it leaves out.
 
         Returns None, and issues a warning, when the code cannot be read.
+
+        Docs: behavior/commands.md#input-that-cannot-be-used
 
         Args:
             code_root: Directory holding the code directories: the repository root, or the code directories
                 extracted from the ref.
         """
         try:
-            return Codebase.load(code_root, self.config)
+            codebase = Codebase.load(code_root, self.config)
         except (CodeError, griffe.GriffeError) as error:
             warnings.warn(DocspecsiteWarning("cannot load code: %s", error), stacklevel=1)
             return None
+        for left_out in codebase.left_out:
+            self.warn_left_out(left_out.path, left_out.reason)
+        return codebase
 
     def emit(self, name: str, page: Page, index_urls: Container[str]) -> None:
         """Render a page and add it to the site files.
@@ -1055,22 +1291,21 @@ class SiteBuilder:
         return [(f"reference/code/{module.path}", partial(make, module)) for module in codebase.modules]
 
     def copy_docs_files(self) -> None:
-        """Copy the non-Markdown files under ``docs/`` into the site at the same path.
+        """Copy the files of the parts being built into the site, each at its path within ``docs/``.
 
-        Templates are left out. With :attr:`include_worktree` the files come from the working tree. A file whose site
-        path collides with a generated file or directory is not copied and a warning is issued.
+        They are :attr:`built_docs_files`. A file whose site path collides with a generated file or directory is not
+        copied and a warning is issued.
         """
-        site_paths_by_repo_path = {
-            path: path.removeprefix(DOCS_DIR)
-            for path in sorted(self.history.tree | self.worktree_files)
-            if is_docs_asset(path)
-        }
         generated_paths = set(self.site_files)
         generated_dirs = {parent for path in generated_paths for parent in list_ancestor_directories(path)}
+        built_docs_files = self.built_docs_files
         blobs = self.git.read_blobs(
-            self.ref_tree[path] for path in site_paths_by_repo_path if path not in self.worktree_files
+            self.history.tree[docs_file.source_path].blob_sha
+            for docs_file in built_docs_files.values()
+            if not docs_file.is_in_worktree
         )
-        for path, site_path in site_paths_by_repo_path.items():
+        for path, docs_file in built_docs_files.items():
+            site_path = path.removeprefix(DOCS_DIR)
             if (
                 site_path in generated_paths
                 or site_path in generated_dirs
@@ -1078,10 +1313,10 @@ class SiteBuilder:
             ):
                 warnings.warn(DocspecsiteWarning("%s: collides with a generated file, not copied", path), stacklevel=1)
                 continue
-            if path in self.worktree_files:
-                self.site_files[site_path] = (self.root / path).read_bytes()
+            if docs_file.is_in_worktree:
+                self.site_files[site_path] = (self.root / docs_file.source_path).read_bytes()
             else:
-                self.site_files[site_path] = blobs[self.ref_tree[path]]
+                self.site_files[site_path] = blobs[self.history.tree[docs_file.source_path].blob_sha]
 
     def load_mermaid_bundle(self) -> dict[str, bytes] | None:
         """Return the Mermaid script and its licence as site files, or None.
@@ -1105,7 +1340,8 @@ class SiteBuilder:
     def find_code_dirs(self) -> list[str]:
         """Return the code directories that exist in the ref's tree; ``.`` alone when the root is one of them.
 
-        The settings' code directories (``code-dirs``) are matched against each file's parent directories.
+        The settings' code directories (``code-dirs``) are matched against each file's parent directories, and
+        against the symlinks, which can stand for a code directory.
         """
         if self.config.is_code_dir("."):
             return ["."]
@@ -1115,6 +1351,7 @@ class SiteBuilder:
             for directory in PurePosixPath(path).parents
             if directory.name
         }
+        directories.update(path for path, entry in self.history.tree.items() if entry.is_symlink)
         return sorted(directory for directory in directories if self.config.is_code_dir(directory))
 
     @contextmanager
@@ -1122,8 +1359,7 @@ class SiteBuilder:
         """Provide the directory the code is read from, or None when the code part is not built.
 
         That is the working tree with :attr:`include_worktree`, or else the ref's code directories extracted to a
-        temporary directory that is removed on exit. A symlink there that points to an absolute path or out of the code
-        directories is left out, with a :class:`~docspecsite.errors.DocspecsiteWarning` naming it.
+        temporary directory that is removed on exit (see :meth:`extract_code`).
         """
         if not self.is_code_part_built:
             yield None
@@ -1132,16 +1368,72 @@ class SiteBuilder:
             yield self.root
             return
         with TemporaryDirectory(prefix="docspecsite-code-") as tmp:
-            dirs = self.find_code_dirs()
-            if dirs:
-                for path in self.git.extract(self.history.head, dirs, Path(tmp)):
-                    warnings.warn(
-                        DocspecsiteWarning(
-                            "%s: symlink to an absolute path or out of the code directories, left out", path
-                        ),
-                        stacklevel=1,
-                    )
+            self.extract_code(Path(tmp))
             yield Path(tmp)
+
+    def extract_code(self, code_root: Path) -> None:
+        """Write the code directories of the built revision into a directory, at their repo paths.
+
+        A code directory that is a symlink is followed within the built revision: the directory it leads to is written
+        at its own path, with the symlink to it, so the code is found under the code directory and is at its real path
+        for the source links. One that leads to an absolute path, out of the repo or to nothing is left out, and so is
+        a symlink in a code directory that points to an absolute path or out of the code directories, each with a
+        :class:`~docspecsite.errors.DocspecsiteWarning` naming it.
+
+        Docs: behavior/commands.md#build
+
+        Args:
+            code_root: Empty directory that receives the code.
+        """
+        read_dirs: dict[str, None] = {}  # repo paths of the directories to write, each once
+        targets_by_link: dict[str, str] = {}  # repo path a code directory symlink leads to, by the symlink's path
+        for code_dir in self.find_code_dirs():
+            entry = self.history.tree.get(code_dir)
+            if entry is None or not entry.is_symlink:
+                read_dirs[code_dir] = None
+                continue
+            target = self.tree_symlink_follower.follow(code_dir)
+            match target.kind:
+                case SymlinkKind.OUT_OF_REPO | SymlinkKind.NOTHING:
+                    self.warn_left_out(code_dir, LEFT_OUT_SYMLINK_REASON)
+                case SymlinkKind.DIRECTORY:
+                    read_dirs[target.found_path] = None
+                    targets_by_link[code_dir] = target.found_path
+                case SymlinkKind.DOC | SymlinkKind.OTHER_FILE:
+                    self.warn_left_out(code_dir, CODE_DIR_TO_FILE_REASON)
+                case _:
+                    assert_never(target.kind)
+        if not read_dirs:
+            return
+        for path in self.git.write_files(self.history.head, list(read_dirs), code_root):
+            if path in targets_by_link:
+                continue  # a code directory inside another, followed by its own rule and linked below
+            warnings.warn(
+                DocspecsiteWarning("%s: symlink to an absolute path or out of the code directories, left out", path),
+                stacklevel=1,
+            )
+        for link, target in targets_by_link.items():
+            link_file = code_root / link
+            if link_file.is_symlink():
+                continue  # it lies in another code directory, and write_files wrote it there, as the ref has it
+            link_file.parent.mkdir(parents=True, exist_ok=True)
+            link_file.symlink_to(posixpath.relpath(target, posixpath.dirname(link) or "."))
+
+    def use_known_code_components(self, vocabulary: Vocabulary) -> None:
+        """Warn about each unknown ``code-components`` id and leave it out of the settings the code pages read.
+
+        Docs: behavior/commands.md#build
+
+        Args:
+            vocabulary: The vocabulary of the latest docs, whose components are the known ids.
+        """
+        checked = self.config.check_code_components(vocabulary.components)
+        for key, component in checked.unknown:
+            warnings.warn(
+                DocspecsiteWarning(self.UNKNOWN_CODE_COMPONENT_WARNING, ProjectConfig.CONFIG_FILE, key, component),
+                stacklevel=1,
+            )
+        self.config = replace(self.config, code_components=checked.known)
 
     def read_latest_text(self, path: str) -> str | None:
         """Return the text of the latest version of a doc, or None when there is no such doc or it is not valid UTF-8.
@@ -1250,13 +1542,21 @@ class SiteBuilder:
                 self.config,
                 self.get_front_matter,
                 doc_pages=self,
-                extra_files=self.worktree_files,
+                found_files=self.found_files,
+                unbuilt_part_files=self.unbuilt_part_files,
                 should_warn_on_dropped_repo_link=not self.is_missing_source_url_reported,
             )
             self.vocabulary = Vocabulary.parse(self.read_latest_text)
+            if self.is_code_part_built:
+                self.use_known_code_components(self.vocabulary)
             code_reference = (
                 CodeReference.for_commit(
-                    self.codebase, self.config, self.history.head, self.latest_docs.titles, locate_doc=self.locate_doc
+                    self.codebase,
+                    self.config,
+                    self.history.head,
+                    self.latest_docs.titles,
+                    locate_doc=self.locate_doc,
+                    changed_paths=self.find_changed_code_paths(self.codebase),
                 )
                 if self.codebase
                 else None

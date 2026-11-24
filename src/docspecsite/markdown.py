@@ -112,6 +112,28 @@ def _select_parser(*, use_roles: bool) -> MarkdownIt:
     return _md_with_roles if use_roles else _md
 
 
+def split_source_lines(text: str) -> list[str]:
+    """Return the lines of a text as Markdown counts them, split at ``\\n``, ``\\r\\n`` and ``\\r`` only.
+
+    Other separators, such as ``\\f`` and U+2028, stay inside their line, so line ``n`` of a markdown-it token's
+    ``map`` is item ``n`` (``str.splitlines`` would split more often).
+
+    Args:
+        text: Markdown text, such as a whole doc file.
+    """
+    return re.split(r"\r\n?|\n", text)
+
+
+class FrontMatterSplit(NamedTuple):
+    """A doc file split into its front matter and its body."""
+
+    source: str | None
+    """YAML between the leading ``---`` lines; None when the file has no front matter."""
+
+    body_line: int
+    """Line of the file where the body starts, from 1."""
+
+
 @dataclass(frozen=True)
 class Link:
     """Link or image found in a text."""
@@ -214,9 +236,9 @@ class MarkdownText:
     def source_lines(self) -> list[str]:
         """The lines of the text as written, split at the line breaks Markdown knows (``\\n``, ``\\r\\n`` and
         ``\\r``), so that line ``n`` of a token's ``map`` is item ``n``."""
-        return re.split(r"\r\n?|\n", self.text)
+        return split_source_lines(self.text)
 
-    def split_front_matter(self) -> tuple[str | None, int]:
+    def split_front_matter(self) -> FrontMatterSplit:
         """Split the text, a whole doc file, into its YAML front matter and the line where the body starts.
 
         The front matter is the YAML between the leading ``---`` lines at the very start, or None when there is none.
@@ -224,8 +246,8 @@ class MarkdownText:
         """
         tokens = self.tokens
         if tokens and tokens[0].type == "front_matter" and tokens[0].map:
-            return tokens[0].content + "\n", tokens[0].map[1] + 1
-        return None, 1
+            return FrontMatterSplit(tokens[0].content + "\n", tokens[0].map[1] + 1)
+        return FrontMatterSplit(None, 1)
 
     @staticmethod
     def get_inline_line_number(inline: Token, line_break: Token | None = None) -> int:

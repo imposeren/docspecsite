@@ -1,6 +1,6 @@
 import pytest
 
-from docspecsite.docs import Doc, DocStatus, is_redirect
+from docspecsite.docs import Doc, DocStatus, is_doc, is_redirect
 from docspecsite.problems import Problem
 
 
@@ -57,3 +57,19 @@ def test_doc_without_loaded_front_matter_has_no_status() -> None:
 )
 def test_is_redirect_reads_one_value_lists(raw: object, expected: bool) -> None:
     assert is_redirect({"status": raw}) is expected
+
+
+@pytest.mark.parametrize(
+    ("path", "is_symlink", "is_under_symlinked_dir", "expected"),
+    [
+        ("guides/setup.md", False, False, True),
+        ("meta/templates/index.md", False, False, True),
+        ("meta/templates/behavior.md", False, False, False),
+        ("guides/alias.md", True, False, False),
+        ("shared/page.md", False, True, False),
+        ("img/logo.png", False, False, False),
+    ],
+    ids=["plain doc", "templates index", "template", "symlink", "under a symlinked dir", "not markdown"],
+)
+def test_is_doc(path: str, is_symlink: bool, is_under_symlinked_dir: bool, expected: bool) -> None:
+    assert is_doc(path, is_symlink=is_symlink, is_under_symlinked_dir=is_under_symlinked_dir) is expected
