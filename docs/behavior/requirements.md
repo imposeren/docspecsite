@@ -53,7 +53,6 @@ A new DSR-n is listed under the section whose subject it matches, or under Other
 - **DSR-17**, **DSR-28** The `list` and `backlinks` query commands: [list.md](commands/list.md#requirements), [backlinks.md](commands/backlinks.md#requirements).
 - **DSR-30** The web API schema lookup a project provides: [web-api-reference.md](web-api-reference.md#looking-up-the-schema).
 - **DSR-31** The code lookup a project provides: [code-reference.md](code-reference.md#requirements).
-- **DSR-54** Withdrawn; the number is not used again.
 
 ## Generated reference layer
 

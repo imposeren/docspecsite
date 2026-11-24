@@ -259,13 +259,13 @@ Feature: Choosing the renderer
   Scenario: An unknown renderer in the setting stops the build
     Given a project whose "[site]" section sets "renderer" to "mkdocs"
     When I build the site
-    Then the build stops with the error '"renderer" must be "sphinx" or "internal"'
+    Then the build stops with the error '"site.renderer" must be "sphinx" or "internal"'
     And the exit code is 1
 
   Scenario: The check reports an unknown renderer in the setting
     Given a project whose "[site]" section sets "renderer" to "mkdocs"
     When I run the check
-    Then it reports the problem '"renderer" must be "sphinx" or "internal"' on "docspecsite.toml"
+    Then it reports the problem '"site.renderer" must be "sphinx" or "internal"' on "docspecsite.toml"
 
   Scenario: An unknown key in the site section
     Given a project whose "[site]" section has the key "theme"
@@ -282,22 +282,23 @@ Feature: Choosing the renderer
     Given a project whose "docspecsite.toml" sets "site" to "sphinx"
     When I run the check
     Then it reports the problem '"site" must be a table' on "docspecsite.toml"
+
+  Scenario: The build stops on a site setting that is not a section
+    Given a project whose "docspecsite.toml" sets "site" to "sphinx"
+    When I build the site
+    Then the build stops with the error '"site" must be a table'
+    And the exit code is 1
 ```
 
 ### Rebuilding with the standard renderer
 
-No page is stale after a rebuild ([DSR-24](../../behavior/site.md#building)), and with the standard renderer the count of pages taken from the cache is 0 ([build.md](../../behavior/commands/build.md#what-the-build-does)).
+No page is stale after a rebuild ([DSR-24](../../behavior/site.md#building)), and with the standard renderer two builds of the same repo can run at the same time ([build.md](../../behavior/commands/build.md#what-the-build-does)).
 
 ```gherkin
 Feature: Rebuilding with the standard renderer
   As a docs author
-  I want every build to draw the whole site afresh
+  I want a rebuild to show every change on every page it affects
   So that no page is stale after a change to a doc it links to
-
-  Scenario: A rebuild without changes draws every page again
-    Given the site was built with the "sphinx" renderer
-    When I build the site again without changing anything
-    Then the last line counts every page as rendered afresh and 0 taken from the cache
 
   Scenario: A changed heading reaches the pages that link to it
     Given the site was built with the "sphinx" renderer
@@ -306,22 +307,32 @@ Feature: Rebuilding with the standard renderer
     And I build the site again
     Then the build warns about the link to the heading, naming "docs/guides/usage.md" and the line of the link
 
+  Scenario: Two builds of the same repo at the same time
+    When I build the site with the "sphinx" renderer into "site-a"
+    And while that build runs, I build the same repo with the "sphinx" renderer into "site-b"
+    Then both builds succeed
+    And each directory holds the whole site
 ```
 
 ### Warnings of the standard renderer
 
-With the standard renderer, a warning of the documentation tool names the doc and the line in it, and is given only for the latest version of a doc ([build.md](../../behavior/commands/build.md#what-the-build-does)).
+With the standard renderer, a warning of the documentation tool names the doc or code file and the line in it, and a warning about a doc is given only for its latest version ([build.md](../../behavior/commands/build.md#what-the-build-does)).
 
 ```gherkin
 Feature: Warnings of the standard renderer
   As a docs author
-  I want each warning of the documentation tool to name the doc and line it is about
+  I want each warning of the documentation tool to name the file and line it is about
   So that I can find and fix the cause in my Markdown
 
   Scenario: A warning of the documentation tool names the doc and its line
     Given the doc "docs/guides/usage.md" links on line 12 to a heading that "docs/guides/setup.md" does not have
     When I build the site with the "sphinx" renderer
     Then the build prints a warning that starts with "warning: docs/guides/usage.md:12: "
+
+  Scenario: A warning about a docstring names the code file and its line
+    Given a docstring on line 40 of "src/example/build.py" holds a role whose target is not found
+    When I build the site with the "sphinx" renderer
+    Then the build prints a warning that starts with "warning: src/example/build.py:40: "
 
   Scenario: Older versions give no warning of the documentation tool
     Given an older version of "docs/guides/usage.md" links to a heading that "docs/guides/setup.md" no longer has
@@ -332,7 +343,7 @@ Feature: Warnings of the standard renderer
 
 ### A failure inside the standard renderer
 
-A failure of the documentation tool itself, even while it draws one page, stops the whole build, and the output directory is left as it was ([build.md](../../behavior/commands/build.md#what-the-build-does)).
+A failure of the documentation tool itself, even while it draws one page, stops the whole build with one error line, and the output directory is left as it was ([build.md](../../behavior/commands/build.md#what-the-build-does)).
 
 ```gherkin
 Feature: A failure inside the standard renderer
@@ -344,7 +355,7 @@ Feature: A failure inside the standard renderer
     Given the site was built into "site"
     And the documentation tool fails while drawing the next build
     When I build the site into "site" with the "sphinx" renderer
-    Then the build prints one error line
+    Then the build prints one error line, which starts with "error: sphinx: "
     And the exit code is 1
     And "site" holds the files of the earlier build
 ```

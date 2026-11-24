@@ -31,7 +31,7 @@ Every command reads the file as it is on disk in the checked-out files, never a 
 
 This requirement is part of the [DSR-n](../meta/glossary.md#dsr-n) numbering listed in [requirements.md](requirements.md):
 
-- **DSR-32** Project settings live in `docspecsite.toml` at the root of the checked repo (this doc): the repo's ADR prefix, its web URL, where its code is and which components the code belongs to, the Contents-list threshold, which renderer draws the site ([site.md](site.md#renderers)), and where versions come from ([versioning-backends.md](versioning-backends.md)).
+- **DSR-32** Project settings live in `docspecsite.toml` at the root of the checked repo (this doc): the repo's ADR prefix, its web URL, where its code is and which components the code belongs to, the Contents-list threshold, which site renderer draws the site ([site.md](site.md#renderers)), and where versions come from ([versioning-backends.md](versioning-backends.md)).
   The file is always read from disk, never through the version control.
   The file is optional; a missing setting takes its default.
   The check reports an unknown setting or an invalid value as a problem, and the setting takes its default; `list` and `build` stop on an invalid value or a file that is not valid TOML, and warn about an unknown setting, which they ignore.
@@ -73,7 +73,7 @@ tag-pattern = "v*"
 | `source-url` | none | Web URL of the repo on its host, such as `https://github.com/example/project`. It is used for the code reference's source links (the links from each code element to its source file) and for body links to repo files outside the site, which go to the file or directory there through the versioning backend's link patterns ([Versioning](#versioning)); with git, under `<source-url>/blob/<commit>/` or `<source-url>/tree/<commit>/`. Used by `build`, which also says what happens without it ([build.md](commands/build.md#what-the-build-does)). |
 | `code-dirs` | none | Directories, relative to the repo root, that hold the Python packages for the code reference; shell-style globs such as `services/*/src` are allowed, and `.` is the repo root. `check` reports an entry that is empty, absolute or contains `..` and leaves it out; `list` and `build` stop on it. A package is a directory with an `__init__.py` directly inside one of them. Without it, there is no code reference and `code:` links cannot resolve. Used by `check --optional-checks code` ([check.md](commands/check.md#what-the-check-reports)) and `build` ([build.md](commands/build.md#what-the-build-does)), which also say which packages they load or report. |
 | `code-components` | none | Table of component lists (lists of strings) by dotted module path. A code element gets the components of the longest key that matches its dotted path on whole segments, such as `example.api` for `example.api.routes`. Components must be in the repo's component list ([meta/vocabulary.md](../meta/vocabulary.md)); `check` reports an unknown one as a problem on `docspecsite.toml` (the problem is below). Used by `build` for the code pages ([build.md](commands/build.md#what-the-build-does)). |
-| `toc-min-headings` | `5` | A whole number of 0 or more. A doc with at least this many `##` sections gets a generated Contents list of its `##` and `###` headings, placed before the first `##` section ([meta/authoring.md](../meta/authoring.md#page-shape)). `0` turns the list off. Applies to the `internal` [renderer](site.md#renderers) only. |
+| `toc-min-headings` | `5` | A whole number of 0 or more. A doc with at least this many `##` sections gets a generated Contents list of its `##` and `###` headings, placed before the first `##` section ([meta/authoring.md](../meta/authoring.md#page-shape)). `0` turns the list off. Applies to the `internal` [site renderer](site.md#renderers) only, since the `sphinx` renderer's side bar shows the page's Contents, and is removed with that renderer. |
 | `status-notes` | the default texts | A `[status-notes]` section with one [status note](../meta/glossary.md#status-note) text per status: `specified`, `changed` and `implemented`, each the bold label without `**` and `>`, such as `specified = "Ще не зроблено."`. A status left out keeps its default text ([status-notes.md](status-notes.md)). `check` reports an unknown status, an empty text or one with spaces at its start or end (it could never match a bold label), and two statuses with the same text, and the setting then keeps its defaults; `list` and `build` stop on them. |
 
 The problems `check` reports for `status-notes`:
@@ -94,13 +94,13 @@ It is optional, and so is each key in it; an unknown key and a value of the wron
 
 | Key | Default | Meaning |
 | -- | -- | -- |
-| `renderer` | `"sphinx"` | Which [renderer](site.md#renderers) draws the site: `"sphinx"`, the standard one, or `"internal"`, docspecsite's older renderer, kept only while projects move to the standard one. `build --renderer` overrides it for one build ([build.md](commands/build.md#what-the-build-does)). Any other value is a wrong value: `check` reports it and takes `"sphinx"`; `list` and `build` stop on it, as on any wrong value. |
+| `renderer` | `"sphinx"` | Which renderer draws the site: `"sphinx"`, the standard one, or `"internal"`, docspecsite's older renderer, kept only while projects move to the standard one. `build --renderer` overrides it for one build ([build.md](commands/build.md#what-the-build-does)). Any other value is a wrong value: `check` reports it and takes `"sphinx"`; `list` and `build` stop on it, as on any wrong value. |
 
 The messages for the `[site]` section, as `check` reports them and as `list` and `build` print them:
 
-- `"renderer" must be "sphinx" or "internal"`, for any other value of `renderer`
+- `"site.renderer" must be "sphinx" or "internal"`, for any other value of the `renderer` key
 - `unknown setting "site.theme"`, for a key the section does not have, here `theme`, in the same form as for an unknown key at the top level
-- `"site" must be a table`, when `site` is given a value instead of a section; the section's settings then take their defaults
+- `"site" must be a table`, when the `site` key is given a value that is not a table; for `check` the section's settings then take their defaults, and `list` and `build` stop, as on any wrong value
 
 ## Versioning
 

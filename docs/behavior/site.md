@@ -61,7 +61,7 @@ Listings that include ADRs (the index pages and the machine listing here, and `l
 
 ### Building
 
-> **Changed, not built yet.** Git is the only version control, and every build needs it. Unchanged versions are taken from the build cache.
+> **Changed, not built yet.** Git is the only version control, and every build needs it.
 
 - **DSR-24** No page of a build is stale, whichever backend gives the versions: every page shows the current state of the docs it links to, of the settings and of docspecsite itself.
 - **DSR-25** Output is static files that can be opened locally or served by any web server.
@@ -70,15 +70,15 @@ Listings that include ADRs (the index pages and the machine listing here, and `l
 
 > **Not built yet.**
 
-A renderer is the part of docspecsite that draws the site's pages.
+A site renderer, or renderer for short, is the part of docspecsite that draws the site's pages.
 There are two, and a project chooses one with the `renderer` setting ([configuration.md](configuration.md#site)), or for one build with `build --renderer` ([build.md](commands/build.md#what-the-build-does)):
 
 - `sphinx`, the standard renderer, named after the documentation tool it is built on; it is used when nothing else is chosen.
 - `internal`, docspecsite's older renderer of its own.
   It stays only while projects move to the standard renderer, so that a project can keep it until the new site suits it, and so that both sites of the same docs can be built and compared side by side.
-  A later release removes it, together with the setting and the option that choose it.
+  A later release removes it, together with the setting and the option that choose it, and the `toc-min-headings` setting, which only it uses ([configuration.md](configuration.md#settings)).
 
-Both draw the same pages from the same docs: every version, diff, index page, the status board and the listing for agents, with the same status badges, components, tags, breadcrumb, panels, markers and warnings.
+Both draw the same pages from the same docs: every version, diff, index page, the status board and the listing for agents, with the same status badges, components, tags, breadcrumb, panels, markers and old-version warnings.
 
 ## See also
 

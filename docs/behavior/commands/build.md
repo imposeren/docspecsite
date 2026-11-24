@@ -25,7 +25,7 @@ related:
 # The build command
 
 `docspecsite build` renders the static site; with version control, from the history of a [ref](../glossary.md), by default the commit that is checked out.
-Its options choose the revision, the output directory, the parts of the site, the [renderer](../site.md#renderers) that draws it and a preview of the working tree, and `--strict` makes it fail on any error or warning, for CI.
+Its options choose the revision, the output directory, the parts of the site, the [site renderer](../site.md#renderers) (the part of docspecsite that draws the pages) that draws it and a preview of the working tree, and `--strict` makes it fail on any error or warning, for CI.
 Without `--strict`, an error that concerns one page leaves that page out and the rest of the site is still built; with it, the build stops at the first page error and writes nothing.
 
 ## What the build does
@@ -33,8 +33,8 @@ Without `--strict`, an error that concerns one page leaves that page out and the
 The site is written to `--out` (default `site/`, relative to the current directory).
 Files of the previous build that are no longer produced are removed; nothing else in the directory is touched.
 No page of the site is stale ([DSR-24](../site.md#building)).
-The files the build needs while drawing are kept in `.docspecsite-cache/` in the checked repo; those of the `sphinx` renderer, in `.docspecsite-cache/sphinx/`, are emptied at the start of the next build.
-Two builds of the same repo must not run at the same time.
+The files the build needs while drawing are kept in `.docspecsite-cache/` in the checked repo.
+With the `sphinx` renderer, each build keeps its files there apart from those of any other build and removes them when it ends, so two builds of the same repo can run at the same time; files left by an interrupted build are never used again, and go when `.docspecsite-cache/` is deleted.
 
 The first line on stderr names the backend in use, and `(auto)` when `auto` picked it: `versioning: git (auto)`, `versioning: none (auto)`, `versioning: git`.
 
@@ -74,15 +74,15 @@ Without `--strict`, an error stays local to its page: a doc version, diff, code 
 Each such error is printed on stderr as `error: <page>: <message>`; warnings (such as an unresolvable link) are printed as `warning: <message>`.
 A doc whose page would take the URL of a generated page (which `check` reports) is such an error for the doc's page; the generated page is kept.
 With the `sphinx` renderer, the warnings of the documentation tool it is built on, such as a link to a heading that does not exist, are build warnings too, so `--strict` turns them into errors.
-Such a warning names the doc and the line in it, followed by the tool's own message:
+Such a warning names where its cause is, followed by the tool's own message:
 
-```
-warning: docs/guides/usage.md:12: <message>
-```
+- in a doc, the doc and the line in it, `warning: docs/guides/usage.md:12: <message>`, or only the doc when the tool gives no line, `warning: docs/guides/usage.md: <message>`;
+- in a docstring or on a page of the code reference, the code file and the line in it, `warning: src/example/build.py:40: <message>`, or only the code file when the tool gives no line;
+- nowhere in particular: `warning: <message>`.
 
-As for an unresolvable link, it is given only for the latest version of a doc: older versions and diffs give no such warning.
-A warning of the tool that concerns no doc is printed as `warning: <message>`.
-A failure of that tool itself, even while it draws one page (rather than a problem it reports as a warning), stops the whole build: one error line, exit code 1, and the output directory is left as it was.
+A warning never names a file that docspecsite writes for the tool while drawing.
+As for an unresolvable link, a warning about a doc is given only for its latest version: older versions and diffs give no such warning.
+A failure of that tool itself, even while it draws one page (rather than a problem it reports as a warning), stops the whole build with one error line, `error: sphinx: <exception class>: <message>`, where `<exception class>` names the kind of failure; the exit code is 1, and the output directory is left as it was.
 A symlink that leads to a doc gets no pages, and the build says nothing about it: it is neither an error nor a warning and is not counted, since `check` reports it ([DSR-39](../doc-symlinks.md#on-the-site)).
 A path can be a symlink in some revisions and a doc, a file with its own text, in others:
 
@@ -133,8 +133,8 @@ warning: docspecsite.toml: "code-components" of "example.api" has an unknown com
 A symlink in a code directory that points to an absolute path or out of the code directories is left out of the code read from the ref, with a warning naming it.
 A path in `code-dirs` that is a symlink is followed within the built revision: the files of the directory it leads to are read as that code directory; one that leads to an absolute path, out of the repo or to nothing is left out with a warning naming it, as a symlinked image under `docs/` is, and one that leads to a file is left out with a warning too ([Input that cannot be used](index.md#input-that-cannot-be-used)).
 
-The last line counts the pages built, rendered afresh, taken from the cache and failed.
-With the `sphinx` renderer, the pages counted are the doc, version, diff, index and code pages, not the search page or the other pages and files the documentation tool adds on its own; every page is rendered afresh, so the count taken from the cache is 0, and the failed pages are those left out by an error that concerns one page.
+The last line counts the pages built, and of them those the renderer drew in this build, those it took from its cache and those that failed.
+With the `sphinx` renderer, the pages counted are the doc, version, diff, index and code pages, not the search page or the other pages and files the documentation tool adds on its own; it takes no pages from a cache, so that count is 0, and the failed pages are those left out by an error that concerns one page.
 
 The exit code is 0 when every page was built, 1 when a page failed or the build could not start (for example a `docspecsite.toml` that is not valid TOML or has an invalid value), and 2 for an unknown ref and the other command-line errors.
 

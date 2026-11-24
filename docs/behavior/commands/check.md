@@ -66,9 +66,8 @@ docs/import.md:12: status note "Not built yet." ("specified") in a doc with the 
 
 A doc that cannot be read, or that is not valid UTF-8, is a problem on that doc, and the other docs are still checked.
 Other input the check cannot use, such as a file name that is not valid UTF-8, is one problem each ([Input that cannot be used](index.md#input-that-cannot-be-used)).
-A doc whose page would take the URL of a generated page is a problem too ([architecture/docs-tooling.md](../../architecture/docs-tooling.md#output-layout)).
-The check looks at the generated pages of both [renderers](../site.md#renderers), whatever the `renderer` setting, so a change of renderer never makes a doc's page clash with a generated one.
-Besides the index pages, the status board and the pages of the code reference and of old versions, these are the search page, the general index and the files the site needs to look and work right; a doc takes their address when it is `search.md`, `genindex.md` or any doc under `_static/`.
+A doc whose page would take the URL of a generated page is a problem too: an index page, the status board, a page of the code reference or of an old version, the search page, the general index, or a file the site needs to look and work right (the full list of such doc paths: [architecture/docs-tooling.md](../../architecture/docs-tooling.md#output-layout)).
+The check looks at the generated pages of both [site renderers](../site.md#renderers), whatever the `renderer` setting, so a change of renderer never makes a doc's page clash with a generated one.
 
 A file or directory under `docs/` whose name contains `#`, `%` or `?` is a problem on that path ([meta/structure.md](../../meta/structure.md#naming)):
 
@@ -156,8 +155,8 @@ docspecsite's own optional checks have plain names (`code`); a backend's checks 
 Only docspecsite's own checks and those of the backend in use are available: any other name, such as `git:staged` with `backend = "none"`, or an empty list, is a command-line error whose message lists the available checks.
 The `git:staged` check (`--optional-checks git:staged`) is a problem for each doc that git has staged as deleted or renamed ([DSR-6](../versioning-backends.md#versions-of-a-doc)); the `docs-check` commit hook runs it.
 It passes over a path that was a symlink in the last commit: a symlink never was a doc, so it may be removed or renamed ([DSR-39](../doc-symlinks.md#requirements)).
-The `code` check (`--optional-checks code`) checks the code in the settings' `code-dirs`, from the working tree: each `Docs:` line, Sphinx role and `code:` link in a docstring is a problem on its code file when its target is not found.
-It finds the target of a role by the rules of [DSR-34](../code-reference.md#requirements), as the site does; a role whose target matches several elements by the end of their dotted paths is a warning on its code file, such as `warning: src/example/ui.py:12: more than one code element for .SiteBuilder: example.build.SiteBuilder, example.ui.SiteBuilder`.
+The `code` check (`--optional-checks code`) checks the code in the settings' `code-dirs`, from the working tree: each `Docs:` line, Sphinx role and `code:` link in a docstring is a problem on its code file when its target is not found; a role whose target is another package's name, such as `pathlib.Path`, is passed over ([DSR-34](../code-reference.md#requirements)).
+It finds the target of a role by the rules of [DSR-34](../code-reference.md#requirements), as the site does; a role whose target matches several elements by the end of their dotted paths is a warning on its code file, such as `warning: src/example/ui.py:12: more than one code element for .SiteBuilder: example.build.SiteBuilder, example.widgets.SiteBuilder`.
 A package name found in more than one code directory is a problem naming the package and its directories, and the code is then not checked.
 Without `code-dirs` the code check adds nothing.
 

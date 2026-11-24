@@ -1,6 +1,6 @@
 ---
 title: Glossary — docspecsite terms
-summary: Plain-language definitions of the terms docspecsite's docs and output use — checked repo, link pattern, main line of history, problem, ref, revision, renderer, site, symlink, version control, versioning backend, versionless site, code reference, ADR prefix.
+summary: Plain-language definitions of the terms docspecsite's docs and output use — checked repo, link pattern, main line of history, problem, ref, revision, site, site renderer, symlink, version control, versioning backend, versionless site, code reference, ADR prefix.
 layer: behavior
 status: changed
 components: []
@@ -23,9 +23,9 @@ Documentation terms (layer, status, redirect doc, version of a doc…) are in [m
 | **main line of history** | The history that gives the versions, with git: the commits of the built ref's own branch, where a merged branch counts as its one merge commit, so the commits made on a merged branch before the merge are not versions of their own. |
 | **problem** | One thing `docspecsite check` found wrong, printed as `path:line: message`. |
 | **ref** | The name of a revision: with git, a branch, tag or commit. `docspecsite build` renders the history of one ref; without version control there is none. |
-| **renderer** | The part of docspecsite that draws the site's pages: `sphinx`, the standard one, or `internal`, docspecsite's older one, kept only while projects move to the standard one; chosen with the `renderer` setting or `build --renderer` ([site.md](site.md#renderers)). |
 | **revision** | One saved state of the project in its version control: a commit, with git. |
 | **site** | The static HTML files `docspecsite build` writes: one page per doc version, diffs, index pages and a machine listing. |
+| **site renderer** | The part of docspecsite that draws the site's pages, called "renderer" for short: `sphinx`, the standard one, or `internal`, docspecsite's older one, kept only while projects move to the standard one; chosen with the `renderer` setting or `build --renderer` ([site.md](site.md#renderers)). |
 | **symlink** | A file that only points to another file or directory. Under `docs/`, a symlink is judged by what it leads to: no doc is reached through one, while other files, such as images, may be ([doc-symlinks.md](doc-symlinks.md)). |
 | **version control** | The system that records a project's history, such as git or Mercurial. Without one, docspecsite builds a versionless site. |
 | **versioning backend** | The part of docspecsite that reads the history of one kind of version control (`git`), or that works without one (`none`); chosen with the `backend` setting ([versioning-backends.md](versioning-backends.md)). |
