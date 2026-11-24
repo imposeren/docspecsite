@@ -24,9 +24,9 @@ docspecsite is one Python package that reads a repo's `docs/` and its history th
 - **The method's rules are not configuration.**
   docspecsite implements the rules of the template's `docs/meta/`; only project settings (ADR prefix, source URL, code location) are configurable ([behavior/configuration.md](../behavior/configuration.md)).
 - **Few dependencies.**
-  Reach for an established library before writing code; keep the tool small ([DS-23](../behavior/requirements.md#running)).
+  Reach for an established library before writing code; keep the tool small ([DS-23](../behavior/distribution.md#requirements)).
 - **Static output.**
-  The site is plain files that need no server-side code ([DS-25](../behavior/requirements.md#running)).
+  The site is plain files that need no server-side code ([DS-25](../behavior/site.md#building)).
 - **No registry.**
   Other repos build the image and install the hook straight from this repo's git tags ([docs-tooling.md](docs-tooling.md#how-other-repos-use-docspecsite)).
 

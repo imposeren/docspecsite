@@ -18,7 +18,7 @@ related:
 
 ## Context
 
-The [docs system requirements](../../behavior/requirements.md) ask for **per-doc** history from git commits ([DS-5](../../behavior/requirements.md#versioning)), a version picker on each page ([DS-8](../../behavior/requirements.md#rendering)), loud old-version warnings ([DS-9](../../behavior/requirements.md#rendering)), and links in old versions that resolve to contemporary versions ([DS-11](../../behavior/requirements.md#rendering)) — with minimal dependencies ([DS-23](../../behavior/requirements.md#running)), running in Docker ([DS-22](../../behavior/requirements.md#running)).
+The [docs system requirements](../../behavior/requirements.md) ask for **per-doc** history from git commits ([DS-5](../../behavior/versioning-backends.md#versions-of-a-doc)), a version picker on each page ([DS-8](../../behavior/site.md#rendering)), loud old-version warnings ([DS-9](../../behavior/site.md#rendering)), and links in old versions that resolve to contemporary versions ([DS-11](../../behavior/site.md#rendering)) — with minimal dependencies ([DS-23](../../behavior/distribution.md#requirements)), running in Docker ([DS-22](../../behavior/distribution.md#requirements)).
 
 ## Options considered
 

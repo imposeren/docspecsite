@@ -23,23 +23,23 @@ What a symlink is depends only on what it leads to, never on its own name: the c
 A symlink that leads to another file, such as an image, or to a directory without docs is allowed, and the site gets the files it leads to.
 
 This is a limit of docspecsite, not a rule of the docs method ([meta/index.md](../meta/index.md)), which says nothing about symlinks.
-The limit comes from how the tool reads and renders docs, like the reserved paths (the doc paths docspecsite keeps for its generated pages) and the UTF-8 rule (every doc is readable UTF-8 text) ([DS-20](requirements.md#checks)).
+The limit comes from how the tool reads and renders docs, like the reserved paths (the doc paths docspecsite keeps for its generated pages) and the UTF-8 rule (every doc is readable UTF-8 text) ([DS-20](commands.md#checks)).
 
 ## Requirements
 
 > **Changed, not built yet.** The `git:staged` check is still the `--staged` option.
 
-This requirement continues the numbering of [requirements.md](requirements.md):
+This requirement is part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
 
 - **DS-39** A symlink under `docs/` is judged by what it leads to in the end, never by its own name ([How a symlink is followed](#how-a-symlink-is-followed)).
   What it leads to gives its kind, and the check, the listings and the site treat it by its kind alone ([The kinds of symlink](#the-kinds-of-symlink)).
-  It is a check problem ([DS-20](requirements.md#checks)) when it leads out of the repo, to nothing, to a doc (a `.md` file) or to a directory with a doc inside.
+  It is a check problem ([DS-20](commands.md#checks)) when it leads out of the repo, to nothing, to a doc (a `.md` file) or to a directory with a doc inside.
   The hint depends on where the symlink leads ([What the check reports](#what-the-check-reports)).
   A symlink that leads to another file, such as an image, or to a directory with no doc inside is allowed: the check does not report it, and it reaches the site as what it leads to ([Other files under docs/](#other-files-under-docs)).
   A symlink is never a doc, and nothing reached through one is: `list` and `backlinks` leave them out, the site has no pages for them, and a link to one is a broken link ([Listings and links](#listings-and-links), [On the site](#on-the-site)).
   Doc templates are not docs, and no check looks at them, so a symlink inside `docs/meta/templates/` is not reported.
-  A symlink needs no `index.md` and no entry in one ([DS-20](requirements.md#checks)).
-  A symlink may be removed or renamed: the rule that files under `docs/` are never deleted or renamed ([DS-6](requirements.md#versioning)) is for docs, and a symlink never was one, so the `git:staged` check passes over a path that was a symlink in the last commit.
+  A symlink needs no `index.md` and no entry in one ([DS-20](commands.md#checks)).
+  A symlink may be removed or renamed: the rule that files under `docs/` are never deleted or renamed ([DS-6](versioning-backends.md#versions-of-a-doc)) is for docs, and a symlink never was one, so the `git:staged` check passes over a path that was a symlink in the last commit.
   The exact problem lines and hints are in [commands.md](commands.md#check).
 
 ## How a symlink is followed
@@ -167,5 +167,5 @@ And docs are never read through a symlink, so no doc is found twice through a lo
 ## See also
 
 - [scenarios/doc-symlinks.md](../scenarios/doc-symlinks.md) — exact cases for symlinks to docs, directories and images.
-- [requirements.md](requirements.md#checks) — DS-20, everything the check validates.
+- [commands.md](commands.md#checks) — DS-20, everything the check validates.
 - [commands.md](commands.md#check) — the exact problem lines and hints.

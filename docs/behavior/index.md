@@ -27,7 +27,11 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 
 > **Built.**
 
-- [requirements.md](requirements.md) — The numbered docs system requirements (`DS-n`) that docspecsite satisfies.
+- [requirements.md](requirements.md) — The index of the numbered docs system requirements (`DS-n`): every ID and the doc that holds it.
+- [docs-format.md](docs-format.md) — What a doc is: Markdown with front matter in `docs/`, its title, and how ADR files are named.
+- [site.md](site.md) — The rendered site: version pages, pickers, old-version warnings, diffs, redirect pages, build parts, navigation, index pages and the machine listing.
+- [code-reference.md](code-reference.md) — The code reference generated from the code and its docstrings, and the links between docs and code.
+- [distribution.md](distribution.md) — How projects run docspecsite: the `docs-check` prek hook and the Docker image, pinned to a release tag.
 - [commands.md](commands.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.
 - [configuration.md](configuration.md) — The `docspecsite.toml` settings file at the root of a checked repo.
 - [web-api-reference.md](web-api-reference.md) — The HTTP API reference rendered from a committed web API schema.

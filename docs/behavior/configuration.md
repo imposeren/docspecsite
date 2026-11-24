@@ -18,9 +18,21 @@ related:
 
 # Configuration — docspecsite.toml
 
-A repo's settings for docspecsite live in `docspecsite.toml` at its root ([DS-32](requirements.md#settings)).
+A repo's settings for docspecsite live in `docspecsite.toml` at its root ([DS-32](#requirements)).
 The file is optional, and every key in it is optional: a missing key takes its default, and without the file every setting takes its default.
 Every command reads the file as it is on disk in the checked-out files, never a copy kept by the version control, committed or staged: `build --ref` builds an older ref with today's settings, not the ones committed with it.
+
+## Requirements
+
+> **Changed, not built yet.** There is no `[versioning]` table: where versions come from is not a setting yet.
+
+This requirement is part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
+
+- **DS-32** Project settings live in `docspecsite.toml` at the root of the checked repo (this doc): the repo's ADR prefix, its web URL, where its code is and which components the code belongs to, the Contents-list threshold, and where versions come from ([versioning-backends.md](versioning-backends.md)).
+  The file is always read from disk, never through the version control.
+  The file is optional; a missing setting takes its default.
+  The check reports an unknown setting or an invalid value as a problem, and the setting takes its default; `list` and `build` stop on an invalid value or a file that is not valid TOML, and warn about an unknown setting, which they ignore.
+  Settings anywhere else, such as `pyproject.toml`, are not read.
 
 ## Settings
 
@@ -50,7 +62,7 @@ tag-pattern = "v*"
 
 | Key | Default | Meaning |
 | -- | -- | -- |
-| `adr-prefix` | none | The repo's own ADR prefix: capital letters only (`A`–`Z`), such as `APP` ([DS-33](requirements.md#checks), [meta/structure.md](../meta/structure.md#adr-ids)). Without it, only external ADRs are valid. |
+| `adr-prefix` | none | The repo's own ADR prefix: capital letters only (`A`–`Z`), such as `APP` ([DS-33](docs-format.md#requirements), [meta/structure.md](../meta/structure.md#adr-ids)). Without it, only external ADRs are valid. |
 | `external-adr-prefixes` | none | Prefixes of external ADRs: ADRs the repo takes from elsewhere, such as the template it was created from (`BASE`) or another project, which keep their IDs. A list of capital-letter prefixes, other than `adr-prefix`, in the order listings show them. `check` reports an entry that is not capital letters, equals `adr-prefix` or repeats an earlier one, and leaves it out; `list` and `build` stop on it. |
 | `source-url` | none | Web URL of the repo on its host, such as `https://github.com/example/project`. It is used for the code reference's source links (the links from each code element to its source file) and for body links to repo files outside the site, which go to the file or directory there through the versioning backend's link patterns ([Versioning](#versioning)); with git, under `<source-url>/blob/<commit>/` or `<source-url>/tree/<commit>/`. Used by `build`, which also says what happens without it ([commands.md](commands.md#build)). |
 | `code-dirs` | none | Directories, relative to the repo root, that hold the Python packages for the code reference; shell-style globs such as `services/*/src` are allowed, and `.` is the repo root. `check` reports an entry that is empty, absolute or contains `..` and leaves it out; `list` and `build` stop on it. A package is a directory with an `__init__.py` directly inside one of them. Without it, there is no code reference and `code:` links cannot resolve. Used by `check --optional-checks code` ([commands.md](commands.md#check)) and `build` ([commands.md](commands.md#build)), which also say which packages they load or report. |

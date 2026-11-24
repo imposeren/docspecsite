@@ -18,7 +18,7 @@ A monorepo can hold several projects, each with its own `docs/`, `docspecsite.to
 docspecsite then works on one of them, given with `--repo` or as the current directory.
 Until this is built, a subdirectory of a git repo stops every command with an error ([commands.md](commands.md)).
 
-This requirement continues the numbering of [requirements.md](requirements.md):
+This requirement is part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
 
 - **DS-37** The checked repo can be a subdirectory of a git repository. Paths in settings and output stay relative to that subdirectory, and a doc's versions are the commits that touch it, as for a repo of its own.
 

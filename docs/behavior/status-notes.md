@@ -26,7 +26,7 @@ On the site, as on GitHub and in an editor, a status note reads like any other n
 ## Statuses
 
 A doc's `status` is one of `draft`, `specified`, `changed`, `implemented`, `deprecated` and `redirect`; `changed` means the doc now describes a new form of something and the code still does an older form of it.
-A doc's title is its first level-1 heading, written `# Import` or underlined with `===`, and it comes right after the front matter ([DS-52](requirements.md#checks)).
+A doc's title is its first level-1 heading, written `# Import` or underlined with `===`, and it comes right after the front matter ([DS-52](docs-format.md#requirements)).
 The title and its text up to the next heading, the doc's [document brief](../meta/glossary.md#document-brief), belong to no section and carry no status note: the doc's whole `status` describes them, so the brief may mention built and unbuilt parts alike.
 For status, every other heading starts a section of its own, whatever the heading's level.
 A section is the heading and its text up to the next heading of any level, so a `##` section does not include the `###` sections below it.
@@ -44,7 +44,7 @@ Text may follow the status note on the same line, such as what still works the o
 
 ## Requirements
 
-These requirements continue the [DS-n](../meta/glossary.md#ds-n) numbering of [requirements.md](requirements.md):
+These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
 
 - **DS-44** `status` is a single value, or a list of distinct values from `implemented`, `specified` and `changed`.
   A list with one value, such as `status: [specified]`, means the same as that single value and is not a problem.
@@ -58,16 +58,16 @@ These requirements continue the [DS-n](../meta/glossary.md#ds-n) numbering of [r
 - **DS-45** A section's notes are the note lines (lines starting with `>`) that come right after its heading, before any other content: a paragraph, list, table, code block or subheading.
   Each note line is one note, also when several follow each other without a blank line between them.
   Their order does not matter.
-  The doc's title, its first level-1 heading ([DS-52](requirements.md#checks)), and its text up to the next heading belong to no section, so a status note right after the title is a problem ([DS-46](#requirements)).
+  The doc's title, its first level-1 heading ([DS-52](docs-format.md#requirements)), and its text up to the next heading belong to no section, so a status note right after the title is a problem ([DS-46](#requirements)).
   A status note is a section note that starts with one of the project's status note texts in bold, exactly as written: the defaults above, or the ones the project sets.
   Its section then has the status note's status.
   A section is the heading and its text up to the next heading of any level.
   The sections under deeper headings below it do not get that status: each has the doc's first status unless it has a status note of its own, whatever the status of any heading above it.
-  The title stays the title when text comes before it, and the check reports that text; each later level-1 heading is a section like any other heading, and the check reports it ([DS-52](requirements.md#checks)).
+  The title stays the title when text comes before it, and the check reports that text; each later level-1 heading is a section like any other heading, and the check reports it ([DS-52](docs-format.md#requirements)).
   A section note with any other bold label, or with none, is ordinary text, not a problem, so new kinds of section notes do not break existing docs.
 
 - **DS-46** The check reports a problem in each case below.
-  Each problem names the statuses involved and carries a hint ([DS-51](requirements.md#checks)).
+  Each problem names the statuses involved and carries a hint ([DS-51](commands.md#checks)).
   A problem about a status note is reported on the status note's line, a problem about the `status` list on the doc's first line, where the front matter starts.
   Problems and hints name a section by its heading quoted with its `#` marks, exactly as written in the file (`"## Import"`), so a heading with the same words at another level is not mistaken for it, and the quoted text can be searched for in the file.
   A heading written without `#` marks, underlined with `===` or `---` on the next line, is quoted by its first line as written.
@@ -138,10 +138,10 @@ These requirements continue the [DS-n](../meta/glossary.md#ds-n) numbering of [r
     ```
 
 - **DS-47** `list --status S` lists a doc whose `status` has `S` anywhere in it.
-  The text output shows a list of statuses comma-separated, in the doc's order and without spaces (`implemented,specified`), and so does `llms.txt`, the plain-text listing of all docs for agents ([DS-16](requirements.md#navigation-and-indexes)).
+  The text output shows a list of statuses comma-separated, in the doc's order and without spaces (`implemented,specified`), and so does `llms.txt`, the plain-text listing of all docs for agents ([DS-16](site.md#navigation-and-indexes)).
   In `--format json` (JSON, a data format for scripts), `status` stays a string (`"implemented"`) for a single status and is a list of strings (`["implemented", "specified"]`) for a list; a list with one value is shown as that single value, as a string.
 
-- **DS-48** The status board ([DS-15](requirements.md#navigation-and-indexes)) lists a doc under each status it has, in that status's [milestone](../meta/glossary.md#milestone) and [priority](../meta/glossary.md#priority) groups.
+- **DS-48** The status board ([DS-15](site.md#navigation-and-indexes)) lists a doc under each status it has, in that status's [milestone](../meta/glossary.md#milestone) and [priority](../meta/glossary.md#priority) groups.
   Entries on the index pages (the status board, tag and component pages) show all of a doc's statuses.
 
 - **DS-49** A doc's page shows one status badge (a label with the status name) for each of its statuses, in the doc's order.

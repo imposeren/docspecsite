@@ -25,7 +25,7 @@ What other repos depend on, and so what a MAJOR bump is about:
 
 - the commands, their options, output formats and exit codes ([behavior/commands.md](../behavior/commands.md));
 - the keys of `docspecsite.toml` ([behavior/configuration.md](../behavior/configuration.md));
-- the rules `check` enforces, i.e. which docs pass ([behavior/requirements.md](../behavior/requirements.md));
+- the rules `check` enforces, i.e. which docs pass ([behavior/commands.md](../behavior/commands.md#checks));
 - the hook id `docs-check` and the image's contract: entrypoint `docspecsite`, the repo mounted at `/repo`, Mermaid bundled.
 
 | Bump | When |

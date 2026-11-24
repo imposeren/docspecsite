@@ -9,13 +9,14 @@ components: [versioning]
 tags: [versioning, configuration]
 related:
   - behavior/versioning-backends.md
+  - behavior/site.md
   - architecture/versioning-backends.md
 ---
 
 # Where versions come from — scenarios
 
 These scenarios pin down [Where versions come from](../behavior/versioning-backends.md): how the [versioning backend](../behavior/glossary.md) (the part of docspecsite that reads the project's version control) is chosen, what a site without version control looks like, versions from tags only, link patterns, and backend checks.
-The rules every version follows once a backend has given it (version pages, pickers, old-version warnings) are in [behavior/requirements.md](../behavior/requirements.md), not here.
+The rules every version follows once a backend has given it (version pages, pickers, old-version warnings) are in [behavior/site.md](../behavior/site.md#rendering), not here.
 
 ```gherkin
 Feature: Choosing where versions come from

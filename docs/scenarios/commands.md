@@ -1,6 +1,6 @@
 ---
 title: Commands — scenarios
-summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for input that docspecsite cannot use, for unknown components in `code-components`, for the backlinks of a doc template, and for output into a pipe that closes early.
+summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for input that docspecsite cannot use, for unknown components in `code-components`, for the backlinks of a doc template, for output into a pipe that closes early, for the characters that file names may not contain, and for the anchors of links to a directory.
 layer: scenarios
 status: implemented
 components: [site, code-reference, checks, queries]
@@ -21,7 +21,8 @@ The second is which code pages of such a preview link to their source.
 The third is which link targets count as found, and how a body link (a link in a doc's text) whose target is not found is shown.
 Further cases cover the source links of a path in `code-dirs` that is a symlink, unknown components in the `[code-components]` setting ([configuration.md](../behavior/configuration.md#settings)), and input that docspecsite cannot use, such as a file name that is not UTF-8.
 The cases of `backlinks` are a path that names a doc template and, with `list`, output into a pipe that closes early.
-The rest of the commands is pinned down by [commands.md](../behavior/commands.md) and the tests; the check's rules have scenarios of their own ([requirements.md](requirements.md), [doc-symlinks.md](doc-symlinks.md)).
+The last cases are the check's rules on which characters file and directory names under `docs/` may not contain, and how it takes a link to a directory ([DS-20](../behavior/commands.md#checks)).
+The rest of the commands is pinned down by [commands.md](../behavior/commands.md) and the tests; the check's rules on a doc's title and on symlinks have scenarios of their own ([docs-format.md](docs-format.md), [doc-symlinks.md](doc-symlinks.md)).
 
 ## Building what is checked out
 
@@ -293,6 +294,73 @@ Feature: Output into a pipe that closes early
     Then I see the first linking doc
     And no error trace
     And backlinks exits with exit code 0
+```
+
+## File and directory names
+
+The check reports a name under `docs/` that contains `#`, `%` or `?`, since these characters have a meaning in web addresses and break links to the rendered page ([DS-20](../behavior/commands.md#checks)).
+
+```gherkin
+Feature: Checking file and directory names
+  As a docs author
+  I want docspecsite to report names that cannot be linked to
+  So that every doc can be reached from other docs and on the site
+
+  Scenario Outline: A name with a character that breaks links
+    Given a doc "docs/guides/<name>" listed in "docs/guides/index.md"
+    When I run the check
+    Then the output includes:
+      """
+      docs/guides/<name>: name contains "#", "%" or "?", which break links to the rendered page
+      """
+
+    Examples:
+      | name     |
+      | c#.md    |
+      | 50%.md   |
+      | faq?.md  |
+
+  Scenario: A directory name with a question mark
+    Given a directory "docs/what?" with an index.md
+    When I run the check
+    Then the check reports a problem on "docs/what?" saying that its name contains "#", "%" or "?"
+```
+
+## Links to a directory
+
+A link to a directory leads to that directory's `index.md` on the site, so the check looks for the link's anchor in that `index.md` ([commands.md](../behavior/commands.md#check)).
+
+```gherkin
+Feature: Checking links to a directory
+  As a docs author
+  I want the check to find a missing heading in a link to a directory
+  So that such a link never leads to a place on the page that is not there
+
+  Background:
+    Given a directory "docs/guides" whose "index.md" has the heading "## Setup"
+
+  Scenario Outline: A link to a heading of the directory's index passes
+    Given the doc "docs/import.md" links to "<link>"
+    When I run the check
+    Then the check reports no problem for that link
+
+    Examples:
+      | link           |
+      | guides/#setup  |
+      | guides#setup   |
+
+  Scenario Outline: A link to a heading the directory's index does not have
+    Given the doc "docs/import.md" links to "<link>" on line 7
+    When I run the check
+    Then the output includes:
+      """
+      docs/import.md:7: no heading "#install" in docs/guides/index.md
+      """
+
+    Examples:
+      | link             |
+      | guides/#install  |
+      | guides#install   |
 ```
 
 ## See also
