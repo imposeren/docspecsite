@@ -90,10 +90,9 @@ The generated [code reference](../reference/code/index.md) lists every module an
 
 The build is split at a renderer seam ([site.md](site.md#the-renderer-seam)).
 The build front is `SiteBuilder` in `docspecsite.build`, writing through `SiteWriter`; its duties are in [site.md](site.md#build-front).
-`docspecsite.renderers` holds the renderer name type `RendererName`, the `SiteRenderer` interface, the prepared input (`PreparedSite`, with the build's docs in `SiteDocs`) and `RenderedSite`, and imports only the doc model and the shared modules whose objects the prepared input carries.
+`docspecsite.renderers` holds the renderer name type `RendererName`, the `SiteRenderer` interface, the prepared input (`PreparedSite`, with the build's docs in `SiteDocs`) and `RenderedSite`; what it and each renderer may import is in [site.md](site.md#the-renderer-seam).
 The index entries, their grouping and the `llms.txt` text are `SiteIndex` in `docspecsite.indexes`; the cache roots and the front's cache of front matter splits are in `docspecsite.diskcache`.
 The `internal` renderer is `InternalRenderer` in `docspecsite.internal_renderer`, with the modules only it uses (`pages`, `cache`, the index pages' HTML part `index_pages`, its templates and static files); the `sphinx` renderer with its Sphinx extension is the `docspecsite.sphinx` package.
-A renderer imports the seam and the shared modules listed in [site.md](site.md#the-renderer-seam), never `docspecsite.build` and never the other renderer.
 
 ## Configuration
 
@@ -298,18 +297,19 @@ flowchart TD
   target["role target, with the docstring's module and class"] --> dot{"leading . ?"}
   dot -- no --> plain["as written, then module.target,<br/>then module.class.target<br/>(any kind; :mod: as written only)"]
   dot -- yes --> steps["module.class.target, then module.target,<br/>then as written, then every element<br/>whose path ends in .target"]
-  steps --> kind["at every step, only kinds<br/>the role allows count"]
+  steps --> kind["at every step, only kinds<br/>the role allows count;<br/>no match: all steps again<br/>with each fallback kind in turn"]
   plain --> found{"matches"}
   kind --> found
-  found -- none --> none["another package's name: plain text;<br/>else not found: marker and warning"]
+  found -- none --> none["another package's name or a builtin: plain text;<br/>else not found: marker and warning"]
   found -- one --> one["that element"]
   found -- several --> several["one of them, and a warning<br/>that lists them all"]
 ```
 
 - without a leading `.`: the target as is, then `<module>.<target>`, then `<module>.<class>.<target>`, whatever the element's kind; a `:mod:` target only as is;
-- with a leading `.`, only an element of a kind the role allows counts, at every step (Sphinx's `object_types` table, with Sphinx's fallbacks from `:class:` to data and attributes, from `:attr:` to methods and from `:meth:` to properties): `<module>.<class>.<target>`, then `<module>.<target>`, then the target as is, then every element whose path ends in `.<target>`;
+- with a leading `.`, only an element of a kind the role allows counts, at every step (Sphinx's `object_types` table): `<module>.<class>.<target>`, then `<module>.<target>`, then the target as is, then every element whose path ends in `.<target>`;
+- with a leading `.` and no match from any step, Sphinx's fallback kinds, one after the other: all the steps again with only that kind counting, for `:class:` data and then attributes, for `:attr:` methods, for `:meth:` properties;
 - several matches from the last step: one of them, and a warning that lists them all; which one is not fixed and may differ between the site and the code check, so the warning is the signal;
-- no match: a target that [DSR-34](../behavior/code-reference.md#requirements) counts as another package's name stays plain text, and every other target is not found.
+- no match: a target that [DSR-34](../behavior/code-reference.md#requirements) counts as another package's name, a bare name in Python's `builtins` module included, stays plain text, and every other target is not found.
 
 The codebase's index keeps each element's kind for this, and one lookup on `Codebase` in `docspecsite.coderef` serves the `internal` renderer's code pages and the code check alike.
 The `sphinx` renderer leaves the lookup to Sphinx's Python domain itself, and a test builds docspecsite's own code reference with it and fails on a role the two resolve differently ([site.md](site.md#operational-notes)).

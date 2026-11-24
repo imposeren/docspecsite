@@ -106,7 +106,7 @@ A doc target becomes a relative link to the target version's `.md` source in the
 A code element target becomes a cross-reference that Sphinx's Python domain resolves against autoapi's objects; one that autoapi's objects do not hold gets the "no longer exists" marker and its warning.
 Rewriting changes no line breaks, so a line in the source tree is the same line in the doc.
 When the front has loaded the code, the code files of the built revision are written into the Sphinx build directory for sphinx-autoapi.
-Without loaded code (no `code-dirs`, or code that cannot be loaded), no code files are written and sphinx-autoapi is not run: the code reference is its entry page only, and `code:` links are marked as [docs-tooling.md](docs-tooling.md#errors-and-warnings) says.
+Without loaded code (code that cannot be loaded), no code files are written and sphinx-autoapi is not run: the code reference is its entry page only, and `code:` links are marked as [docs-tooling.md](docs-tooling.md#errors-and-warnings) says.
 
 **Parts.** With `--parts code`, the source tree holds only the code reference's entry page and the code pages; the entry page is built at `reference/code/index.html` and also written as the root `index.html`, with its links relative to the root.
 With `--parts docs`, sphinx-autoapi is not run, and `code:` links are text, as for a docs-only build of the `internal` renderer ([behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)).
@@ -136,7 +136,7 @@ An own docstring listener calls napoleon's public `GoogleDocstring` for Google-s
 Source links come from `sphinx.ext.linkcode`, with the file and lines from autoapi's own parse, at the built revision through the backend's `file-link` pattern; there is no third read of the code.
 `Docs:` lines and the "described in" lists come from docspecsite's model.
 Roles in docstrings are resolved by Sphinx's Python domain; a `<class>.__init__` target for which the code reference has no `__init__` entry is resolved to the class by the extension, when the Python domain finds nothing.
-A role target that [DSR-34](../behavior/code-reference.md#requirements) counts as another package's name (no leading `.`, two or more dotted parts, a first part that is none of the project's packages), other packages' names in signatures, and PEP 695 type parameters stay plain text without a warning; every other target that is not found, private members of the project's own packages included, gets the "no longer exists" marker and a warning.
+A role target that [DSR-34](../behavior/code-reference.md#requirements) counts as another package's name, other packages' names in signatures, and PEP 695 type parameters stay plain text without a warning; every other target that is not found, private members of the project's own packages included, gets the "no longer exists" marker and a warning.
 The pages are autoapi's default: no collapsible member sections and no per-page member index.
 
 **Search.** Sphinx's search covers the latest doc pages and the code reference pages.
@@ -168,19 +168,19 @@ Nothing else of Sphinx's output is in the `RenderedSite` list, so nothing else r
 - What docspecsite finds before Sphinx runs stays local to its page, as with the `internal` renderer: a version that is not valid UTF-8 or a doc at a reserved path is `error: <page>: <message>`, and the page is left out of the source tree.
 
 - The renderer collects Sphinx's, MyST's and docutils' warnings during the Sphinx run and re-issues them as docspecsite build warnings (`DocspecsiteWarning`) after Sphinx returns, outside Sphinx's own exception handling, so `--strict` stops on the first one with the warning's own message, and `PYTHONWARNINGS` treats them like every other build warning ([docs-tooling.md](docs-tooling.md#errors-and-warnings)).
-  Sphinx's source location is mapped back to its source, and a path inside the Sphinx build directory is never printed:
+  Sphinx's source location is mapped back to its source, and a path inside the Sphinx build directory is never printed; the printed forms are in [behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does):
 
-  | Where the problem arises | What is printed | What is left out |
+  | Where the problem arises | Where the warning points | What is left out |
   | -- | -- | -- |
-  | the latest version of a doc, at a line | `warning: docs/<path>:<line>: <message>` | — |
-  | the latest version of a doc, no line | `warning: docs/<path>: <message>` | — |
-  | a docstring or a code page | `warning: <code file>:<line>: <message>` | the line, when there is none |
-  | no source | `warning: <message>` | — |
-  | a version or diff source | nothing | the whole warning |
+  | the latest version of a doc, at a line | the doc under `docs/` and the line | — |
+  | the latest version of a doc, no line | the doc under `docs/` | — |
+  | a docstring or a code page | the code file and the line | the line, when there is none |
+  | no source | nowhere | — |
+  | a version or diff source | — | the whole warning |
 
   Warnings from version and diff sources are dropped, as the `internal` renderer warns about an unresolvable link only for the latest version of the linking doc ([behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)).
 
-- An exception inside Sphinx fails the whole build: it is first reported as an `InternalErrorWarning`, so `PYTHONWARNINGS` shows its traceback, then the build stops with `error: sphinx: <exception class>: <message>`, exit code 1, and `--out` left as it was.
+- An exception inside Sphinx fails the whole build: it is first reported as an `InternalErrorWarning`, so `PYTHONWARNINGS` shows its traceback, then the build stops with the error line [behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does) gives, exit code 1, and `--out` left as it was.
 
 ## Interfaces
 

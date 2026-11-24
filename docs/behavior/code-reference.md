@@ -40,7 +40,8 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
   A `:mod:` target without a leading `.` is found only as a module's full dotted path.
   A target with a leading `.` is looked up first among the members of the docstring's class, then among the definitions of its module, then as written (`` :meth:`.attempt` `` in any docstring of `SiteBuilder`).
   When none of these finds it, any element whose dotted path ends with the target, its `.` included, counts, so `` :class:`.SiteBuilder` `` finds `docspecsite.build.SiteBuilder` from a docstring anywhere in the code.
-  With a leading `.`, at every step only an element of a kind the role names counts; the kinds after "or else" count only when none of the first ones is found:
+  With a leading `.`, at every step only an element of a kind the role names counts.
+  When all the steps, the end of the dotted path included, find none, the kinds after "or else" are tried one after the other, in the order given: each time, all the steps again with only that kind counting:
 
   | Role | The kinds it finds |
   | -- | -- |
@@ -62,8 +63,8 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
   `~` before the target shows only the last part of the path (`` :class:`~docspecsite.build.SiteBuilder` `` reads `SiteBuilder`), and `Text <target>` sets the text.
   Each role renders as a link to the element on the code reference.
   Other roles are shown as written.
-  A target without a leading `.`, of two or more dotted parts, whose first part is none of the project's own packages (those in the `code-dirs` setting), is another package's name, such as `pathlib.Path`: it stays plain text, without a marker or a warning, and the code check passes over it.
-  Every other target that is not found, such as a bare name (`SiteBuilder`, `ValueError`) or a private member of the project's own code, is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check reports it ([DSR-36](commands/check.md#requirements)).
+  A target that none of these lookups finds and that has no leading `.` is another package's name when it has two or more dotted parts and its first part is none of the project's own packages (those in the `code-dirs` setting), such as `pathlib.Path`, or when it is a single name built into Python, such as `ValueError`, `str` or `None`: it stays plain text, without a marker or a warning, and the code check passes over it.
+  Every other target that is not found, such as a bare name that is not built into Python (`SiteBuilder`) or a private member of the project's own code, is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check reports it ([DSR-36](commands/check.md#requirements)).
   The site, with either [site renderer](site.md#renderers), and the code check find targets by these rules, so they agree on every role, except which of several matching elements a role leads to.
 
 - **DSR-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with the version control or an IDE.

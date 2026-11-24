@@ -14,11 +14,11 @@ related:
 # Code reference — scenarios
 
 These cases cover how a role in a docstring, such as `` :class:`.SiteBuilder` ``, finds the code element it leads to.
-The site, with either renderer, and the code check (`check --optional-checks code`) find targets by the same rules, so each case holds for both, except which of several matching elements a role leads to; how a role reads and the "no longer exists" marker are not covered here.
+The site, with either renderer, and the code check (`check --optional-checks code`) find targets by the same rules, so each case holds for both, except which of several matching elements a role leads to; how a role reads is not covered here.
 
 ## Finding the target of a role
 
-A role's target is looked up from the docstring's place, and a target with a leading `.` falls back to any element whose dotted path ends with it; a target that is not found is another package's name, shown as plain text, or gets the "no longer exists" marker ([DSR-34](../behavior/code-reference.md#requirements)).
+A role's target is looked up from the docstring's place, and a target with a leading `.` falls back to any element whose dotted path ends with it; a target that is not found is another package's name or a name built into Python, shown as plain text, or gets the "no longer exists" marker ([DSR-34](../behavior/code-reference.md#requirements)).
 The examples use a package `example` with the modules `example.build`, defining the class `SiteBuilder` with the method `attempt`, and `example.ui`, which imports `SiteBuilder` from `example.build`.
 
 ```gherkin
@@ -69,8 +69,14 @@ Feature: Finding the target of a role
     Then the role shows "pathlib.Path" as plain text without a marker
     And the build gives no warning about it
 
-  Scenario: A bare name that is not found shows the marker
+  Scenario: A name built into Python stays plain text
     Given a docstring in "example.ui" holds the role ":exc:`ValueError`"
+    When I build the site
+    Then the role shows "ValueError" as plain text without a marker
+    And the build gives no warning about it
+
+  Scenario: A bare name that is not found shows the marker
+    Given a docstring in "example.ui" holds the role ":class:`SiteBuilder`"
     When I build the site
     Then the role shows the "no longer exists" marker
     And the build warns about it
@@ -85,7 +91,7 @@ Feature: Finding the target of a role
 
 ## The code check finds targets as the site does
 
-The code check follows the same rules, passes over another package's name, and warns about a role whose target matches several elements ([check.md](../behavior/commands/check.md#what-the-check-reports)).
+The code check follows the same rules, passes over another package's name and a name built into Python, and warns about a role whose target matches several elements ([check.md](../behavior/commands/check.md#what-the-check-reports)).
 
 ```gherkin
 Feature: The code check finds targets as the site does
@@ -105,6 +111,11 @@ Feature: The code check finds targets as the site does
 
   Scenario: Another package's name passes the code check
     Given a docstring in "example.ui" holds the role ":class:`pathlib.Path`"
+    When I run the check with the code check
+    Then no problem is reported for the role
+
+  Scenario: A name built into Python passes the code check
+    Given a docstring in "example.ui" holds the role ":exc:`ValueError`"
     When I run the check with the code check
     Then no problem is reported for the role
 
