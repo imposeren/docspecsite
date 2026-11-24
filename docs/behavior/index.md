@@ -29,7 +29,7 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 
 - [requirements.md](requirements.md) — The index of the numbered docs system requirements (`DSR-n`): every ID and the doc that holds it.
 - [docs-format.md](docs-format.md) — What a doc is: Markdown with front matter in `docs/`, its title, how ADR files are named, and scenario docs without a build status.
-- [site.md](site.md) — The rendered site: version pages, pickers, old-version warnings, diffs, redirect pages, build parts, navigation, index pages and the machine listing.
+- [site.md](site.md) — The rendered site: version pages, pickers, old-version warnings, diffs, redirect pages, build parts, navigation, search, index pages and the machine listing, and the two renderers that draw it.
 - [code-reference.md](code-reference.md) — The code reference generated from the code and its docstrings, and the links between docs and code.
 - [distribution.md](distribution.md) — How projects run docspecsite: the `docs-check` prek hook and the Docker image, pinned to a release tag.
 - [commands/](commands/index.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.

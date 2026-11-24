@@ -50,7 +50,7 @@ How projects run the check before each commit and in CI is in [distribution.md](
 
 ## What the check reports
 
-> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`.
+> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`. A doc at an address that only the `sphinx` renderer uses, such as `search.md`, is not reported yet.
 
 Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>:<line>: <message>` for a problem outside `docs/` (such as a `Docs:` line in code found by the `code` check); the line number, with its colon, is left out only when the problem concerns the whole file, such as an invalid `docspecsite.toml` (`docspecsite.toml: <message>`).
 A problem may carry a hint, which says how to fix this particular problem: it is printed on its own line right under the problem, indented by two spaces and starting with `hint: `.
@@ -66,6 +66,7 @@ docs/import.md:12: status note "Not built yet." ("specified") in a doc with the 
 A doc that cannot be read, or that is not valid UTF-8, is a problem on that doc, and the other docs are still checked.
 Other input the check cannot use, such as a file name that is not valid UTF-8, is one problem each ([Input that cannot be used](index.md#input-that-cannot-be-used)).
 A doc whose page would take the URL of a generated page is a problem too ([architecture/docs-tooling.md](../../architecture/docs-tooling.md#output-layout)).
+The generated pages of both [renderers](../site.md#renderers) count, whatever the `renderer` setting, so a change of renderer never makes a doc's page clash with a generated one: besides the index pages, the status board and the pages of the code reference and of old versions, these are the search page (`search.md`), the general index (`genindex.md`) and the files the site needs to look and work right (any doc under `_static/`).
 
 A file or directory under `docs/` whose name contains `#`, `%` or `?` is a problem on that path ([meta/structure.md](../../meta/structure.md#naming)):
 

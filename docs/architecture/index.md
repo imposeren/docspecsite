@@ -23,8 +23,8 @@ docspecsite is one Python package that reads a repo's `docs/` and its history th
   docspecsite's own docs follow the same method as the projects it checks.
 - **The method's rules are not configuration.**
   docspecsite implements the rules of the template's `docs/meta/`; only project settings (ADR prefix, source URL, code location) are configurable ([behavior/configuration.md](../behavior/configuration.md)).
-- **Few dependencies.**
-  Reach for an established library before writing code; keep the tool small ([DSR-23](../behavior/distribution.md#requirements)).
+- **Established libraries, each for a reason.**
+  Reach for an established library before writing docspecsite's own code; every dependency is listed with its reason in [docs-tooling.md](docs-tooling.md#dependencies), and a new one needs an ADR ([DSR-23](../behavior/distribution.md#requirements)).
 - **Static output.**
   The site is plain files that need no server-side code ([DSR-25](../behavior/site.md#building)).
 - **No registry.**
@@ -32,9 +32,8 @@ docspecsite is one Python package that reads a repo's `docs/` and its history th
 
 ## Children
 
-> **Built.**
-
 - [docs-tooling.md](docs-tooling.md) — How docspecsite works: modules, configuration, history model, rendering, code reference, Docker image and prek hook.
+- [site.md](site.md) — How the site is built: the build front, the renderer seam, and the `sphinx` renderer on Sphinx, MyST-Parser, sphinx-autoapi and furo next to the temporary `internal` renderer.
 - [versioning-backends.md](versioning-backends.md) — Pluggable versioning backends: the history-level contract, finding a backend, the git and none backends.
 - [components.md](components.md) — The list of components (front-matter values and path segments).
 - [dev-environment.md](dev-environment.md) — docker compose as the entry point for working on docspecsite; the dev and runtime images.

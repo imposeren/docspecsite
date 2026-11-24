@@ -2,7 +2,7 @@
 title: Docs system requirements — index
 summary: The index of docspecsite's numbered requirements (DSR-n) — every ID, the doc that holds it, and the rule for numbering new ones.
 layer: behavior
-status: implemented
+status: [implemented, specified, changed]
 milestone: first-release
 priority: must
 components: [docs-system]
@@ -49,10 +49,13 @@ A new DSR-n is listed under the section whose subject it matches, or under Other
 
 ## Navigation and indexes
 
+> **Not built yet.** There is no search: DSR-54 is new.
+
 - **DSR-14**, **DSR-15**, **DSR-16**, **DSR-29** Page navigation, the index pages and the status board, the machine listing, and the site being for humans: [site.md](site.md#navigation-and-indexes).
 - **DSR-17**, **DSR-28** The `list` and `backlinks` query commands: [list.md](commands/list.md#requirements), [backlinks.md](commands/backlinks.md#requirements).
 - **DSR-30** The web API schema lookup a project provides: [web-api-reference.md](web-api-reference.md#looking-up-the-schema).
 - **DSR-31** The code lookup a project provides: [code-reference.md](code-reference.md#requirements).
+- **DSR-54** Search and the page's side bar: [site.md](site.md#search-and-page-layout).
 
 ## Generated reference layer
 
@@ -72,8 +75,10 @@ A new DSR-n is listed under the section whose subject it matches, or under Other
 
 ## Running
 
-- **DSR-22**, **DSR-23** The Docker image, what the host needs, and minimal dependencies: [distribution.md](distribution.md#requirements).
-- **DSR-24**, **DSR-25** Incremental builds and static output: [site.md](site.md#building).
+> **Changed, not built yet.** Builds are still incremental.
+
+- **DSR-22**, **DSR-23** The Docker image, what the host needs, and dependencies chosen for a reason: [distribution.md](distribution.md#requirements).
+- **DSR-24**, **DSR-25** Full rebuilds and static output: [site.md](site.md#building).
 
 ## Other subjects
 

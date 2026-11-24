@@ -1,13 +1,15 @@
 ---
 title: The build command — scenarios
-summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, and for unknown components in `code-components` in the build.
+summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for unknown components in `code-components` in the build, and for choosing the renderer that draws the site.
 layer: scenarios
 components: [site, code-reference]
 tags: [cli, rendering]
 related:
   - behavior/commands/build.md
   - behavior/configuration.md
+  - behavior/site.md
   - architecture/docs-tooling.md
+  - architecture/site.md
   - scenarios/commands/check.md
 ---
 
@@ -17,7 +19,7 @@ These scenarios pin down parts of `docspecsite build` in [The build command](../
 The first is which [revision](../../behavior/glossary.md) a build shows when no `--ref` is given, with or without a preview of the working tree (the files as they are now on disk), built with `--include-worktree`.
 The second is which code pages of such a preview link to their source.
 The third is which link targets count as found, and how a body link (a link in a doc's text) whose target is not found is shown.
-Further cases cover the source links of a path in `code-dirs` that is a symlink, and unknown components in the `[code-components]` setting ([configuration.md](../../behavior/configuration.md#settings)).
+Further cases cover the source links of a path in `code-dirs` that is a symlink, unknown components in the `[code-components]` setting ([configuration.md](../../behavior/configuration.md#settings)), and which [renderer](../../behavior/site.md#renderers) draws the site.
 
 ## Building what is checked out
 
@@ -216,6 +218,98 @@ Feature: Unknown components in code-components
   Scenario: A docs-only build says nothing about it
     When I build only the docs part of the site
     Then the build gives no warning about "backned"
+```
+
+## Choosing the renderer
+
+The `renderer` setting in the `[site]` section chooses the renderer that draws the site, and `--renderer` overrides it for one build: the option wins, then the setting, then the standard renderer, `sphinx` ([build.md](../../behavior/commands/build.md#what-the-build-does), the `--renderer` option; the setting: [configuration.md](../../behavior/configuration.md#site)).
+
+```gherkin
+Feature: Choosing the renderer
+  As a docs author
+  I want to choose which renderer draws my project's site, for the project and for one build
+  So that I can keep the older renderer until the new site suits me, and compare both sites of the same docs
+
+  Scenario: Without a setting or an option, the standard renderer draws the site
+    Given a project whose "docspecsite.toml" has no "[site]" section
+    When I build the site
+    Then the site is drawn by the "sphinx" renderer
+    And the site has a search page
+
+  Scenario: The setting chooses the renderer
+    Given a project whose "[site]" section sets "renderer" to "internal"
+    When I build the site
+    Then the site is drawn by the "internal" renderer
+    And the site has no search page
+
+  Scenario: The option wins over the setting
+    Given a project whose "[site]" section sets "renderer" to "internal"
+    When I build the site with --renderer sphinx
+    Then the site is drawn by the "sphinx" renderer
+
+  Scenario: Both sites of the same revision side by side
+    When I build the site with --renderer internal into "site-internal"
+    And I build the same revision with --renderer sphinx into "site-sphinx"
+    Then both directories hold a page for every version of every doc
+    And each holds only the files of its own build
+
+  Scenario: An unknown renderer in the option is a command-line error
+    When I build the site with --renderer mkdocs
+    Then the build does not start
+    And the exit code is 2
+
+  Scenario: An unknown renderer in the setting stops the build
+    Given a project whose "[site]" section sets "renderer" to "mkdocs"
+    When I build the site
+    Then the build stops with an error about the "renderer" setting
+    And the exit code is 1
+
+  Scenario: The check reports an unknown renderer in the setting
+    Given a project whose "[site]" section sets "renderer" to "mkdocs"
+    When I run the check
+    Then it reports a problem on "docspecsite.toml" about the "renderer" setting
+```
+
+### Rebuilding with the standard renderer
+
+The standard renderer draws the whole site on every build, and the count of pages taken from the cache is 0 ([DSR-24](../../behavior/site.md#building), [build.md](../../behavior/commands/build.md#what-the-build-does)).
+
+```gherkin
+Feature: Rebuilding with the standard renderer
+  As a docs author
+  I want every build to draw the whole site afresh
+  So that no page is stale after a change to a doc it links to
+
+  Scenario: A rebuild without changes draws every page again
+    Given the site was built with the "sphinx" renderer
+    When I build the site again without changing anything
+    Then the last line counts every page as rendered afresh and 0 taken from the cache
+
+  Scenario: A changed heading reaches the pages that link to it
+    Given the site was built with the "sphinx" renderer
+    And the doc "docs/guides/usage.md" links to the heading "Install" of "docs/guides/setup.md"
+    When the heading "Install" is removed from "docs/guides/setup.md"
+    And I build the site again
+    Then the build warns about the link to the heading in "guides/usage.md"
+```
+
+### A failure inside the standard renderer
+
+A failure inside the documentation tool that concerns no single page stops the whole build, and the output directory is left as it was ([build.md](../../behavior/commands/build.md#what-the-build-does)).
+
+```gherkin
+Feature: A failure inside the standard renderer
+  As a docs author
+  I want a failed build to leave my last good site in place
+  So that a broken build never leaves half a site behind
+
+  Scenario: The build stops and keeps the earlier site
+    Given the site was built into "site"
+    And the documentation tool fails while drawing the next build
+    When I build the site into "site" with the "sphinx" renderer
+    Then the build prints one error line
+    And the exit code is 1
+    And "site" holds the files of the earlier build
 ```
 
 ## See also

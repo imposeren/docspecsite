@@ -30,7 +30,7 @@ Each command's options, output and exit codes are in a doc of its own.
 
 ## Running a command
 
-> **Changed, not built yet.** Git is the only version control; `--optional-checks` knows only `code`, and deletes and renames are still rejected by `check --staged` ([check.md](check.md#what-the-check-reports)).
+> **Changed, not built yet.** Git is the only version control; `build` has no `--renderer`; `--optional-checks` knows only `code`, and deletes and renames are still rejected by `check --staged` ([check.md](check.md#what-the-check-reports)).
 
 `docspecsite [--repo DIR] <command> [options]` works on the docs of one repo: the current directory, or `DIR` given with `--repo` (the [checked repo](../glossary.md)).
 Every command reads `docspecsite.toml` from disk first ([configuration.md](../configuration.md)), then picks the [versioning backend](../glossary.md), the part of docspecsite that reads the project's version control ([versioning-backends.md](../versioning-backends.md)).
@@ -45,7 +45,7 @@ A command-line error (an unknown option, or an option value that is not valid, s
 | `check [--optional-checks C,…] [--no-hints] [--strict]` | Runs every check ([DSR-20](check.md#requirements), [DSR-33](../docs-format.md#requirements)) on the working tree (the files as they are now on disk). `--no-hints` leaves out the hint lines under the problems ([DSR-51](check.md#requirements)). `--strict` makes warnings count as problems ([check](check.md#what-the-check-reports)). `--optional-checks` adds the optional checks it names: `code`, the code check ([DSR-36](check.md#requirements)), and the checks of the backend in use, such as `git:staged`, which reports docs marked in git as deleted or renamed in the next commit ("staged") ([DSR-6](../versioning-backends.md#versions-of-a-doc), [DSR-43](../versioning-backends.md#requirements)). |
 | `list [--layer L] [--status S] [--component C] [--tag T] [--milestone M] [--priority P] [--format text\|json]` | Prints the docs whose front matter matches every given filter, from the working tree ([DSR-17](list.md#requirements)). |
 | `backlinks <path> [--format text\|json]` | Prints the docs that link to `<path>` through body links, `related`, `redirect_to` or `superseded_by`, from the working tree ([DSR-28](backlinks.md#requirements)). |
-| `build [--ref REF] [--out site] [--parts P,…] [--include-worktree] [--strict]` | Renders the static site; with version control, from the history of a [ref](../glossary.md), by default the commit that is checked out ([DSR-7](../site.md#rendering) … [DSR-19](../code-reference.md#requirements)). |
+| `build [--ref REF] [--out site] [--parts P,…] [--renderer R] [--include-worktree] [--strict]` | Renders the static site with the chosen [renderer](../site.md#renderers); with version control, from the history of a [ref](../glossary.md), by default the commit that is checked out ([DSR-7](../site.md#rendering) … [DSR-19](../code-reference.md#requirements)). |
 
 ## Input that cannot be used
 

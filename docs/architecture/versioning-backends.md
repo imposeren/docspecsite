@@ -162,7 +162,7 @@ It reads a symlink's target where it reads the other files: in the tree of the b
 
 - A built-in backend with Python dependencies ships them as Python optional dependencies, `docspecsite[<name>]`; git has none, since it only needs the `git` program, which the Docker image already installs.
 - A third-party backend is installed next to docspecsite: in the prek hook's `additional_dependencies`, or in a project image built `FROM` docspecsite's image with the package added (the guide is [guides/using-docspecsite.md](../guides/using-docspecsite.md)).
-- The cache has one root per docspecsite version, set of built parts and backend name, so content keys of different backends never meet ([docs-tooling.md](docs-tooling.md#incremental-builds)).
+- The `internal` renderer's cache has one root per docspecsite version, set of built parts and backend name, so content keys of different backends never meet ([docs-tooling.md](docs-tooling.md#incremental-builds)).
 
 ## Rejected designs
 

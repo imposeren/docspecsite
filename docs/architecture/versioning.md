@@ -41,7 +41,7 @@ A method change in the template that docspecsite enforces usually means a strict
 
 - The **git tag** names the release; projects pin it in `.pre-commit-config.yaml` (`rev`) and `compose.yaml` (the build context's `#vX.Y.Z`), the same in both.
 - `version` in `pyproject.toml` is what `docspecsite --version` prints; the release commit sets it to the tag's version.
-  The build cache is also keyed by a hash of the package's files, so a change between releases never reuses stale pages.
+  The `internal` renderer's build cache is also keyed by a hash of the package's files, so a change between releases never reuses stale pages.
   The image is built from a git context without `.git`, so docspecsite cannot read its version from git at run time.
 
 ## Releasing

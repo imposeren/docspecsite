@@ -5,12 +5,14 @@ layer: architecture
 status: implemented
 milestone: first-release
 priority: must
-decision: accepted
+decision: superseded
+superseded_by: architecture/decisions/DSS-0008-sphinx-site-renderer.md
 date: 2026-11-17
 components: [docs-system, site]
 tags: [adr, docs, tooling, versioning]
 related:
   - architecture/docs-tooling.md
+  - architecture/decisions/DSS-0008-sphinx-site-renderer.md
   - behavior/requirements.md
 ---
 

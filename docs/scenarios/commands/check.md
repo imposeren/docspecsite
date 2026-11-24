@@ -1,6 +1,6 @@
 ---
 title: The check command — scenarios
-summary: Exact cases for the characters that file and directory names may not contain, the anchors of links to a directory, warnings in the check and `check --strict`, and an unknown component in `code-components`.
+summary: Exact cases for the characters that file and directory names may not contain, the anchors of links to a directory, warnings in the check and `check --strict`, an unknown component in `code-components`, and docs whose page would take the address of a page either renderer generates.
 layer: scenarios
 components: [checks, code-reference]
 tags: [cli]
@@ -8,6 +8,7 @@ related:
   - behavior/commands/check.md
   - behavior/configuration.md
   - behavior/docs-format.md
+  - behavior/site.md
   - scenarios/commands/build.md
 ---
 
@@ -15,7 +16,7 @@ related:
 
 These scenarios pin down parts of `docspecsite check` in [The check command](../../behavior/commands/check.md#what-the-check-reports).
 The first are the check's rules on which characters file and directory names under `docs/` may not contain, and how it takes a link to a directory ([DSR-20](../../behavior/commands/check.md#requirements)).
-Then come the check's warnings and its `--strict` option, and an unknown component in the `[code-components]` setting ([configuration.md](../../behavior/configuration.md#settings)).
+Then come the check's warnings and its `--strict` option, an unknown component in the `[code-components]` setting ([configuration.md](../../behavior/configuration.md#settings)), and docs whose page would take the address of a generated page.
 The check's rules on a doc's title and on symlinks have scenarios of their own ([docs-format.md](../docs-format.md), [doc-symlinks.md](../doc-symlinks.md)).
 
 ## File and directory names
@@ -144,6 +145,41 @@ Feature: Unknown components in code-components
       """
       docspecsite.toml: "code-components" of "example.api" has an unknown component: "backned" (add it to architecture/components.md)
       """
+```
+
+## Docs at the address of a generated page
+
+A doc whose page would take the address of a page that either [renderer](../../behavior/site.md#renderers) generates is a problem, whatever the `renderer` setting ([check.md](../../behavior/commands/check.md#what-the-check-reports)).
+
+```gherkin
+Feature: Docs at the address of a generated page
+  As a docs author
+  I want the check to report a doc whose page would clash with a generated page of either renderer
+  So that changing the renderer never breaks my site
+
+  Scenario Outline: A doc at an address the standard renderer generates
+    Given a project whose "[site]" section sets "renderer" to "<renderer>"
+    And a doc "<doc>"
+    When I run the check
+    Then it reports that the page of "<doc>" would take the address of <page>
+
+    Examples:
+      | renderer | doc                    | page                       |
+      | sphinx   | docs/search.md         | the search page            |
+      | internal | docs/search.md         | the search page            |
+      | internal | docs/genindex.md       | the general index          |
+      | internal | docs/_static/notes.md  | the site's static files    |
+
+  Scenario: A doc at the address of the status board, with the standard renderer
+    Given a project whose "[site]" section sets "renderer" to "sphinx"
+    And a doc "docs/status.md"
+    When I run the check
+    Then it reports that the page of "docs/status.md" would take the address of the status page
+
+  Scenario: A doc at a code page address of the standard renderer
+    Given a doc "docs/reference/code/pkg/api/index.md"
+    When I run the check
+    Then it reports that the page of "docs/reference/code/pkg/api/index.md" would take the address of the code reference pages
 ```
 
 ## See also

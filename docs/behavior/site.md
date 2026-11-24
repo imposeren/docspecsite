@@ -1,8 +1,8 @@
 ---
 title: The docs site
-summary: The static site docspecsite builds for people — a page for every version of every doc with a version picker, old-version warnings and diffs, redirect pages, built in parts, with navigation, index pages, a status board and a plain-text listing of all docs; built incrementally into static files.
+summary: The static site docspecsite builds for people — a page for every version of every doc with a version picker, old-version warnings and diffs, redirect pages, built in parts, with navigation, search, index pages, a status board and a plain-text listing of all docs; rebuilt in full into static files by one of two renderers.
 layer: behavior
-status: [implemented, changed]
+status: [implemented, changed, specified]
 milestone: first-release
 priority: must
 components: [site]
@@ -15,14 +15,19 @@ related:
   - behavior/versioning-backends.md
   - behavior/status-notes.md
   - scenarios/status-notes.md
+  - behavior/configuration.md
+  - scenarios/commands/build.md
   - architecture/docs-tooling.md
+  - architecture/site.md
+  - architecture/decisions/DSS-0008-sphinx-site-renderer.md
   - meta/versioning.md
 ---
 
 # The docs site
 
 `docspecsite build` turns a project's docs into a static site for people to read: every version of every doc has its own page, old versions say loudly that they are old, and each page shows where the doc sits among the others.
-Index pages group the docs by tag, component and status, and a plain-text listing of all docs is there for agents, which otherwise read the Markdown and the version control directly.
+Index pages group the docs by tag, component and status, a search box finds words in the current docs, and a plain-text listing of all docs is there for agents, which otherwise read the Markdown and the version control directly.
+The site is drawn by one of two [renderers](#renderers); the standard one is used unless a project chooses the older one.
 The code reference, a part of the same site, is in [code-reference.md](code-reference.md); the `build` command and its options are in [build.md](commands/build.md#what-the-build-does).
 
 ## Requirements
@@ -54,12 +59,47 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
 
 Listings that include ADRs (the index pages and the machine listing here, and `list`, [list.md](commands/list.md#options-and-output)) sort docs by path, except that external ADRs come before the repo's own, by prefix in the order `external-adr-prefixes` lists them.
 
+### Search and page layout
+
+> **Not built yet.**
+
+- **DSR-54** The site has a search box that finds words in the latest version of every doc and in the code reference.
+  Old versions, diffs and the generated index pages are left out of the search, so a search never leads to an outdated spec.
+  Each page has a side bar with the tree of docs and the list of the page's own sections, and each heading has a link to itself.
+  With the older renderer, the site has no search and no side bar ([Renderers](#renderers)).
+
 ### Building
 
-> **Changed, not built yet.** Git is the only version control, and every build needs it.
+> **Changed, not built yet.** Git is the only version control, and every build needs it. Unchanged versions are taken from the build cache.
 
-- **DSR-24** Builds are incremental: unchanged versions are not re-rendered, whichever backend gives them.
+- **DSR-24** Every build draws the whole site afresh, whichever backend gives the versions, so no page is left stale by a change to a doc it links to, to the settings or to docspecsite itself.
+  The older renderer is the exception: it keeps the pages it has drawn and draws again only the versions that changed and the pages whose links changed ([Renderers](#renderers)).
 - **DSR-25** Output is static files that can be opened locally or served by any web server.
+
+## Renderers
+
+> **Not built yet.**
+
+A renderer is the part of docspecsite that draws the site's pages.
+There are two, and a project chooses one with the `renderer` setting ([configuration.md](configuration.md#site)), or for one build with `build --renderer` ([build.md](commands/build.md#what-the-build-does)):
+
+- `sphinx`, the standard renderer, named after the documentation tool it is built on; it is used when nothing else is chosen.
+- `internal`, docspecsite's older renderer of its own.
+  It stays only while projects move to the standard renderer, so that a project can keep it until the new site suits it, and so that both sites of the same docs can be built and compared side by side.
+  A later release removes it, together with the setting and the option that choose it.
+
+Both draw the same pages from the same docs: every version, diff, index page, the status board and the listing for agents, with the same status badges, components, tags, breadcrumb, panels, markers and warnings.
+They differ in these points, each named with the renderer it applies to:
+
+- **Search and side bar** — `sphinx` only ([DSR-54](#search-and-page-layout)).
+- **Contents list in the text** — `internal` only: a doc with many sections gets a list of them after its first paragraph, as the `toc-min-headings` setting says ([configuration.md](configuration.md#settings)); with `sphinx`, the side bar lists the page's sections instead.
+- **Addresses of code reference pages** — `sphinx` gives each module a folder of its own, such as `reference/code/example/api/index.html`; `internal` gives it one file, such as `reference/code/example.api.html`.
+  Links within the site always lead to the right page; only bookmarks kept from one renderer's site do not work on the other's.
+- **Links to a heading** — a heading whose text holds punctuation, such as "Don't", can be reached as `#dont` with both renderers; in the links it draws, `sphinx` may use another form of the same address, `#don-t`, which works as well.
+  A heading made only of punctuation has no link of its own with `sphinx`.
+- **Code reference pages** — `internal` lets a reader fold each member's section and lists a page's members at its top; `sphinx` shows every member in full, with no such list.
+- **Rebuilds** — `sphinx` draws the whole site on every build; `internal` keeps the pages it has drawn in `.docspecsite-cache/` in the checked repo and draws again only what changed ([DSR-24](#building)).
+- **A failure of the drawing itself** — with `sphinx`, a failure inside the documentation tool, one that concerns no single page, stops the whole build ([build.md](commands/build.md#what-the-build-does)); with `internal`, every error stays with its page.
 
 ## See also
 

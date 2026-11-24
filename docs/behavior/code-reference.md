@@ -2,7 +2,7 @@
 title: Code reference
 summary: The code reference generated from a project's Python code and docstrings for its latest version only — `code:` links and `Docs:` lines between docs and code, Sphinx roles in docstrings, "described in" backlinks, and the code lookup command agents use instead.
 layer: behavior
-status: implemented
+status: [implemented, changed]
 milestone: first-release
 priority: must
 components: [code-reference]
@@ -14,6 +14,7 @@ related:
   - behavior/commands/build.md
   - behavior/web-api-reference.md
   - architecture/docs-tooling.md
+  - architecture/site.md
   - meta/linking.md
 ---
 
@@ -24,6 +25,8 @@ Unlike the hand-written docs, the code reference shows only the latest version o
 It is one part of the [site](site.md); the code check that validates its references is in [check.md](commands/check.md#requirements).
 
 ## Requirements
+
+> **Changed, not built yet.** The site and the code check look roles up with the same code; with the standard renderer, the site's lookup is the documentation tool's.
 
 These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering listed in [requirements.md](requirements.md):
 
@@ -40,6 +43,8 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
   Each role renders as a link to the element on the code reference; the role names the kind of element for readers, and docspecsite does not check that it matches.
   Other roles are shown as written.
   A target that is not found is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check does ([DSR-36](commands/check.md#requirements)).
+  With the standard [renderer](site.md#renderers), the site looks roles up by the rules of the documentation tool it is built on, while the code check keeps docspecsite's own lookup; both follow the rules above, and a target that one finds and the other does not is a fault in docspecsite.
+  A name from another package, such as `pathlib.Path`, stays plain text, without a marker or a warning.
 - **DSR-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with the version control or an IDE.
 - **DSR-19** Code reference pages show "described in" backlinks from docs' `code:` fields.
 - **DSR-31** A query command for agents: print the API of a code module or class (signatures with types, docstrings, base classes, inherited members) as Markdown, from the code, without rendering.

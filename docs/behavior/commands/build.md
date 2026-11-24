@@ -1,6 +1,6 @@
 ---
 title: The build command
-summary: The `build` command — its options, docs-only and code-only builds, source links, symlinks, links whose target is not found, code that cannot be loaded, its warnings, errors and exit codes.
+summary: The `build` command — its options, the renderer it draws the site with, docs-only and code-only builds, source links, symlinks, links whose target is not found, code that cannot be loaded, its warnings, errors and exit codes.
 layer: behavior
 status: changed
 milestone: first-release
@@ -19,19 +19,22 @@ related:
   - behavior/versioning-backends.md
   - behavior/requirements.md
   - architecture/docs-tooling.md
+  - architecture/site.md
 ---
 
 # The build command
 
 `docspecsite build` renders the static site; with version control, from the history of a [ref](../glossary.md), by default the commit that is checked out.
-Its options choose the revision, the output directory, the parts of the site and a preview of the working tree, and `--strict` makes it fail on any error or warning, for CI.
+Its options choose the revision, the output directory, the parts of the site, the [renderer](../site.md#renderers) that draws it and a preview of the working tree, and `--strict` makes it fail on any error or warning, for CI.
 Without `--strict`, an error that concerns one page leaves that page out and the rest of the site is still built; with it, the build stops at the first page error and writes nothing.
 
 ## What the build does
 
 The site is written to `--out` (default `site/`, relative to the current directory).
 Files of the previous build that are no longer produced are removed; nothing else in the directory is touched.
-Rendered page bodies are kept in `.docspecsite-cache/` in the checked repo, so a rebuild renders only what changed ([DSR-24](../site.md#building)).
+Every build draws the whole site afresh ([DSR-24](../site.md#building)); the files it needs while drawing are kept in `.docspecsite-cache/` in the checked repo, and emptied at the start of the next build.
+With the `internal` renderer, the drawn pages are kept there too, so a rebuild draws only what changed.
+Two builds of the same repo must not run at the same time.
 
 The first line on stderr names the backend in use, and `(auto)` when `auto` picked it: `versioning: git (auto)`, `versioning: none (auto)`, `versioning: git`.
 
@@ -40,6 +43,10 @@ The first line on stderr names the backend in use, and `(auto)` when `auto` pick
 - `--parts` names the parts to build, separated by commas without spaces: `docs`, `code` ([DSR-35](../site.md#rendering)).
   Without it, every part the repo has is built: `docs`, and `code` when `code-dirs` is set.
   An unknown part, or an empty list, is a command-line error; `code` without `code-dirs` stops the build before it starts.
+- `--renderer` names the [renderer](../site.md#renderers) that draws the site: `sphinx` or `internal`.
+  It wins over the `renderer` setting ([configuration.md](../configuration.md#site)), which applies when the option is not given; without either, the renderer is `sphinx`.
+  An unknown name is a command-line error.
+  Building the same revision once with each renderer, into two output directories, gives both sites of the same docs side by side.
 - `--strict` stops at the first page error without writing anything, and turns every warning into an error. It is meant for CI.
   Warnings come only from the parts being built, so `--parts docs --strict` does not fail on docstrings.
 
@@ -65,6 +72,8 @@ When `code-dirs` is not set, it warns at the first repo link it turns into plain
 
 Without `--strict`, an error stays local to its page: a doc version, diff, code page or index page that cannot be built is left out, and the rest of the site is still built.
 Each such error is printed on stderr as `error: <page>: <message>`; warnings (such as an unresolvable link) are printed as `warning: <message>`.
+With the `sphinx` renderer, the warnings of the documentation tool it is built on, such as a link to a heading that does not exist, are build warnings in the same form, so `--strict` turns them into errors too.
+A failure inside that tool that concerns no single page stops the whole build: one error line, exit code 1, and the output directory is left as it was.
 A doc whose page would take the URL of a generated page (which `check` reports) is such an error for the doc's page; the generated page is kept.
 A symlink that leads to a doc gets no pages, and the build says nothing about it: it is neither an error nor a warning and is not counted, since `check` reports it ([DSR-39](../doc-symlinks.md#on-the-site)).
 A path can be a symlink in some revisions and a doc, a file with its own text, in others:
@@ -116,7 +125,7 @@ warning: docspecsite.toml: "code-components" of "example.api" has an unknown com
 A symlink in a code directory that points to an absolute path or out of the code directories is left out of the code read from the ref, with a warning naming it.
 A path in `code-dirs` that is a symlink is followed within the built revision: the files of the directory it leads to are read as that code directory; one that leads to an absolute path, out of the repo or to nothing is left out with a warning naming it, as a symlinked image under `docs/` is, and one that leads to a file is left out with a warning too ([Input that cannot be used](index.md#input-that-cannot-be-used)).
 
-The last line counts the pages built, rendered afresh, taken from the cache and failed.
+The last line counts the pages built, rendered afresh, taken from the cache and failed; with the `sphinx` renderer every page is rendered afresh, and the count taken from the cache is always 0.
 
 The exit code is 0 when every page was built, 1 when a page failed or the build could not start (for example a `docspecsite.toml` that is not valid TOML or has an invalid value), and 2 for an unknown ref and the other command-line errors.
 

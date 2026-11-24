@@ -77,8 +77,8 @@ Feature: Output into a pipe that closes early
 
 ## Children
 
-- [check.md](check.md) — The characters that file names may not contain, the anchors of links to a directory, warnings in the check with `check --strict`, and an unknown component in `code-components` in the check.
-- [build.md](build.md) — The revision a build shows by default, source links of a preview and of a symlinked code directory, body links whose target is found or not found, and unknown components in `code-components` in the build.
+- [check.md](check.md) — The characters that file names may not contain, the anchors of links to a directory, warnings in the check with `check --strict`, an unknown component in `code-components` in the check, and docs at the address of a page either renderer generates.
+- [build.md](build.md) — The revision a build shows by default, source links of a preview and of a symlinked code directory, body links whose target is found or not found, unknown components in `code-components` in the build, and choosing the renderer, with full rebuilds and a failure inside the standard renderer.
 - [backlinks.md](backlinks.md) — The backlinks of a doc template.
 
 ## See also
