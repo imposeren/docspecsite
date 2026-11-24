@@ -21,7 +21,7 @@ related:
 ## Context
 
 docspecsite is built test-first ([agents/working-from-specs.md](../../agents/working-from-specs.md#implementing-a-specified-doc)), so it needs a test framework.
-It must keep its runtime dependencies minimal ([DS-23](../../behavior/distribution.md#requirements)).
+It must keep its runtime dependencies minimal ([DSR-23](../../behavior/distribution.md#requirements)).
 Most tests need a docs tree on disk, and many need a git repository with a known history.
 
 ## Options considered

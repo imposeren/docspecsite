@@ -178,7 +178,7 @@ def test_get_section_notes_block_quotes_split_by_blank_lines() -> None:
     assert [n.line_number for n in notes] == [3, 5]
 
 
-def test_get_section_notes_quotes_setext_heading_by_first_line() -> None:  # DS-46
+def test_get_section_notes_quotes_setext_heading_by_first_line() -> None:  # DSR-46
     [note] = MarkdownText("# T\n\nExport\n------\n\n> **Built.**\n").get_section_notes()
     assert (note.heading, note.is_title, note.line_number) == (Heading("Export", "Export", 3), False, 6)
 

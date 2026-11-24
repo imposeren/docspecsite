@@ -24,11 +24,11 @@ It is one part of the [site](site.md); the code check that validates its referen
 
 ## Requirements
 
-These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
+These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering listed in [requirements.md](requirements.md):
 
-- **DS-13** `code:` links and `Docs:` docstring lines resolve as described in [meta/linking.md](../meta/linking.md#code-links).
+- **DSR-13** `code:` links and `Docs:` docstring lines resolve as described in [meta/linking.md](../meta/linking.md#code-links).
   `web-api:` links are part of the HTTP API reference ([web-api-reference.md](web-api-reference.md)).
-- **DS-34** Docstrings refer to code with Sphinx's Python roles: `` :mod:`…` ``, `` :class:`…` ``, `` :func:`…` ``, `` :meth:`…` ``, `` :attr:`…` ``, `` :data:`…` ``, `` :exc:`…` `` and `` :obj:`…` ``, also with the `py:` domain (`` :py:meth:`…` ``).
+- **DSR-34** Docstrings refer to code with Sphinx's Python roles: `` :mod:`…` ``, `` :class:`…` ``, `` :func:`…` ``, `` :meth:`…` ``, `` :attr:`…` ``, `` :data:`…` ``, `` :exc:`…` `` and `` :obj:`…` ``, also with the `py:` domain (`` :py:meth:`…` ``).
   A target is a full dotted path (`` :class:`docspecsite.build.SiteBuilder` ``), or starts with `.` and is looked up from the docstring's place: first among the members of its class (the class itself for the class docstring, the enclosing class for a member's docstring), then among the definitions of its module (`` :meth:`.attempt` `` in any docstring of `SiteBuilder`).
   A target without a leading `.` that is no full dotted path of an element is looked up the same way, as Sphinx does: `` :meth:`attempt` `` works like `` :meth:`.attempt` ``.
   A name the module only imports is not found that way: a reference to code defined elsewhere uses that code's own dotted path.
@@ -38,14 +38,14 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
   `~` before the target shows only the last part of that path (`` :class:`~docspecsite.build.SiteBuilder` `` and `` :meth:`~.attempt` `` read `SiteBuilder` and `attempt`), and `Text <target>` sets the text.
   Each role renders as a link to the element on the code reference; the role names the kind of element for readers, and docspecsite does not check that it matches.
   Other roles are shown as written.
-  A target that is not found is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check does ([DS-36](commands.md#checks)).
-- **DS-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with the version control or an IDE.
-- **DS-19** Code reference pages show "described in" backlinks from docs' `code:` fields.
-- **DS-31** A query command for agents: print the API of a code module or class (signatures with types, docstrings, base classes, inherited members) as Markdown, from the code, without rendering.
+  A target that is not found is shown as written (without `~`) with the "no longer exists" marker and is a build warning; plain `check` does not look at it, the code check does ([DSR-36](commands.md#checks)).
+- **DSR-18** Code reference pages are generated from the **code itself and its docstrings** (structure, signatures, types, members, inheritance), rendered through the same pipeline, **for the latest version of the code only**, and so is their hand-written entry page. Older code is read with the version control or an IDE.
+- **DSR-19** Code reference pages show "described in" backlinks from docs' `code:` fields.
+- **DSR-31** A query command for agents: print the API of a code module or class (signatures with types, docstrings, base classes, inherited members) as Markdown, from the code, without rendering.
   It is not a docspecsite command: a project provides it with its own lookup tools, chosen for its languages.
 
 ## See also
 
-- [site.md](site.md) — the rest of the site, and how parts link to each other ([DS-35](site.md#rendering)).
+- [site.md](site.md) — the rest of the site, and how parts link to each other ([DSR-35](site.md#rendering)).
 - [meta/linking.md](../meta/linking.md#code-links) — how `code:` links and `Docs:` lines are written.
 - [Architecture](../architecture/docs-tooling.md) — how it is built.

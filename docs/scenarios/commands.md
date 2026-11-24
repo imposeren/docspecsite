@@ -18,7 +18,7 @@ The second is which code pages of such a preview link to their source.
 The third is which link targets count as found, and how a body link (a link in a doc's text) whose target is not found is shown.
 Further cases cover the source links of a path in `code-dirs` that is a symlink, unknown components in the `[code-components]` setting ([configuration.md](../behavior/configuration.md#settings)), and input that docspecsite cannot use, such as a file name that is not UTF-8.
 The cases of `backlinks` are a path that names a doc template and, with `list`, output into a pipe that closes early.
-Then come the check's rules on which characters file and directory names under `docs/` may not contain, and how it takes a link to a directory ([DS-20](../behavior/commands.md#checks)).
+Then come the check's rules on which characters file and directory names under `docs/` may not contain, and how it takes a link to a directory ([DSR-20](../behavior/commands.md#checks)).
 The last cases are the check's warnings and its `--strict` option.
 The rest of the commands is pinned down by [commands.md](../behavior/commands.md) and the tests; the check's rules on a doc's title and on symlinks have scenarios of their own ([docs-format.md](docs-format.md), [doc-symlinks.md](doc-symlinks.md)).
 
@@ -306,7 +306,7 @@ Feature: Output into a pipe that closes early
 
 ## File and directory names
 
-The check reports a name under `docs/` that contains `#`, `%` or `?`, since these characters have a meaning in web addresses and break links to the rendered page ([DS-20](../behavior/commands.md#checks)).
+The check reports a name under `docs/` that contains `#`, `%` or `?`, since these characters have a meaning in web addresses and break links to the rendered page ([DSR-20](../behavior/commands.md#checks)).
 
 ```gherkin
 Feature: Checking file and directory names
@@ -374,7 +374,7 @@ Feature: Checking links to a directory
 ## Warnings in the check
 
 The check prints its warnings after the problems and still exits with 0 when there is no problem; `--strict` makes warnings count as problems ([check](../behavior/commands.md#check)).
-The warning in these cases is the one for `implemented` in a scenario doc's `status` ([DS-53](../behavior/docs-format.md#layers-without-a-build-status)).
+The warning in these cases is the one for `implemented` in a scenario doc's `status` ([DSR-53](../behavior/docs-format.md#layers-without-a-build-status)).
 
 ```gherkin
 Feature: Warnings in the check

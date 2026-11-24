@@ -17,7 +17,7 @@ The rules every version follows once a backend has given it (version pages, pick
 
 ## Choosing a backend
 
-The `backend` setting chooses where versions come from, and `auto` picks the one backend that recognizes the project ([What a project can choose](../behavior/versioning-backends.md#what-a-project-can-choose), [DS-40](../behavior/versioning-backends.md#requirements)).
+The `backend` setting chooses where versions come from, and `auto` picks the one backend that recognizes the project ([What a project can choose](../behavior/versioning-backends.md#what-a-project-can-choose), [DSR-40](../behavior/versioning-backends.md#requirements)).
 
 ```gherkin
 Feature: Choosing where versions come from
@@ -96,7 +96,7 @@ Feature: Choosing where versions come from
 
 ## Building without version control
 
-With `none`, each doc has one version, the file on disk, and the site has no older versions ([DS-41](../behavior/versioning-backends.md#requirements)).
+With `none`, each doc has one version, the file on disk, and the site has no older versions ([DSR-41](../behavior/versioning-backends.md#requirements)).
 
 ```gherkin
 Feature: Building without version control
@@ -147,7 +147,7 @@ Feature: Building without version control
 
 ## Versions from tags only
 
-With `versions = "tags"`, a doc's versions are the ones current at the project's matching tags ([DS-38](../behavior/versioning-backends.md#versions-from-tags-only)).
+With `versions = "tags"`, a doc's versions are the ones current at the project's matching tags ([DSR-38](../behavior/versioning-backends.md#versions-from-tags-only)).
 
 ```gherkin
 Feature: Versions from tags only
@@ -189,7 +189,7 @@ Feature: Versions from tags only
 
 ## Link patterns
 
-Links to files on the project's web host follow the backend's link patterns, which a project can change ([DS-42](../behavior/versioning-backends.md#requirements)).
+Links to files on the project's web host follow the backend's link patterns, which a project can change ([DSR-42](../behavior/versioning-backends.md#requirements)).
 
 ```gherkin
 Feature: Link patterns
@@ -206,7 +206,7 @@ Feature: Link patterns
 
 ## Backend checks
 
-A backend offers optional checks of its own, such as `git:staged` ([DS-43](../behavior/versioning-backends.md#requirements), [Rules and limits](../behavior/versioning-backends.md#rules-and-limits)).
+A backend offers optional checks of its own, such as `git:staged` ([DSR-43](../behavior/versioning-backends.md#requirements), [Rules and limits](../behavior/versioning-backends.md#rules-and-limits)).
 
 ```gherkin
 Feature: Backend checks

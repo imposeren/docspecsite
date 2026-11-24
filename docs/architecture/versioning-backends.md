@@ -22,14 +22,14 @@ code: [docspecsite.git, docspecsite.history]
 docspecsite's core (checks, link resolution, cache, pages, version picker, diffs, indexes) works on a finished **version history** that a **versioning backend** returns; it never runs a version control program itself.
 A backend is a class behind one history-level contract ([DSS-0006](decisions/DSS-0006-history-level-backend-contract.md), an [architecture decision record](../meta/glossary.md#adr)), found by name through the Python entry-point group `docspecsite.versioning` or loaded from a `package.module:Class` path ([DSS-0005](decisions/DSS-0005-entry-points-for-backends.md)).
 docspecsite ships two: `git`, which reads history with the `git` command line ([DSS-0007](decisions/DSS-0007-git-command-line.md)) and is itself built from a history-level class on top of a low-level git class, and `none`, which reads everything from disk and gives each doc one version.
-The behavior is in [behavior/versioning-backends.md](../behavior/versioning-backends.md) (DS-38, DS-40 to DS-43).
+The behavior is in [behavior/versioning-backends.md](../behavior/versioning-backends.md) (DSR-38, DSR-40 to DSR-43).
 
 ## Responsibilities and boundaries
 
 | Core | Backend |
 | -- | -- |
 | Reading `docspecsite.toml` from disk ([docs-tooling.md](docs-tooling.md#configuration)), the top-level `[versioning]` table and the choice of backend | Validating its own `[versioning.<name>]` table |
-| Version-aware link resolution ([DS-11](../behavior/site.md#rendering)), from each version's position | Which revisions are versions, their ids, labels, messages, positions and content keys |
+| Version-aware link resolution ([DSR-11](../behavior/site.md#rendering)), from each version's position | Which revisions are versions, their ids, labels, messages, positions and content keys |
 | The cache, pages, picker, diffs, indexes, `llms.txt`, the code reference | The doc texts and the files at the built revision (code directories, assets under `docs/`) |
 | The `check` rules, and `--optional-checks` parsing over core and backend checks | Its optional checks, and their problems |
 | Filling link patterns with `{source-url}` and `{path}` | Default link patterns, and the `{revision}` value |
@@ -60,7 +60,7 @@ flowchart LR
 ### Start of every command
 
 1. Read `docspecsite.toml` from disk (unchanged: `ProjectConfig.load`); the `[versioning]` table's `backend` key is parsed with the other top-level keys by `ProjectConfigParser`.
-2. Select the backend ([Finding a backend](#finding-a-backend)) and let it parse its own table, with the existing parser's messages, so its problems join the other settings problems: `check` reports them, `list` and `build` stop on a wrong value and warn about an unknown key ([DS-32](../behavior/configuration.md#requirements)).
+2. Select the backend ([Finding a backend](#finding-a-backend)) and let it parse its own table, with the existing parser's messages, so its problems join the other settings problems: `check` reports them, `list` and `build` stop on a wrong value and warn about an unknown key ([DSR-32](../behavior/configuration.md#requirements)).
 3. Validate the options that depend on the backend: the names in `--optional-checks`, `--ref` (rejected when the backend takes no revision) and `--include-worktree` (ignored when the backend has no working-copy version).
    An invalid one is a command-line error, exit code 2, through the argument parser's usage error, as for `--parts`.
    Since the available checks are known only after step 2, `--optional-checks` is read as text by the argument parser and turned into checks here.
@@ -93,13 +93,13 @@ Whether it is a protocol or an abstract base class is the builder's call too.
 | detection | Class-level: whether it can handle a directory (for `auto`), without settings. |
 | settings | Parses its `[versioning.<name>]` table into its own settings object, returning problems the way `ProjectConfigParser` does. |
 | capabilities | Whether it has history (versioned pages, picker, diffs, banners), whether it accepts a revision (`--ref`) and which one it builds without `--ref` ([commands.md](../behavior/commands.md#build)), whether it has a working-copy version (`--include-worktree`). |
-| history | For the built revision (and, when asked, the working tree): each doc's versions, newest first; the doc texts; the set of doc paths at the built revision. A backend never returns a symlink as a doc: a path that is a symlink in a version has no such version, a path that is a symlink at the built revision has no committed versions at all, and a `.md` file reached through a symlinked directory is no doc ([DS-39](../behavior/doc-symlinks.md#on-the-site)). When the working tree is read, a path that is a symlink at the built revision but a regular doc in the working tree is a new uncommitted doc with the working-copy version as its only version, and a path that is a regular doc at the built revision but a symlink in the working tree has no working-copy version and keeps its committed versions. |
-| files | The code directories at the built revision, extracted for griffe, and, when the working tree is read, which code files differ from the built revision. The non-Markdown files under `docs/` (assets). A symlink there counts by what it leads to, whatever its name, by the one rule for following a symlink ([docs-tooling.md](docs-tooling.md#history-model)): one that leads to another file is given as that file, read where the other files are read (when the working tree is read, among the files the backend sees there), never as its link text, and one that leads to a directory as the non-Markdown files inside it, at their paths below the symlink, with the symlinks inside followed by the same rule. A symlink that leads to a doc is left out. A symlink that leads out of the repo or to nothing is left out and named, so that the build can give the warning for it ([DS-39](../behavior/doc-symlinks.md#other-files-under-docs)). |
+| history | For the built revision (and, when asked, the working tree): each doc's versions, newest first; the doc texts; the set of doc paths at the built revision. A backend never returns a symlink as a doc: a path that is a symlink in a version has no such version, a path that is a symlink at the built revision has no committed versions at all, and a `.md` file reached through a symlinked directory is no doc ([DSR-39](../behavior/doc-symlinks.md#on-the-site)). When the working tree is read, a path that is a symlink at the built revision but a regular doc in the working tree is a new uncommitted doc with the working-copy version as its only version, and a path that is a regular doc at the built revision but a symlink in the working tree has no working-copy version and keeps its committed versions. |
+| files | The code directories at the built revision, extracted for griffe, and, when the working tree is read, which code files differ from the built revision. The non-Markdown files under `docs/` (assets). A symlink there counts by what it leads to, whatever its name, by the one rule for following a symlink ([docs-tooling.md](docs-tooling.md#history-model)): one that leads to another file is given as that file, read where the other files are read (when the working tree is read, among the files the backend sees there), never as its link text, and one that leads to a directory as the non-Markdown files inside it, at their paths below the symlink, with the symlinks inside followed by the same rule. A symlink that leads to a doc is left out. A symlink that leads out of the repo or to nothing is left out and named, so that the build can give the warning for it ([DSR-39](../behavior/doc-symlinks.md#other-files-under-docs)). |
 | repo file paths | The paths of the repo files a link can lead to, which core's link resolution takes as found ([commands.md](../behavior/commands.md#build)): the files at the built revision and, when the working tree is read, the non-Markdown files under `docs/` there. The assets given through a symlink are among them under the paths they are given at; the path of a symlink that leads to a doc is not, nor is that of a symlink left out of the files. |
 | link patterns | Default `file-link` and `dir-link` patterns and the `{revision}` value of the built revision. |
 | optional checks | Its checks by name; each runs on the checked repo and returns problems in `check`'s form. |
 
-Each **version** carries: an id (full revision id; for git the commit SHA), a short id (used in `/v/<short-id>.html` URLs and labels), a date, a message (shown in the picker, its `spec:`/`docs:` prefix stripped by core as today), an optional label (git tags mode: the tag name), a position in one linear order (0 for the built revision, higher for older ones; core resolves [DS-11](../behavior/site.md#rendering) links with it, as `History.find_contemporary` does today with `commit_index`), and a content key (today's blob SHA; any stable hash of the text) that names cache entries.
+Each **version** carries: an id (full revision id; for git the commit SHA), a short id (used in `/v/<short-id>.html` URLs and labels), a date, a message (shown in the picker, its `spec:`/`docs:` prefix stripped by core as today), an optional label (git tags mode: the tag name), a position in one linear order (0 for the built revision, higher for older ones; core resolves [DSR-11](../behavior/site.md#rendering) links with it, as `History.find_contemporary` does today with `commit_index`), and a content key (today's blob SHA; any stable hash of the text) that names cache entries.
 The working-copy version keeps today's form (short id `worktree`, position -1).
 
 Today's `docspecsite.history.History` and `Version` become the core side of this: `Version` loses its git `Commit` in favour of the fields above, and `History.load`'s git calls move into the git backend.
@@ -111,7 +111,7 @@ The available set is one decision, made in one place: core's checks plus the sel
 `Choice.parse_list` stays the parser of comma-separated names; for the dynamic part, the parser takes the available names instead of only a `Choice` subclass's members, so its "no … given" and "available: …" messages stay the same.
 How a backend hands its checks to core (a mapping from name to a callable, or check objects) is the builder's call.
 
-The git backend's `staged` check is today's `Checker` staged-changes rule (`Git.list_staged_changes`, [DS-6](../behavior/versioning-backends.md#versions-of-a-doc)); `check --staged` is removed without an alias, and the prek hook's entry becomes `docspecsite check --optional-checks git:staged` in the same release.
+The git backend's `staged` check is today's `Checker` staged-changes rule (`Git.list_staged_changes`, [DSR-6](../behavior/versioning-backends.md#versions-of-a-doc)); `check --staged` is removed without an alias, and the prek hook's entry becomes `docspecsite check --optional-checks git:staged` in the same release.
 That is an incompatible change of the public interface ([versioning.md](versioning.md#public-interface)).
 
 ### git backend
@@ -127,12 +127,12 @@ Both classes are public API: their method signatures follow the release rules ([
 
 **`versions = "commits"`** is today's history model, unchanged.
 
-**`versions = "tags"`** ([DS-38](../behavior/versioning-backends.md#versions-from-tags-only)):
+**`versions = "tags"`** ([DSR-38](../behavior/versioning-backends.md#versions-from-tags-only)):
 
 1. List the tags matching `tag-pattern` (`fnmatch` on the tag name, as `git tag --list` matches) whose peeled commit is on the built revision's first-parent list; order them by that position.
 2. For each doc and each tag, its version is the doc's newest commit at or before the tag's position (from the same per-path change list as commits mode).
    Consecutive tags with the same version give one version, labelled with the first (oldest) of those tags.
-3. The version's position is that tag's position, so [DS-11](../behavior/site.md#rendering) resolution in a version at tag `v2` finds the target's version at `v2`; its id and short id stay the commit's, so URLs equal those of commits mode.
+3. The version's position is that tag's position, so [DSR-11](../behavior/site.md#rendering) resolution in a version at tag `v2` finds the target's version at `v2`; its id and short id stay the commit's, so URLs equal those of commits mode.
 4. Whether commits after the newest tag are versions stays open ([behavior](../behavior/versioning-backends.md#not-decided-yet)).
 
 **Default revision:** without `--ref` the git backend builds `HEAD`, the checked-out commit, whether or not the working tree is read (`--include-worktree`) ([commands.md](../behavior/commands.md#build)).

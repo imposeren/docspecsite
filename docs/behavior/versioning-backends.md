@@ -45,40 +45,40 @@ Each backend has its own section of settings, `[versioning.<backend>]`, such as 
 
 ## Requirements
 
-These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
+These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering listed in [requirements.md](requirements.md):
 
-- **DS-40** Versions come from a backend for the project's version control, chosen with the `backend` setting.
+- **DSR-40** Versions come from a backend for the project's version control, chosen with the `backend` setting.
   docspecsite comes with `git` and `none`; a backend from another package is chosen by the name that package gives it, or by its import path.
   With `auto`, the default, docspecsite uses the one backend that recognizes the [checked repo](glossary.md) (the project folder docspecsite works on), builds without versions when none does, and stops every command when more than one does.
   A backend chosen by name never falls back to another: when it cannot read the checked repo (such as `git` in a folder that is not a git repository), every command stops with an error.
-- **DS-41** With `none`, each doc has one version: the file as it is on disk.
+- **DSR-41** With `none`, each doc has one version: the file as it is on disk.
   The site then has no pages for older versions, no version picker, no diffs and no old-version warnings, and the [code reference](glossary.md) and the other files under `docs/` are read from disk.
-  Asking `build` for an older state of the project (`--ref`) is an error, and the rule that docs are never deleted or renamed ([DS-6](#versions-of-a-doc)) is not checked.
-- **DS-42** Links from the site to files on the project's web host (such as GitHub or GitLab) follow **link patterns**: the code reference's links to the source code, links in docs to repo files outside the site, and, in a site built with only the code reference (`build --parts code`), links to a doc's Markdown file.
+  Asking `build` for an older state of the project (`--ref`) is an error, and the rule that docs are never deleted or renamed ([DSR-6](#versions-of-a-doc)) is not checked.
+- **DSR-42** Links from the site to files on the project's web host (such as GitHub or GitLab) follow **link patterns**: the code reference's links to the source code, links in docs to repo files outside the site, and, in a site built with only the code reference (`build --parts code`), links to a doc's Markdown file.
   A link pattern is the address of a file or folder on the host, with placeholders that docspecsite fills in, such as the file's path.
   Each backend has default patterns, and a project changes them in the backend's settings, for example for a host whose addresses differ from GitHub's.
-- **DS-43** A backend can offer optional checks of its own, which `check --optional-checks <backend>:<check>` runs ([commands.md](commands.md#check)).
-  The git backend offers `git:staged`, which reports a problem for each doc that is marked in git as deleted or renamed in the next commit ("staged") ([DS-6](#versions-of-a-doc)); the `docs-check` hook that runs before each commit runs it.
+- **DSR-43** A backend can offer optional checks of its own, which `check --optional-checks <backend>:<check>` runs ([commands.md](commands.md#check)).
+  The git backend offers `git:staged`, which reports a problem for each doc that is marked in git as deleted or renamed in the next commit ("staged") ([DSR-6](#versions-of-a-doc)); the `docs-check` hook that runs before each commit runs it.
 
 ### Versions of a doc
 
 > **Changed, not built yet.** Git is the only version control, and deletes and renames are rejected by `check --staged`.
 
-- **DS-4** Versions come from the project's [version control](glossary.md), git by default: every [revision](glossary.md) on the [main line of history](glossary.md) that touches a doc is a version of it ([meta/versioning.md](../meta/versioning.md)).
-  Where versions come from, and the choice of building without version control, is in this doc ([DS-40](#requirements), [DS-41](#requirements)).
-- **DS-5** History is **per doc**: each doc has its own list of versions.
-- **DS-6** Files under `docs/` cannot be deleted or renamed; where the version control can tell, an optional check of its [versioning backend](glossary.md) rejects such commits (with git: `git:staged`, [DS-43](#requirements)).
+- **DSR-4** Versions come from the project's [version control](glossary.md), git by default: every [revision](glossary.md) on the [main line of history](glossary.md) that touches a doc is a version of it ([meta/versioning.md](../meta/versioning.md)).
+  Where versions come from, and the choice of building without version control, is in this doc ([DSR-40](#requirements), [DSR-41](#requirements)).
+- **DSR-5** History is **per doc**: each doc has its own list of versions.
+- **DSR-6** Files under `docs/` cannot be deleted or renamed; where the version control can tell, an optional check of its [versioning backend](glossary.md) rejects such commits (with git: `git:staged`, [DSR-43](#requirements)).
   Redirect docs replace them.
-  A [symlink](glossary.md) under `docs/` is no such file: whatever it leads to, it never was a doc, so it may be removed or renamed, and the check passes over a path that was a symlink in the last commit ([DS-39](doc-symlinks.md#requirements)).
+  A [symlink](glossary.md) under `docs/` is no such file: whatever it leads to, it never was a doc, so it may be removed or renamed, and the check passes over a path that was a symlink in the last commit ([DSR-39](doc-symlinks.md#requirements)).
 
 ## Versions from tags only
 
 By default every commit that touches a doc is a version of it, so a doc with a long history has many versions, pages and diffs.
 A project that releases with git tags can set `versions = "tags"` in `[versioning.git]` to keep only the versions that were current at a tag; `tag-pattern`, which it then requires, names the tags that count, such as `v*` for tags like `v1.2.0`.
 
-- **DS-38** With `versions = "tags"`, a doc's versions are, for each tag matching `tag-pattern` on the [main line of history](glossary.md) of the built ref, the newest commit at or before the tag that touches the doc. A matching tag on a commit off the main line, such as one inside a merged branch, does not count.
+- **DSR-38** With `versions = "tags"`, a doc's versions are, for each tag matching `tag-pattern` on the [main line of history](glossary.md) of the built ref, the newest commit at or before the tag that touches the doc. A matching tag on a commit off the main line, such as one inside a merged branch, does not count.
   A tag whose commit does not touch the doc keeps the version the doc had then, and tags that keep the same version give it once, under the first of those tags.
-  A link in such a version leads to the linked doc as it was at that tag ([DS-11](site.md#rendering)), so a reader of a release sees every doc as it was in that release.
+  A link in such a version leads to the linked doc as it was at that tag ([DSR-11](site.md#rendering)), so a reader of a release sees every doc as it was in that release.
   The version picker shows each version's date, short id and tag name with its commit message, and the version's page address keeps its commit's short id, so addresses stay the same when a project switches between all commits and tags.
 
 ## Rules and limits

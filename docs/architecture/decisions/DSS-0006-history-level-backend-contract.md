@@ -19,7 +19,7 @@ related:
 ## Context
 
 docspecsite reads per-doc history from git through one class, `docspecsite.git.Git`, and builds `History` from its primitives ([docs-tooling.md](../docs-tooling.md#history-model)).
-Versions must also come from no version control at all (`none`, [DS-41](../../behavior/versioning-backends.md#requirements)) and from other systems in separate packages ([DS-40](../../behavior/versioning-backends.md#requirements)), and git gains a choice of versions from commits or from tags ([DS-38](../../behavior/versioning-backends.md#versions-from-tags-only)).
+Versions must also come from no version control at all (`none`, [DSR-41](../../behavior/versioning-backends.md#requirements)) and from other systems in separate packages ([DSR-40](../../behavior/versioning-backends.md#requirements)), and git gains a choice of versions from commits or from tags ([DSR-38](../../behavior/versioning-backends.md#versions-from-tags-only)).
 The contract between core and a backend decides how much of git's model leaks into core and into every other backend.
 
 ## Options considered

@@ -331,7 +331,7 @@ class StatusNoteCheck(DocCheck):
         note, the first by line; each later one is a problem whose status still counts as given. A section status note
         is a problem in a doc with a single status, when its status is not listed, or when it gives the doc's first
         status. Each listed value after the first must be given by a status note. The full rules are the project's
-        requirement DS-46. A doc in a layer without a build status is not checked either: its status notes are
+        requirement DSR-46. A doc in a layer without a build status is not checked either: its status notes are
         ordinary notes.
 
         Docs: behavior/status-notes.md#requirements
@@ -500,7 +500,7 @@ class TitleCheck(DocCheck):
         problem on the line where that text starts; a doc without a title is a problem on that line too, or on the
         doc's first line when the body is blank. Each later level-1 heading is a problem on its line. A doc whose
         front matter is missing or does not load is not checked: it already has a problem. The full rules are the
-        project's requirement DS-52.
+        project's requirement DSR-52.
 
         Docs: behavior/docs-format.md#requirements
 
@@ -827,7 +827,7 @@ class Checker:
 
         The checks cover front matter, links and their heading anchors, status notes, titles, directory indexes, file
         names, symlinks, reserved paths, links from the code, and the settings; the full list is the project's
-        requirement DS-20. A doc whose name is not valid UTF-8 gets only the problem with its name.
+        requirement DSR-20. A doc whose name is not valid UTF-8 gets only the problem with its name.
         The references in the docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when
         ``optional_checks`` has :attr:`OptionalCheck.CODE`, by :meth:`check_code_references`.
 

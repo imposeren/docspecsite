@@ -13,5 +13,5 @@ reason: Versions from tags became an option of the git backend once versions can
 
 # Versions from tags only (merged)
 
-Merged into [Where versions come from](versioning-backends.md#versions-from-tags-only), which keeps requirement DS-38.
+Merged into [Where versions come from](versioning-backends.md#versions-from-tags-only), which keeps requirement DSR-38.
 Taking versions only from tags is now an option of the git versioning backend (`versions = "tags"`), next to the other choices of where versions come from.

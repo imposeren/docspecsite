@@ -18,9 +18,9 @@ related:
 
 ## Context
 
-Versions can come from more than one kind of version control ([DS-40](../../behavior/versioning-backends.md#requirements)).
+Versions can come from more than one kind of version control ([DSR-40](../../behavior/versioning-backends.md#requirements)).
 Backends other than `git` and `none`, such as a Mercurial one, live in their own packages and repos, and a project picks one by a short name in `docspecsite.toml`.
-docspecsite keeps its dependencies minimal ([DS-23](../../behavior/distribution.md#requirements)), and a backend must be found before any history is read, from the settings on disk alone.
+docspecsite keeps its dependencies minimal ([DSR-23](../../behavior/distribution.md#requirements)), and a backend must be found before any history is read, from the settings on disk alone.
 
 ## Options considered
 

@@ -42,7 +42,7 @@ main { flex: 1 1 auto; min-width: 0; max-width: 46rem; }
   .panels { flex-basis: auto; width: 100%; }
 }
 
-/* Old-version banner (DS-9): loud, full width, always visible. */
+/* Old-version banner (DSR-9): loud, full width, always visible. */
 .old-banner {
   position: sticky;
   top: 0;

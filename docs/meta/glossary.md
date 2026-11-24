@@ -40,9 +40,9 @@ Never written by hand.
 A named part of the system (e.g. `orders`, `payments/card`), used in front matter and as path segments.
 The project's list is in `architecture/components.md`; how components work: [vocabulary.md](vocabulary.md).
 
-### DS-n
+### DSR-n
 
-A numbered requirement for the docs tooling (DS = "docs system"), specified in [docspecsite's docs](https://github.com/imposeren/docspecsite/blob/main/docs/behavior/index.md).
+A numbered requirement for the docs tooling (DSR = "docs system requirement"), specified in [docspecsite's docs](https://github.com/imposeren/docspecsite/blob/main/docs/behavior/index.md).
 Architecture docs cite these numbers to say which requirement a design element satisfies.
 
 ### Depth

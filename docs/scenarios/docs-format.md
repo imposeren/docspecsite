@@ -19,7 +19,7 @@ The other rules of the docs format are pinned down by [commands.md](../behavior/
 
 ## A doc's title
 
-These cases pin down the rule on a doc's title, [DS-52](../behavior/docs-format.md#requirements): the title is the doc's first level-1 heading, written as `# Import` or as a line underlined with `===`; it comes right after the front matter, with only blank lines between them; and a doc has exactly one level-1 heading.
+These cases pin down the rule on a doc's title, [DSR-52](../behavior/docs-format.md#requirements): the title is the doc's first level-1 heading, written as `# Import` or as a line underlined with `===`; it comes right after the front matter, with only blank lines between them; and a doc has exactly one level-1 heading.
 
 ```gherkin
 Feature: Checking a doc's title
@@ -128,7 +128,7 @@ Feature: Checking a doc's title
 
 ## Docs without a build status
 
-These cases pin down the first part of [DS-53](../behavior/docs-format.md#layers-without-a-build-status): in a scenario doc, docspecsite ignores a build status (`specified`, `changed`, `implemented`), the `milestone` and `priority` fields and status notes, and warns about `implemented`.
+These cases pin down the first part of [DSR-53](../behavior/docs-format.md#layers-without-a-build-status): in a scenario doc, docspecsite ignores a build status (`specified`, `changed`, `implemented`), the `milestone` and `priority` fields and status notes, and warns about `implemented`.
 How listings and the site show a doc without a status is in [status-notes.md](status-notes.md#listing-partly-built-docs).
 Every scenario doc below names a current behavior doc in its `related` front-matter field unless the case says otherwise.
 
@@ -260,7 +260,7 @@ Feature: Ignored values in listings and on the site
 
 ## The docs a scenario doc gives cases for
 
-These cases pin down the second part of [DS-53](../behavior/docs-format.md#layers-without-a-build-status): a scenario doc without `status` (an agreed one) or with `status: draft` names in its `related` front-matter field at least one behavior or ui doc that is neither `deprecated` nor `redirect`.
+These cases pin down the second part of [DSR-53](../behavior/docs-format.md#layers-without-a-build-status): a scenario doc without `status` (an agreed one) or with `status: draft` names in its `related` front-matter field at least one behavior or ui doc that is neither `deprecated` nor `redirect`.
 
 ```gherkin
 Feature: Checking the docs a scenario doc gives cases for
@@ -336,7 +336,7 @@ Feature: Checking the docs a scenario doc gives cases for
 
 ## See also
 
-- [behavior/docs-format.md](../behavior/docs-format.md#requirements) — DS-52, the rule on a doc's title.
+- [behavior/docs-format.md](../behavior/docs-format.md#requirements) — DSR-52, the rule on a doc's title.
 - [behavior/commands.md](../behavior/commands.md#check) — the problem lines and hints of the check.
-- [behavior/docs-format.md](../behavior/docs-format.md#layers-without-a-build-status) — DS-53, the docs without a build status.
+- [behavior/docs-format.md](../behavior/docs-format.md#layers-without-a-build-status) — DSR-53, the docs without a build status.
 - [scenarios/status-notes.md](status-notes.md) — how the title and the sections below it get their status, and how a doc without a status is listed and shown.

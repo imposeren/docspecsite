@@ -11,7 +11,7 @@ related:
 
 # Symlinked docs — scenarios
 
-These scenarios pin down [Symlinked docs](../behavior/doc-symlinks.md) ([DS-39](../behavior/doc-symlinks.md#requirements)).
+These scenarios pin down [Symlinked docs](../behavior/doc-symlinks.md) ([DSR-39](../behavior/doc-symlinks.md#requirements)).
 A symlink (a file that only points to another file or directory) under `docs/` is judged by what it leads to, never by its own name.
 [The kinds of symlink](#the-kinds-of-symlink) says once, for each kind, what the check, the listings (`list` and `backlinks`) and the site do with it.
 The sections after it hold only what is particular to one command: the check's hints and its other rules, the site's versions and previews, and loops of symlinks.
@@ -309,7 +309,7 @@ Feature: Symlinks in the check
 
 ### Removing and renaming a symlink
 
-A symlink is never a doc, so the `git:staged` check (which reports docs deleted or renamed in the next commit) passes over a path that was a symlink in the last commit ([DS-39](../behavior/doc-symlinks.md#requirements)).
+A symlink is never a doc, so the `git:staged` check (which reports docs deleted or renamed in the next commit) passes over a path that was a symlink in the last commit ([DSR-39](../behavior/doc-symlinks.md#requirements)).
 
 ```gherkin
 Feature: Removing and renaming a symlink
@@ -475,6 +475,6 @@ Feature: Symlink loops
 
 ## See also
 
-- [behavior/doc-symlinks.md](../behavior/doc-symlinks.md) — DS-39, the rule on symlinks to docs, directories and other files.
+- [behavior/doc-symlinks.md](../behavior/doc-symlinks.md) — DSR-39, the rule on symlinks to docs, directories and other files.
 - [behavior/commands.md](../behavior/commands.md#check) — the problem lines and hints of the check.
 - [commands.md](commands.md) — links to a symlinked doc on the site.

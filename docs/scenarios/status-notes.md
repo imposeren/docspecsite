@@ -20,7 +20,7 @@ The last cases of the listing and the site say what they do with a doc without a
 
 ## Checking partly built docs
 
-These cases pin down how the check compares a doc's statuses with its status notes, [DS-44](../behavior/status-notes.md#requirements) to [DS-46](../behavior/status-notes.md#requirements), and the project's own status note texts, [DS-50](../behavior/status-notes.md#requirements).
+These cases pin down how the check compares a doc's statuses with its status notes, [DSR-44](../behavior/status-notes.md#requirements) to [DSR-46](../behavior/status-notes.md#requirements), and the project's own status note texts, [DSR-50](../behavior/status-notes.md#requirements).
 
 ```gherkin
 Feature: Checking partly built docs
@@ -208,7 +208,7 @@ Feature: Checking partly built docs
 
 ## Listing partly built docs
 
-These cases pin down how `list` finds and shows a doc's statuses, [DS-47](../behavior/status-notes.md#requirements), also for a doc without a status.
+These cases pin down how `list` finds and shows a doc's statuses, [DSR-47](../behavior/status-notes.md#requirements), also for a doc without a status.
 
 ```gherkin
 Feature: Listing partly built docs
@@ -271,7 +271,7 @@ Feature: Listing partly built docs
 
 ## Partly built docs on the site
 
-These cases pin down the statuses on the status board, [DS-48](../behavior/status-notes.md#requirements), and on a doc's page, [DS-49](../behavior/status-notes.md#requirements), also for a doc without a status.
+These cases pin down the statuses on the status board, [DSR-48](../behavior/status-notes.md#requirements), and on a doc's page, [DSR-49](../behavior/status-notes.md#requirements), also for a doc without a status.
 
 ```gherkin
 Feature: Partly built docs on the site

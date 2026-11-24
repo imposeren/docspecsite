@@ -52,7 +52,7 @@ The front matter and the title are required, and `docspecsite check` enforces th
 
 The **first use** of an abbreviation or project-specific term in each doc is either spelled out — "ADR (architecture decision record)" — or linked to its glossary entry.
 A doc may be the first one someone (or an agent) reads, so never assume terms were introduced elsewhere.
-IDs defined in another doc (e.g. requirement numbers like DS-3, or ADR IDs like BASE-0004) are always **links** to where they are defined, at every mention, not only the first.
+IDs defined in another doc (e.g. requirement numbers like DSR-3, or ADR IDs like BASE-0004) are always **links** to where they are defined, at every mention, not only the first.
 New terms are added to the right glossary in the same change: [meta/glossary.md](glossary.md) (documentation terms), [behavior/glossary.md](../behavior/glossary.md) (product terms), [architecture/glossary.md](../architecture/glossary.md) (technical terms and tools).
 
 ## Line breaks

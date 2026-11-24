@@ -40,5 +40,5 @@ Another library can still be used by a separate package that replaces the low-le
 ## Consequences
 
 - The `git` program is required wherever the git backend runs: in the Docker image (installed) and on the host for the prek hook (where git already is).
-- No new dependency ([DS-23](../../behavior/distribution.md#requirements)).
+- No new dependency ([DSR-23](../../behavior/distribution.md#requirements)).
 - Process start-up cost per call stays; calls are batched where git allows it.
