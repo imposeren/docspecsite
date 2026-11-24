@@ -35,8 +35,10 @@ Documentation terms (ADR, layer, status…) are in [meta/glossary.md](../meta/gl
 | **MyST-Parser** | Sphinx extension that reads Markdown (CommonMark plus MyST's own syntax, which docspecsite switches off) as Sphinx source. |
 | **napoleon** | Sphinx's reader of Google- and NumPy-style docstring sections; docspecsite calls its public classes from its own listener. |
 | **prek** | Fast drop-in replacement for `pre-commit`: runs checks as git commit hooks, and installs hooks from other repos pinned by tag. |
+| **Pygments** | Python syntax highlighter that Sphinx uses for code blocks; the `sphinx` renderer's diff pages show their diff as a highlighted `diff` block ([site.md](site.md#the-sphinx-renderer)). |
 | **Pyrefly** | Fast Python type checker from Meta; checks type hints without running the code. |
 | **pytest** | Python test runner. |
+| **Python domain** | Sphinx's part for Python objects: it records each documented object with its kind and resolves roles such as `` :class:`.Name` `` to them; its lookup rules are the ones of [DSR-34](../behavior/code-reference.md#requirements) ([docs-tooling.md](docs-tooling.md#code-reference)). |
 | **Python optional dependencies** | A named, optional set of dependencies of a Python package, declared under `[project.optional-dependencies]` in its `pyproject.toml` and installed with `package[name]`, such as `docspecsite[<backend>]`. |
 | **Ruff** | Fast Python linter and formatter (replaces flake8, isort, black). |
 | **SemVer** | Semantic versioning: versions `MAJOR.MINOR.PATCH`, where MAJOR marks incompatible changes, MINOR new features, PATCH fixes. |

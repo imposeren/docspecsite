@@ -1,6 +1,6 @@
 ---
 title: Docs system requirements — scenarios index
-summary: The index of the scenarios of the docs system requirements — each is in the scenarios doc at the same path as its behavior doc — a doc's title and docs without a build status in docs-format.md, file and directory names and links to a directory in commands/check.md.
+summary: The index of the scenarios of the docs system requirements — each is in the scenarios doc at the same path as its behavior doc — a doc's title and docs without a build status in docs-format.md, file and directory names and links to a directory in commands/check.md, roles in docstrings in code-reference.md.
 layer: scenarios
 components: [checks]
 tags: [checks]
@@ -8,6 +8,7 @@ related:
   - behavior/requirements.md
   - scenarios/docs-format.md
   - scenarios/commands/check.md
+  - scenarios/code-reference.md
 ---
 
 # Docs system requirements — scenarios index
@@ -31,3 +32,7 @@ This page lists each feature and the doc that holds it.
 ## Links to a directory
 
 - "Checking links to a directory" ([DSR-20](../behavior/commands/check.md#requirements)): [check.md](commands/check.md#links-to-a-directory).
+
+## Roles in docstrings
+
+- "Finding the target of a role" and "The code check finds targets as the site does" ([DSR-34](../behavior/code-reference.md#requirements)): [code-reference.md](code-reference.md#finding-the-target-of-a-role).

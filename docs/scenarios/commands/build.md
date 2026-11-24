@@ -234,13 +234,11 @@ Feature: Choosing the renderer
     Given a project whose "docspecsite.toml" has no "[site]" section
     When I build the site
     Then the site is drawn by the "sphinx" renderer
-    And the site has a search page
 
   Scenario: The setting chooses the renderer
     Given a project whose "[site]" section sets "renderer" to "internal"
     When I build the site
     Then the site is drawn by the "internal" renderer
-    And the site has no search page
 
   Scenario: The option wins over the setting
     Given a project whose "[site]" section sets "renderer" to "internal"
@@ -261,18 +259,34 @@ Feature: Choosing the renderer
   Scenario: An unknown renderer in the setting stops the build
     Given a project whose "[site]" section sets "renderer" to "mkdocs"
     When I build the site
-    Then the build stops with an error about the "renderer" setting
+    Then the build stops with the error '"renderer" must be "sphinx" or "internal"'
     And the exit code is 1
 
   Scenario: The check reports an unknown renderer in the setting
     Given a project whose "[site]" section sets "renderer" to "mkdocs"
     When I run the check
-    Then it reports a problem on "docspecsite.toml" about the "renderer" setting
+    Then it reports the problem '"renderer" must be "sphinx" or "internal"' on "docspecsite.toml"
+
+  Scenario: An unknown key in the site section
+    Given a project whose "[site]" section has the key "theme"
+    When I run the check
+    Then it reports the problem 'unknown setting "site.theme"' on "docspecsite.toml"
+
+  Scenario: The build warns about an unknown key in the site section and goes on
+    Given a project whose "[site]" section has the key "theme"
+    When I build the site
+    Then the build warns 'unknown setting "site.theme"'
+    And the site is built
+
+  Scenario: A site setting that is not a section
+    Given a project whose "docspecsite.toml" sets "site" to "sphinx"
+    When I run the check
+    Then it reports the problem '"site" must be a table' on "docspecsite.toml"
 ```
 
 ### Rebuilding with the standard renderer
 
-The standard renderer draws the whole site on every build, and the count of pages taken from the cache is 0 ([DSR-24](../../behavior/site.md#building), [build.md](../../behavior/commands/build.md#what-the-build-does)).
+No page is stale after a rebuild ([DSR-24](../../behavior/site.md#building)), and with the standard renderer the count of pages taken from the cache is 0 ([build.md](../../behavior/commands/build.md#what-the-build-does)).
 
 ```gherkin
 Feature: Rebuilding with the standard renderer
@@ -290,12 +304,35 @@ Feature: Rebuilding with the standard renderer
     And the doc "docs/guides/usage.md" links to the heading "Install" of "docs/guides/setup.md"
     When the heading "Install" is removed from "docs/guides/setup.md"
     And I build the site again
-    Then the build warns about the link to the heading in "guides/usage.md"
+    Then the build warns about the link to the heading, naming "docs/guides/usage.md" and the line of the link
+
+```
+
+### Warnings of the standard renderer
+
+With the standard renderer, a warning of the documentation tool names the doc and the line in it, and is given only for the latest version of a doc ([build.md](../../behavior/commands/build.md#what-the-build-does)).
+
+```gherkin
+Feature: Warnings of the standard renderer
+  As a docs author
+  I want each warning of the documentation tool to name the doc and line it is about
+  So that I can find and fix the cause in my Markdown
+
+  Scenario: A warning of the documentation tool names the doc and its line
+    Given the doc "docs/guides/usage.md" links on line 12 to a heading that "docs/guides/setup.md" does not have
+    When I build the site with the "sphinx" renderer
+    Then the build prints a warning that starts with "warning: docs/guides/usage.md:12: "
+
+  Scenario: Older versions give no warning of the documentation tool
+    Given an older version of "docs/guides/usage.md" links to a heading that "docs/guides/setup.md" no longer has
+    And the latest version of "docs/guides/usage.md" has no such link
+    When I build the site with the "sphinx" renderer
+    Then the build gives no warning about "docs/guides/usage.md"
 ```
 
 ### A failure inside the standard renderer
 
-A failure of the documentation tool itself, rather than a problem in one page, stops the whole build, and the output directory is left as it was ([build.md](../../behavior/commands/build.md#what-the-build-does)).
+A failure of the documentation tool itself, even while it draws one page, stops the whole build, and the output directory is left as it was ([build.md](../../behavior/commands/build.md#what-the-build-does)).
 
 ```gherkin
 Feature: A failure inside the standard renderer

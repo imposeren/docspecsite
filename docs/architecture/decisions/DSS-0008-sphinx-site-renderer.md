@@ -70,11 +70,11 @@ The design: [site.md](../site.md).
 ## Consequences
 
 - **Full builds.** Every `sphinx` build renders the whole site in an emptied Sphinx build directory: Sphinx's incremental build misses changes to docspecsite's extension and to the headings of linked docs.
-  [DSR-24](../../behavior/site.md#building) is reworded from incremental builds to full builds; the `internal` renderer keeps its build cache while it exists.
+  [DSR-24](../../behavior/site.md#building) is reworded from incremental builds to pages that are never stale; the `internal` renderer keeps its build cache while it exists.
 - **Dependencies.** About 25 packages more in the image and in the prek hook's environment (Sphinx and its own dependencies, docutils, MyST-Parser, sphinx-autoapi, astroid, furo and its dependencies), each listed with its reason in [docs-tooling.md](../docs-tooling.md#dependencies).
   [DSR-23](../../behavior/distribution.md#requirements) and the guiding principle on dependencies ([architecture/index.md](../index.md#guiding-principles)) are reworded to the need: an established library before docspecsite's own code, each dependency with its reason, a new one by decision.
 - **Two code readers** (known risk). `check --optional-checks code` keeps its own lookup over griffe, while the site's code reference is read by sphinx-autoapi through astroid and its roles are resolved by Sphinx's Python domain.
-  The two can disagree on a target (such as Sphinx's fallback that finds `.name` as any object whose path ends in `.name`); a test compares them on docspecsite's own code and fails on a role that resolves in one but not the other.
+  [DSR-34](../../behavior/code-reference.md#requirements) is reworded to Sphinx's rules (including the fallback that finds `.name` as any object whose path ends in `.name`), and the griffe lookup follows them; a test compares the two on docspecsite's own code and fails on a role that resolves in one but not the other, or to different objects.
 - **Public extension points instead of patches**, each with a test that fails when the upstream code it relies on changes; each has a fallback, used only where the extension point turns out not to work:
   - a `MystParser` subclass whose `parse` names docspecsite's renderer subclass, so a fence such as ```` ```{x} ```` stays a code block; fallback: the spike's patch of MyST's `render_fence`, pinned and tested;
   - an own docstring listener that calls napoleon's public `GoogleDocstring` and `Config`, without loading `sphinx.ext.napoleon` as an extension; fallback: napoleon loaded with its listener replaced, pinned and tested;
@@ -83,4 +83,6 @@ The design: [site.md](../site.md).
   - furo's template blocks for the page chrome; fallback: Sphinx's built-in alabaster theme.
 - **Drift from the custom renderer's site**, accepted where the site stays good for people: code pages at nested URLs (`reference/code/<pkg>/<module>/index.html` instead of `reference/code/<pkg>.<module>.html`), so outside bookmarks to code pages break; heading links in the body in docutils' section id form (`#don-t`) where it differs from the slug (`#dont`), with both ids on the page; furo's layout with a sidebar Contents instead of the generated in-body Contents list; autoapi's default code page without collapsible member sections or a per-page member index; added search, a general index and `_static/`, so more doc paths are reserved; an exception inside Sphinx fails the whole build.
 - **Build time** grows; it was not a criterion.
+- **Mermaid stays docspecsite's own**: the extension turns a `mermaid` fence into a diagram and loads the bundle that the image vendors, so the site works offline; sphinxcontrib-mermaid would be a new dependency that loads Mermaid its own way.
+- **Diff pages use Sphinx's highlighter**: a diff page shows the unified diff as a `diff` code block highlighted by Pygments, instead of the `internal` renderer's own diff markup; the diff text itself is shared.
 - **Maintenance moves**: the page model, history, links, markers and checks stay docspecsite's; Markdown parsing, the theme, search and role resolution become upstream's, pinned and updated like any dependency.

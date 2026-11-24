@@ -9,6 +9,7 @@ code: [docspecsite.cli]
 components: [checks, cli, code-reference, versioning]
 tags: [cli, checks]
 related:
+  - scenarios/code-reference.md
   - scenarios/commands/check.md
   - behavior/commands/index.md
   - behavior/commands/build.md
@@ -50,7 +51,7 @@ How projects run the check before each commit and in CI is in [distribution.md](
 
 ## What the check reports
 
-> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`. A doc whose page would take the address of a page that only the `sphinx` renderer generates, such as `search.md`, is not reported yet.
+> **Changed, not built yet.** The `git:staged` check is still the `--staged` option, which the `docs-check` hook runs, and `--optional-checks` knows only `code`. A doc whose page would take the address of a page that only the `sphinx` renderer generates, such as `search.md`, is not reported yet. The code check finds the target of a role by docspecsite's older rules, not by those of [DSR-34](../code-reference.md#requirements), and never warns about a role that matches several elements.
 
 Each problem is printed on its own line as `docs/<path>:<line>: <message>`, or as `<file>:<line>: <message>` for a problem outside `docs/` (such as a `Docs:` line in code found by the `code` check); the line number, with its colon, is left out only when the problem concerns the whole file, such as an invalid `docspecsite.toml` (`docspecsite.toml: <message>`).
 A problem may carry a hint, which says how to fix this particular problem: it is printed on its own line right under the problem, indented by two spaces and starting with `hint: `.
@@ -156,6 +157,7 @@ Only docspecsite's own checks and those of the backend in use are available: any
 The `git:staged` check (`--optional-checks git:staged`) is a problem for each doc that git has staged as deleted or renamed ([DSR-6](../versioning-backends.md#versions-of-a-doc)); the `docs-check` commit hook runs it.
 It passes over a path that was a symlink in the last commit: a symlink never was a doc, so it may be removed or renamed ([DSR-39](../doc-symlinks.md#requirements)).
 The `code` check (`--optional-checks code`) checks the code in the settings' `code-dirs`, from the working tree: each `Docs:` line, Sphinx role and `code:` link in a docstring is a problem on its code file when its target is not found.
+It finds the target of a role by the rules of [DSR-34](../code-reference.md#requirements), as the site does; a role whose target matches several elements by the end of their dotted paths is a warning on its code file, such as `warning: src/example/ui.py:12: more than one code element for .SiteBuilder: example.build.SiteBuilder, example.ui.SiteBuilder`.
 A package name found in more than one code directory is a problem naming the package and its directories, and the code is then not checked.
 Without `code-dirs` the code check adds nothing.
 

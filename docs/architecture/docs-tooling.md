@@ -9,6 +9,7 @@ priority: must
 components: [docs-system, cli, checks, queries, site, code-reference, distribution]
 tags: [docs, tooling, rendering, versioning, git, docker]
 related:
+  - scenarios/code-reference.md
   - behavior/requirements.md
   - behavior/docs-format.md
   - behavior/site.md
@@ -62,7 +63,7 @@ Where this page describes rendering (output layout, page anatomy, the code refer
 - `markdown-it-py` + `mdit-py-plugins` (front matter, heading anchors, tables) — the Markdown parser behind `check`'s links, headings and status notes, and the `internal` renderer's Markdown → HTML ([DSR-3](../behavior/docs-format.md#requirements)); MyST-Parser builds on the same two, and its heading anchors use mdit-py-plugins' `slugify`, so `check` and the site agree on anchors.
 - `pyyaml` — front matter.
 - `jinja2` — the `internal` renderer's page templates (auto-escaping, loops and template inheritance without hand-written templating); Sphinx and furo use it too.
-- `sphinx` — the `sphinx` renderer's engine: pages, cross-references, Sphinx's Python roles in docstrings resolved by its Python domain ([DSR-34](../behavior/code-reference.md#requirements)), full-text search ([DSR-54](../behavior/site.md#search-and-page-layout)) ([DSS-0008](decisions/DSS-0008-sphinx-site-renderer.md)); it brings docutils and its own small dependencies.
+- `sphinx` — the `sphinx` renderer's engine: pages, cross-references, Sphinx's Python roles in docstrings resolved by its Python domain ([DSR-34](../behavior/code-reference.md#requirements)), full-text search ([site.md](site.md#the-sphinx-renderer)) ([DSS-0008](decisions/DSS-0008-sphinx-site-renderer.md)); it brings docutils and its own small dependencies.
 - `myst-parser` — Markdown docs as Sphinx sources, with MyST's extra syntax switched off so docs stay plain CommonMark ([DSR-3](../behavior/docs-format.md#requirements)).
 - `sphinx-autoapi`, with `astroid` pinned — the code reference's pages from the code without importing it ([DSR-18](../behavior/code-reference.md#requirements)).
 - `furo` — the `sphinx` renderer's theme: a sidebar with the doc tree and the page's Contents, a search box, light and dark modes; the page chrome is built on its template blocks.
@@ -86,8 +87,11 @@ The generated [code reference](../reference/code/index.md) lists every module an
 
 > **Not built yet.**
 
-The build is split at a renderer seam ([site.md](site.md#the-renderer-seam)): the build front in `docspecsite.build` prepares the input and writes the output; `docspecsite.renderers` holds the `SiteRenderer` interface and the `RendererName` choice; the `internal` renderer is `SiteBuilder` with the modules only it uses (`pages`, `indexes`, `cache`, its templates and static files), and the `sphinx` renderer with its Sphinx extension is the `docspecsite.sphinx` package.
-What both renderers need (diff markup, versionless pages, link targets and markers in `docspecsite.urls`, reserved paths, copied files, parts, the build result) lives in modules of the front or the doc model, and the renderers never import each other.
+The build is split at a renderer seam ([site.md](site.md#the-renderer-seam)).
+The build front is `SiteBuilder` in `docspecsite.build`: it loads the settings and the history, follows the symlinks, gathers and copies the docs files, loads the code at the ref, keeps errors local to their page, and writes the output through `SiteWriter`.
+`docspecsite.renderers` holds the `SiteRenderer` interface and the `RendererName` choice.
+The `internal` renderer is `InternalRenderer` in `docspecsite.internal`, which makes the doc, code and index pages and keeps the body cache, with the modules only it uses (`pages`, `cache`, the HTML part of `indexes`, its templates and static files); the `sphinx` renderer with its Sphinx extension is the `docspecsite.sphinx` package.
+What both renderers need lives in modules of the front or of the doc model, listed in [site.md](site.md#the-renderer-seam), and the renderers never import each other.
 
 ## Configuration
 
@@ -225,7 +229,7 @@ site/
 ```
 
 Some doc paths are **reserved**, because their page would take the URL of a generated page of either renderer: `status.md`, every doc under `tags/` and `components/`, every doc under `reference/code/` other than `index.md`, and every doc under `<path>/v/` when `<path>.md` is a doc (where that doc's version and diff pages go); for the `sphinx` renderer also `search.md`, `genindex.md` and every doc under `_static/`.
-One list in the build front holds them, and `check` takes the paths of both renderers, whatever the `renderer` setting.
+One list in `docspecsite.urls` holds them (`find_reserved_owner`), used by `check` and the build front, and `check` takes the paths of both renderers, whatever the `renderer` setting.
 `check` reports a doc at a reserved path ([DSR-20](../behavior/commands/check.md#requirements)); the build keeps the generated page and reports the doc's page as an error.
 
 `SiteBuilder` copies the non-Markdown files under `docs/` (images and the like; doc templates are left out) into the site at their own path: from the tree of the built revision, or with `--include-worktree` from the working tree, where only the files git sees count.
@@ -252,6 +256,7 @@ Every page: breadcrumb, title, status badges (one per status, [statuses](#status
 
 With the `sphinx` renderer, the same elements sit on furo's layout: a sidebar with the doc tree, the search box and the page's Contents, ¶ links on the headings, and the version picker as a collapsible list ([site.md](site.md#the-sphinx-renderer)).
 A body link to a heading uses docutils' section id (`#don-t`) where it differs from the slug that `check` validates (`#dont`); the heading carries both ids, so both forms lead to it.
+A heading made only of punctuation gets no section id of its own.
 
 **Contents** (the `internal` renderer only; the `sphinx` renderer's sidebar shows the page's Contents instead): a doc with at least `toc-min-headings` `##` sections gets a generated "Contents" list of its `##` headings, each with its `###` headings nested, inserted in the body right before the first `##` section, so after the summary paragraph when there is one ([meta/authoring.md](../meta/authoring.md#page-shape)).
 It links to the same heading anchors that `docspecsite check` validates, and every version of the doc gets it.
@@ -283,7 +288,14 @@ Each page gets synthesized front matter (`layer: reference`, `components` from `
 Inside **old versions** of hand-written docs, `code:` links also lead to the latest code reference, marked "current code — may differ from this version"; a code element that no longer exists is shown as plain text with a "no longer exists" marker.
 Sphinx-style roles in docstrings (`` :meth:`.attempt` ``) become links too ([DSR-34](../behavior/code-reference.md#requirements)).
 As in Sphinx, where docutils recognizes a role while parsing and the reference is resolved later, a role is recognized by the Markdown parser, not found afterwards in its output: an inline rule of markdown-it, in the code reference's renderer only, placed before the code-span rule (as `mdit_py_plugins.myst_role` does for MyST's `` {role}`…` ``), turns `` :role:`content` `` and `` :py:role:`content` `` into a link around a code span.
-The link's target keeps the role's target with its `~` and `Text <target>` form, and the code page resolves it with the docstring's object as context, passed with each render: a full dotted path is looked up in the codebase's index as is, a leading `.` first under the docstring's class and then among the definitions of its module, not its imports, and a target without a leading `.` that is not found as is is looked up the leading-`.` way too.
+The link's target keeps the role's target with its `~` and `Text <target>` form, and the code page resolves it with the docstring's object as context, passed with each render, by the rules of Sphinx 9.2's Python domain (`PythonDomain.find_obj` and `resolve_xref`, [source at v9.2.0](https://github.com/sphinx-doc/sphinx/blob/v9.2.0/sphinx/domains/python/__init__.py), checked 2026-11-24), which [DSR-34](../behavior/code-reference.md#requirements) states for readers:
+
+- without a leading `.`: the target as is, then `<module>.<target>`, then `<module>.<class>.<target>`, whatever the element's kind; a `:mod:` target only as is;
+- with a leading `.`: `<module>.<class>.<target>`, then `<module>.<target>`, then the target as is, then every element whose path ends in `.<target>`, each only when the element's kind is one the role allows (Sphinx's `object_types` table), with Sphinx's fallbacks from `:class:` to data and attributes, from `:attr:` to methods and from `:meth:` to properties;
+- several matches from the last step: the first in the index, and a warning that lists them all.
+
+The codebase's index keeps each element's kind for this, and the one lookup, `Codebase.find_role_target` in `docspecsite.coderef`, serves the `internal` renderer's code pages and the code check alike.
+The `sphinx` renderer leaves the lookup to Sphinx's Python domain itself, and a test builds docspecsite's own code reference with it and fails on a role the two resolve differently ([site.md](site.md#operational-notes)).
 `<class>.__init__` falls back to the class when the class's `__init__` is not on the page.
 The link text is set once the target is resolved: the found element's full dotted path, its last part with `~`, or the given text.
 From there a role goes through the same link rewriting and markers as a `code:` link; code blocks are never touched, and a role name outside the Python ones is left as text.

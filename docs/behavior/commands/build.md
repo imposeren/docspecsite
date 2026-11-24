@@ -32,8 +32,8 @@ Without `--strict`, an error that concerns one page leaves that page out and the
 
 The site is written to `--out` (default `site/`, relative to the current directory).
 Files of the previous build that are no longer produced are removed; nothing else in the directory is touched.
-Every build draws the whole site afresh ([DSR-24](../site.md#building)); the files it needs while drawing are kept in `.docspecsite-cache/` in the checked repo, and emptied at the start of the next build.
-With the `internal` renderer, the drawn pages are kept there too, so a rebuild draws only what changed.
+No page of the site is stale ([DSR-24](../site.md#building)).
+The files the build needs while drawing are kept in `.docspecsite-cache/` in the checked repo; those of the `sphinx` renderer, in `.docspecsite-cache/sphinx/`, are emptied at the start of the next build.
 Two builds of the same repo must not run at the same time.
 
 The first line on stderr names the backend in use, and `(auto)` when `auto` picked it: `versioning: git (auto)`, `versioning: none (auto)`, `versioning: git`.
@@ -72,9 +72,17 @@ When `code-dirs` is not set, it warns at the first repo link it turns into plain
 
 Without `--strict`, an error stays local to its page: a doc version, diff, code page or index page that cannot be built is left out, and the rest of the site is still built.
 Each such error is printed on stderr as `error: <page>: <message>`; warnings (such as an unresolvable link) are printed as `warning: <message>`.
-With the `sphinx` renderer, the warnings of the documentation tool it is built on, such as a link to a heading that does not exist, are build warnings in the same form, so `--strict` turns them into errors too.
-A failure of that tool itself, rather than a problem in one page, stops the whole build: one error line, exit code 1, and the output directory is left as it was.
 A doc whose page would take the URL of a generated page (which `check` reports) is such an error for the doc's page; the generated page is kept.
+With the `sphinx` renderer, the warnings of the documentation tool it is built on, such as a link to a heading that does not exist, are build warnings too, so `--strict` turns them into errors.
+Such a warning names the doc and the line in it, followed by the tool's own message:
+
+```
+warning: docs/guides/usage.md:12: <message>
+```
+
+As for an unresolvable link, it is given only for the latest version of a doc: older versions and diffs give no such warning.
+A warning of the tool that concerns no doc is printed as `warning: <message>`.
+A failure of that tool itself, even while it draws one page (rather than a problem it reports as a warning), stops the whole build: one error line, exit code 1, and the output directory is left as it was.
 A symlink that leads to a doc gets no pages, and the build says nothing about it: it is neither an error nor a warning and is not counted, since `check` reports it ([DSR-39](../doc-symlinks.md#on-the-site)).
 A path can be a symlink in some revisions and a doc, a file with its own text, in others:
 
@@ -125,7 +133,8 @@ warning: docspecsite.toml: "code-components" of "example.api" has an unknown com
 A symlink in a code directory that points to an absolute path or out of the code directories is left out of the code read from the ref, with a warning naming it.
 A path in `code-dirs` that is a symlink is followed within the built revision: the files of the directory it leads to are read as that code directory; one that leads to an absolute path, out of the repo or to nothing is left out with a warning naming it, as a symlinked image under `docs/` is, and one that leads to a file is left out with a warning too ([Input that cannot be used](index.md#input-that-cannot-be-used)).
 
-The last line counts the pages built, rendered afresh, taken from the cache and failed; with the `sphinx` renderer every page is rendered afresh, and the count taken from the cache is always 0.
+The last line counts the pages built, rendered afresh, taken from the cache and failed.
+With the `sphinx` renderer, the pages counted are the doc, version, diff, index and code pages, not the search page or the other pages and files the documentation tool adds on its own; every page is rendered afresh, so the count taken from the cache is 0, and the failed pages are those left out by an error that concerns one page.
 
 The exit code is 0 when every page was built, 1 when a page failed or the build could not start (for example a `docspecsite.toml` that is not valid TOML or has an invalid value), and 2 for an unknown ref and the other command-line errors.
 
