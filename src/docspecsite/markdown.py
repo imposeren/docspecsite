@@ -432,7 +432,7 @@ class MarkdownText:
         Both styles count, ``# Import`` and ``Import`` underlined with ``===``; headings inside a block quote or a list
         do not. The first is the doc's title (:meth:`get_title`).
 
-        Docs: behavior/requirements.md#checks
+        Docs: behavior/docs-format.md#requirements
         """
         return [
             self.make_heading(token_index)
@@ -446,7 +446,7 @@ class MarkdownText:
         The title is this heading wherever it is in the text; whether only blank lines come before it is for the
         title check to say.
 
-        Docs: behavior/requirements.md#checks
+        Docs: behavior/docs-format.md#requirements
         """
         headings = self.get_level_one_headings()
         return headings[0] if headings else None

@@ -2,7 +2,7 @@
 
 They cover front matter, links, code links, status notes, titles, indexes, names, reserved paths and staged deletes.
 
-Docs: behavior/requirements.md#checks
+Docs: behavior/commands.md#checks
 Docs: architecture/docs-tooling.md
 """
 
@@ -478,7 +478,7 @@ class DocStatusNotes:
 class TitleCheck(DocCheck):
     """The check that a doc starts with its title and has no other level-1 heading.
 
-    Docs: behavior/requirements.md#checks
+    Docs: behavior/docs-format.md#requirements
     Docs: architecture/docs-tooling.md#statuses-and-status-notes
     """
 
@@ -495,7 +495,7 @@ class TitleCheck(DocCheck):
         front matter is missing or does not load is not checked: it already has a problem. The full rules are the
         project's requirement DS-52.
 
-        Docs: behavior/requirements.md#checks
+        Docs: behavior/docs-format.md#requirements
 
         Args:
             doc: Parsed doc whose body is checked; problems are located in its file, and its front matter's
@@ -744,7 +744,7 @@ class Checker:
         The references in the docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when
         ``optional_checks`` has :attr:`OptionalCheck.CODE`, by :meth:`check_code_references`.
 
-        Docs: behavior/requirements.md#checks
+        Docs: behavior/commands.md#checks
 
         Args:
             include_staged: Also report docs staged as deleted or renamed; needs git.
