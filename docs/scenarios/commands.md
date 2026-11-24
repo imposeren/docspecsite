@@ -1,24 +1,26 @@
 ---
 title: Commands — scenarios
-summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview of the working tree, for body links whose target is found or not found, and for the backlinks of a doc template.
+summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for input that docspecsite cannot use, for unknown components in `code-components`, for the backlinks of a doc template, and for output into a pipe that closes early.
 layer: scenarios
 status: [specified, implemented, changed]
-components: [site, code-reference]
+components: [site, code-reference, checks, queries]
 tags: [cli, rendering]
 milestone: hardening
 priority: must
 related:
   - behavior/commands.md
+  - behavior/configuration.md
   - architecture/docs-tooling.md
 ---
 
 # Commands — scenarios
 
-These scenarios pin down three parts of `docspecsite build` in [Commands](../behavior/commands.md#build), and one case of `backlinks`.
+These scenarios pin down parts of `docspecsite build` in [Commands](../behavior/commands.md#build), cases of `backlinks` and `list`, and how the check and the build treat input they cannot use.
 The first is which [revision](../behavior/glossary.md) a build shows when no `--ref` is given, with or without a preview of the working tree (the files as they are now on disk), built with `--include-worktree`.
 The second is which code pages of such a preview link to their source.
 The third is which link targets count as found, and how a body link (a link in a doc's text) whose target is not found is shown.
-The case of `backlinks` is a path that names a doc template.
+Further cases cover the source links of a code directory that is a symlink, unknown components in the `[code-components]` setting ([configuration.md](../behavior/configuration.md#settings)), and input that docspecsite cannot use, such as a file name that is not UTF-8.
+The cases of `backlinks` are a path that names a doc template and, with `list`, output into a pipe that closes early.
 The rest of the commands is pinned down by [commands.md](../behavior/commands.md) and the tests; the check's rules have scenarios of their own ([requirements.md](requirements.md), [doc-symlinks.md](doc-symlinks.md)).
 
 ## Building what is checked out
@@ -172,6 +174,91 @@ Feature: Warnings about links for the latest version only
     Then the build gives no warning for that link
 ```
 
+## Source links of a symlinked code directory
+
+When a code directory is a symlink to a directory inside the repo, the code's files are in the repo at the path of that directory, so the source links use that path ([commands.md](../behavior/commands.md#build)).
+
+```gherkin
+Feature: Source links of a symlinked code directory
+  As a reader
+  I want each source link of the code reference to open the file that holds the code
+  So that a symlinked code directory does not lead me to a path the repo host does not show
+
+  Scenario: Source links use the path the symlink leads to
+    Given a project with "source-url" set and "code-dirs" set to "src"
+    And "src" is a symlink to the directory "lib/python" in the repo
+    And "lib/python/pkg/__init__.py" holds the package "pkg"
+    And the site is built
+    When I open the code page of "pkg"
+    Then it links each element to its source in "lib/python/pkg/__init__.py" at the built revision
+```
+
+## Unknown components in code-components
+
+Every component that the `[code-components]` setting gives must be in the repo's component list: `check` reports an unknown one ([configuration.md](../behavior/configuration.md#settings)), and `build` warns and leaves it out ([commands.md](../behavior/commands.md#build)).
+
+```gherkin
+Feature: Unknown components in code-components
+  As a docs author
+  I want a mistyped component in docspecsite.toml reported
+  So that code pages never carry a component that has no page
+
+  Background:
+    Given a project whose "[code-components]" gives "example.api" the components "backend" and "backned"
+    And "backend" is in the component list and "backned" is not
+
+  Scenario: The check reports the unknown component
+    When I run the check
+    Then the output includes:
+      """
+      docspecsite.toml: "code-components" of "example.api" has an unknown component: "backned" (add it to architecture/components.md)
+      """
+
+  Scenario: The build warns and leaves the unknown component out
+    When I build the site
+    Then the build warns:
+      """
+      warning: docspecsite.toml: "code-components" of "example.api" has an unknown component: "backned"; ignored
+      """
+    And the code pages of "example.api" show the component "backend" only
+
+  Scenario: A docs-only build says nothing about it
+    When I build only the docs part of the site
+    Then the build gives no warning about "backned"
+```
+
+## Input that cannot be used
+
+Input that docspecsite cannot use gives one problem or warning naming the file and the reason, is left out, and the rest goes on ([commands.md](../behavior/commands.md#input-that-cannot-be-used)).
+
+```gherkin
+Feature: Input that cannot be used
+  As a docs author
+  I want input that docspecsite cannot use reported and left out
+  So that one odd file never ends a command with an error trace or keeps the rest from being checked or built
+
+  Background:
+    Given a project with "code-dirs" set to "src" and the package "src/pkg"
+
+  Scenario Outline: <case>
+    Given <input>
+    When I <action>
+    Then <result>
+    And no error trace is shown
+
+    Examples:
+      | case                                | input                                                                                          | action                            | result                                                                                                                                                                      |
+      | A package name, in the check        | the package directory "src/a.b"                                                                | run the check with the code check | the output includes `src/a.b: directory name "a.b" is not a valid Python package name`, and the docstrings of "pkg" are still checked                                        |
+      | A package name, in the build        | the package directory "src/a.b"                                                                | build the site                    | the build warns `warning: src/a.b: directory name "a.b" is not a valid Python package name; left out`, and "pkg" still gets its pages                                       |
+      | An empty code: target, in the check | the link "[see](code:)" on line 3 of a docstring in "src/pkg/api.py"                           | run the check with the code check | the output includes `src/pkg/api.py:3: empty code: target`                                                                                                                  |
+      | An empty code: target, in the build | the link "[see](code:)" on line 3 of a docstring in "src/pkg/api.py"                           | build the site                    | the build warns `warning: src/pkg/api.py:3: empty code: target; left out`, and the code page of "pkg.api" shows "see" as text, with no link and no marker                    |
+      | A file name, in the check           | a file "docs/guides/caf\xe9.png", whose name has the byte "e9" in place of "é"                 | run the check                     | the output includes `docs/guides/caf\xe9.png: name is not valid UTF-8, which breaks links to the rendered page`                                                             |
+      | A file name, in the build           | a committed file "docs/guides/caf\xe9.png", whose name has the byte "e9" in place of "é"       | build the site                    | the build warns `warning: docs/guides/caf\xe9.png: name is not valid UTF-8, which breaks links to the rendered page; left out`, and the site has no copy of the file        |
+      | A doc name, in the build            | a committed doc "docs/guides/caf\xe9.md", whose name has the byte "e9" in place of "é"         | build the site                    | the build warns `warning: docs/guides/caf\xe9.md: name is not valid UTF-8, which breaks links to the rendered page; left out`, and the doc has no pages                     |
+      | A doc name, in the listing          | a doc "docs/guides/caf\xe9.md", whose name has the byte "e9" in place of "é"                   | list the docs                     | the listing has a line for `guides/caf\xe9.md`                                                                                                                              |
+      | A commit subject                    | a commit to "docs/guides/setup.md" whose subject is "caf" followed by the byte "e9"            | build the site                    | the version picker of "guides/setup.md" shows that commit's subject as "caf�", with no warning                                                                              |
+```
+
 ## Backlinks of a doc template
 
 A doc template is not a doc, so `backlinks` does not look it up ([commands.md](../behavior/commands.md#backlinks)).
@@ -187,6 +274,33 @@ Feature: Backlinks of a path that is not a doc
     When I ask for the backlinks of "docs/meta/templates/behavior-doc.md"
     Then the command says "not a doc: docs/meta/templates/behavior-doc.md"
     And the exit code is 2
+```
+
+## Output into a pipe that closes early
+
+When the program that reads the output of `list` or `backlinks` stops reading early, the command stops writing and keeps its exit code ([commands.md](../behavior/commands.md#list)).
+
+```gherkin
+Feature: Output into a pipe that closes early
+  As a docs author
+  I want to read only the first lines of a listing
+  So that cutting the output short gives no error
+
+  Background:
+    Given a project with more docs than fit in the pipe's buffer
+
+  Scenario: list into a pipe that reads one line
+    When I run "docspecsite list | head -1"
+    Then I see the first line of the listing
+    And no error trace
+    And list exits with exit code 0
+
+  Scenario: backlinks into a pipe that reads one line
+    Given more docs link to "docs/guides/setup.md" than their lines fit in the pipe's buffer
+    When I run "docspecsite backlinks docs/guides/setup.md | head -1"
+    Then I see the first linking doc
+    And no error trace
+    And backlinks exits with exit code 0
 ```
 
 ## See also

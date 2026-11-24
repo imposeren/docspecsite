@@ -1,8 +1,8 @@
 ---
 title: Docs system requirements — scenarios
-summary: Exact cases for the docs check's rules on a doc's title — text before it, a doc without one, a second level-1 heading, docs whose front matter does not load, and the heading a page shows — and on characters that file names may not contain.
+summary: Exact cases for the docs check's rules on a doc's title (text before it, a doc without one, a second level-1 heading, docs whose front matter does not load, and the heading a page shows), on characters that file names may not contain, and on the anchors of links to a directory.
 layer: scenarios
-status: [implemented, changed]
+status: [implemented, changed, specified]
 components: [checks]
 tags: [checks]
 related:
@@ -14,7 +14,7 @@ related:
 # Docs system requirements — scenarios
 
 These scenarios pin down the rule on a doc's title in [Docs system requirements](../behavior/requirements.md#checks) (DS-52): the title is the doc's first level-1 heading, written as `# Import` or as a line underlined with `===`; it comes right after the front matter, with only blank lines between them; and a doc has exactly one level-1 heading.
-They also pin down which characters file and directory names under `docs/` may not contain ([DS-20](../behavior/requirements.md#checks)).
+They also pin down which characters file and directory names under `docs/` may not contain, and how the check takes a link to a directory ([DS-20](../behavior/requirements.md#checks)).
 The exact problem lines and hints are in [commands.md](../behavior/commands.md#check).
 The other requirements are pinned down by [commands.md](../behavior/commands.md) and the tests.
 
@@ -155,8 +155,47 @@ Feature: Checking file and directory names
     Then the check reports a problem on "docs/what?" saying that its name contains "#", "%" or "?"
 ```
 
+## Links to a directory
+
+> **Not built yet.**
+
+A link to a directory leads to that directory's `index.md` on the site, so the check looks for the link's anchor in that `index.md` ([commands.md](../behavior/commands.md#check)).
+
+```gherkin
+Feature: Checking links to a directory
+  As a docs author
+  I want the check to find a missing heading in a link to a directory
+  So that such a link never leads to a place on the page that is not there
+
+  Background:
+    Given a directory "docs/guides" whose "index.md" has the heading "## Setup"
+
+  Scenario Outline: A link to a heading of the directory's index passes
+    Given the doc "docs/import.md" links to "<link>"
+    When I run the check
+    Then the check reports no problem for that link
+
+    Examples:
+      | link           |
+      | guides/#setup  |
+      | guides#setup   |
+
+  Scenario Outline: A link to a heading the directory's index does not have
+    Given the doc "docs/import.md" links to "<link>" on line 7
+    When I run the check
+    Then the output includes:
+      """
+      docs/import.md:7: no heading "#install" in docs/guides/index.md
+      """
+
+    Examples:
+      | link             |
+      | guides/#install  |
+      | guides#install   |
+```
+
 ## See also
 
-- [behavior/requirements.md](../behavior/requirements.md#checks) — DS-52, the rule on a doc's title, and DS-20, the rule on names.
+- [behavior/requirements.md](../behavior/requirements.md#checks) — DS-52, the rule on a doc's title, and DS-20, the rules on names and links.
 - [behavior/commands.md](../behavior/commands.md#check) — the problem lines and hints of the check.
 - [scenarios/status-notes.md](status-notes.md) — how the title and the sections below it get their status.

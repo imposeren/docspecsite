@@ -2,7 +2,7 @@
 title: How docspecsite works
 summary: docspecsite's design — a small Python package that checks docs, reads per-doc history through a versioning backend (git by default), renders every version to static HTML with version pickers, diffs and version-aware links, generates the code reference, and ships as a Docker image and a prek hook that other repos pin by tag.
 layer: architecture
-status: [changed, implemented]
+status: [changed, implemented, specified]
 code: [docspecsite.cli, docspecsite.config, docspecsite.check, docspecsite.schema, docspecsite.query, docspecsite.docset, docspecsite.build, docspecsite.history, docspecsite.coderef, docspecsite.pages, docspecsite.indexes, docspecsite.cache, docspecsite.links, docspecsite.urls, docspecsite.codeindex, docspecsite.errors, docspecsite.choices, docspecsite.docs, docspecsite.problems, docspecsite.markdown]
 milestone: first-release
 priority: must
@@ -72,6 +72,7 @@ Every command reads the working-tree file from disk, never through the version c
 The settings say where the repo's code is (`code-dirs`), so docspecsite does not depend on how a project lays out or builds its code.
 One matcher (`docspecsite.config.ProjectConfig.is_code_dir`) decides which directories are code directories, both for the working tree and for the files of a ref, so `check` and `build` find the same packages; `.` (the repo root) makes `build` extract the whole tree.
 Unknown settings and invalid values are reported, never silently ignored.
+`ProjectConfig.check_code_components` is the one owner of whether a `code-components` id is known: it takes the component vocabulary and returns the known components of each key together with the unknown entries. `check` reports the unknown entries on `docspecsite.toml`, `SiteBuilder` warns about them when it builds the `code` part, and `ProjectConfig.find_components` reads only the checked mapping, so no code page gets an unknown component (the problem: [behavior/configuration.md](../behavior/configuration.md#settings); the warning: [behavior/commands.md](../behavior/commands.md#build)).
 
 ## ADR IDs
 
@@ -90,13 +91,14 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
 - Ordered version list: `git rev-list --first-parent <ref>` (linear, newest first).
 - Versions of a doc: commits from that list that touch its path (`git log --first-parent --format=%H%x00%cI%x00%s <ref> -- <path>`) ([DS-4](../behavior/requirements.md#versioning), [DS-5](../behavior/requirements.md#versioning)).
 - Content of a version: `git show <commit>:<path>`, decoded as UTF-8 with a leading byte order mark dropped, as `check` reads the working tree.
+- Paths in git's output are kept as their bytes, so a name that is not valid UTF-8 still maps back to its file ([behavior/commands.md](../behavior/commands.md#input-that-cannot-be-used)).
 - git runs at the top level of the checked repo, and its `log` output is read with `--no-show-signature`, so a user's `log.showSignature` cannot put gpg output into it.
 - Version-aware link resolution ([DS-11](../behavior/requirements.md#rendering)), in core and for every backend: in doc A's version X, a link to B resolves to B's newest version whose position in the backend's linear order is at or after X's position (i.e. not newer than X); with git commits mode the position is the commit's place in the first-parent list.
   If B has none, link to B's latest and add a "newer doc" marker.
   A body link to a target that is not found is text with the "not found" marker, whatever kind of file it names (one marker, since the build cannot tell a deleted doc from a typo or a missing image); `related` and `redirect_to` entries and `Docs:` lines in code do not use this marker.
   [behavior/commands.md](../behavior/commands.md#build) defines which targets are found.
   `SiteBuilder` puts the found repo file paths together and gives them to the `Resolver` (`docspecsite.urls`): the files of the built revision's tree (`Git.read_tree`) and, with `--include-worktree`, the non-Markdown files under `docs/` that git sees in the working tree (`Git.list_worktree_files`).
-  The paths of the symlinks that lead to a doc and of the symlinks left out of the site are not among them; the files that a followed symlinked directory gives are, at their paths below the symlink ([Output layout](#output-layout)).
+  The paths of the symlinks that lead to a doc, and of the symlinks and other files left out of the site are not among them; the files that a followed symlinked directory gives are, at their paths below the symlink ([Output layout](#output-layout)).
   The marker is shown in every version; the warning is given only for the latest version of the linking doc.
 - Uncommitted working-tree changes are rendered as an extra "working copy (uncommitted)" version only when `--include-worktree` is given (useful while writing; never in CI).
   A working-tree file counts as changed when git hashes it, with its line-ending conversion and clean filters applied, to a blob other than the one in the ref's tree.
@@ -217,6 +219,8 @@ It links to the same heading anchors that `docspecsite check` validates, and eve
 ## Code reference
 
 Python code is loaded once, from the code directories the backend gives for the built revision, with griffe: every package directly inside a `code-dirs` directory.
+At a ref, the git backend lists the code directories' files with `git ls-tree -r` and reads their blobs with the same `cat-file --batch` reader as the doc versions (`Git.read_blobs`), not with `git archive`: code at a ref is the committed bytes, as for doc versions, with no checkout filters, line-ending conversion or export attributes (`export-ignore`, `export-subst`). A code directory that is itself a symlink is resolved within the built revision's tree, and its target directory's files are read as that code directory, for `ProjectConfig.is_code_dir` and `SiteBuilder.find_code_dirs` too; one whose target is absolute, outside the repo or missing is left out with a warning, as a symlinked image under `docs/` is. The rule "out of the code directories" applies only to the symlinks below a code directory: such a symlink to an absolute path or out of the code directories is left out with a warning.
+A source link's path is the file's path in the repo: for a code directory that is a symlink, the path of the directory it leads to.
 Only the **latest** code gets pages ([DS-18](../behavior/requirements.md#generated-reference-layer)): no version picker, no `/v/` pages; older code is read with git or an IDE.
 The hand-written entry page `docs/reference/code/index.md` follows the code: it is built from its latest version only, also in a full build ([DS-7](../behavior/requirements.md#rendering)).
 Each module gets one page, built from the code's structure as well as its docstrings, in the spirit of Sphinx's autodoc:
@@ -261,11 +265,18 @@ docspecsite's own warnings (such as unresolvable links) are Python warnings of c
 Both go through Python's warning filters, so `PYTHONWARNINGS` can turn them into errors. Python reads it before docspecsite can be imported, so a filter names the built-in base category and the module that issues the warning: `PYTHONWARNINGS=error::RuntimeWarning:docspecsite.build` stops the build at the first internal error, with its traceback (useful while working on docspecsite).
 With `--strict`, the build sets `error` filters for both warning categories.
 
+### Closed output pipe
+
+> **Not built yet.**
+
+The CLI entry point (`docspecsite.cli`) catches a closed pipe on stdout (`BrokenPipeError`), stops writing, also on the final flush, and exits with the exit code the command computed, so `list` and `backlinks` into `head` print no traceback ([behavior/commands.md](../behavior/commands.md#list)).
+
 ## Incremental builds
 
 A cache in `.docspecsite-cache/` (gitignored; inside the checked repo, so it persists between container runs) keys rendered HTML by (the version's content key from the backend — git's blob sha —, hash of the resolved link targets, docspecsite version).
 Only changed versions and pages whose link targets moved are re-rendered ([DS-24](../behavior/requirements.md#running)).
 A diff page's body is kept by the content keys of its two versions, so an unchanged pair is not diffed again.
+The body cache also keeps each version's parsed front matter by its content key, so a rebuild in which every page comes from the cache reads no doc text with markdown-it.
 The cache has one root per docspecsite version, set of built parts and versioning backend, so builds of different parts in turn do not throw away each other's entries: a build prunes the entries it did not use only in its own root, and removes other roots only when they belong to another docspecsite version.
 
 ## Docker image

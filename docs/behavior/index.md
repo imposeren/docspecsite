@@ -36,4 +36,5 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 - [tag-versions.md](tag-versions.md) — Merged into versioning-backends.md.
 - [doc-symlinks.md](doc-symlinks.md) — A symlink (a file that only points to another file or directory) under `docs/` is judged by what it leads to, never by its name: one that leads to a doc, to a directory with a doc inside, out of the repo or to nothing is a check problem, with a hint that depends on where it leads. Listings and the site leave such docs out; symlinked images reach the site as the file they point to.
 - [status-notes.md](status-notes.md) — Partly built docs: a list of statuses with status notes, checked, listed and shown on the site.
+- [limits.md](limits.md) — What docspecsite deliberately does not handle: text that is not UTF-8 beyond the listed cases, and a few other limits.
 - [glossary.md](glossary.md) — docspecsite's terms in plain language.
