@@ -230,7 +230,7 @@ class SymlinkFollower:
     leading to nothing, so no loop of symlinks is followed forever.
 
     Docs: behavior/doc-symlinks.md#how-a-symlink-is-followed
-    Docs: behavior/commands.md#check
+    Docs: behavior/commands/check.md#what-the-check-reports
     """
 
     # Hints

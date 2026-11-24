@@ -1,6 +1,6 @@
 """Named options that a command line selects in a comma-separated list.
 
-Docs: behavior/commands.md
+Docs: behavior/commands/index.md
 """
 
 from enum import StrEnum, nonmember

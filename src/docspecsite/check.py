@@ -2,7 +2,7 @@
 
 They cover front matter, links, code links, status notes, titles, indexes, names, reserved paths and staged deletes.
 
-Docs: behavior/commands.md#checks
+Docs: behavior/commands/check.md#requirements
 Docs: architecture/docs-tooling.md
 """
 
@@ -71,7 +71,7 @@ class DocsDirectory:
 class LinkCheck(DocCheck):
     """The check that a doc's links resolve, with the heading anchors of the link targets read once per run.
 
-    Docs: behavior/commands.md#check
+    Docs: behavior/commands/check.md#what-the-check-reports
     """
 
     # Problem texts
@@ -553,7 +553,7 @@ class RelatedOwnersCheck(DocCheck):
     cases for.
 
     Docs: behavior/docs-format.md#layers-without-a-build-status
-    Docs: behavior/commands.md#docs-without-a-build-status
+    Docs: behavior/commands/check.md#docs-without-a-build-status
     Docs: architecture/docs-tooling.md#statuses-and-status-notes
     """
 
@@ -831,7 +831,7 @@ class Checker:
         The references in the docstrings (``Docs:`` lines, roles and ``code:`` links) are checked only when
         ``optional_checks`` has :attr:`OptionalCheck.CODE`, by :meth:`check_code_references`.
 
-        Docs: behavior/commands.md#checks
+        Docs: behavior/commands/check.md#requirements
 
         Args:
             include_staged: Also report docs staged as deleted or renamed; needs git.

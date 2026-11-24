@@ -30,7 +30,7 @@ def decode_text(data: bytes) -> str:
 def is_utf8_name(name: str) -> bool:
     """Return whether a file name or path read from disk or from git is valid UTF-8.
 
-    Docs: behavior/commands.md#input-that-cannot-be-used
+    Docs: behavior/commands/index.md#input-that-cannot-be-used
 
     Args:
         name: Name as Python decodes it from file-system bytes, each byte that is not UTF-8 kept as a surrogate escape.

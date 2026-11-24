@@ -32,7 +32,7 @@ Only project settings, such as the repo's ADR prefix, are configuration.
 - [site.md](site.md) — The rendered site: version pages, pickers, old-version warnings, diffs, redirect pages, build parts, navigation, index pages and the machine listing.
 - [code-reference.md](code-reference.md) — The code reference generated from the code and its docstrings, and the links between docs and code.
 - [distribution.md](distribution.md) — How projects run docspecsite: the `docs-check` prek hook and the Docker image, pinned to a release tag.
-- [commands.md](commands.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.
+- [commands/](commands/index.md) — The `check`, `list`, `backlinks` and `build` commands: options, output and exit codes.
 - [configuration.md](configuration.md) — The `docspecsite.toml` settings file at the root of a checked repo.
 - [web-api-reference.md](web-api-reference.md) — The HTTP API reference rendered from a committed web API schema.
 - [repo-subdirectory.md](repo-subdirectory.md) — Support for a docs project in a subdirectory of a git repo.

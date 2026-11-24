@@ -8,7 +8,7 @@ priority: could
 components: [cli, checks, queries, site]
 tags: [requirements, cli, versioning]
 related:
-  - behavior/commands.md
+  - behavior/commands/index.md
   - behavior/requirements.md
 ---
 
@@ -16,7 +16,7 @@ related:
 
 A monorepo can hold several projects, each with its own `docs/`, `docspecsite.toml` and code.
 docspecsite then works on one of them, given with `--repo` or as the current directory.
-Until this is built, a subdirectory of a git repo stops every command with an error ([commands.md](commands.md)).
+Until this is built, a subdirectory of a git repo stops every command with an error ([commands/](commands/index.md#running-a-command)).
 
 This requirement is part of the [DSR-n](../meta/glossary.md#dsr-n) numbering listed in [requirements.md](requirements.md):
 

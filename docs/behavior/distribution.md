@@ -9,7 +9,8 @@ components: [distribution]
 tags: [requirements]
 related:
   - behavior/requirements.md
-  - behavior/commands.md
+  - behavior/commands/check.md
+  - behavior/commands/build.md
   - behavior/site.md
   - guides/using-docspecsite.md
   - architecture/docs-tooling.md
@@ -33,5 +34,5 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
 
 ## See also
 
-- [commands.md](commands.md#checks) — what the check validates.
+- [check.md](commands/check.md#requirements) — what the check validates.
 - [Architecture](../architecture/docs-tooling.md) — how it is built.

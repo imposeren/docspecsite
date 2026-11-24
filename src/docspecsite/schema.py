@@ -332,7 +332,7 @@ class FrontMatterCheck:
         """Record the warning about an ignored ``implemented`` status, once, in a layer without a build status.
 
         Docs: behavior/docs-format.md#layers-without-a-build-status
-        Docs: behavior/commands.md#docs-without-a-build-status
+        Docs: behavior/commands/check.md#docs-without-a-build-status
         """
         if Status.IMPLEMENTED in self.doc.status.ignored_values:
             layer = derive_dir_layer(self.doc.path)

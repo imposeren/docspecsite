@@ -6,7 +6,8 @@ components: [checks, site]
 tags: [checks, versioning]
 related:
   - behavior/doc-symlinks.md
-  - behavior/commands.md
+  - behavior/commands/check.md
+  - behavior/commands/build.md
 ---
 
 # Symlinked docs — scenarios
@@ -15,7 +16,7 @@ These scenarios pin down [Symlinked docs](../behavior/doc-symlinks.md) ([DSR-39]
 A symlink (a file that only points to another file or directory) under `docs/` is judged by what it leads to, never by its own name.
 [The kinds of symlink](#the-kinds-of-symlink) says once, for each kind, what the check, the listings (`list` and `backlinks`) and the site do with it.
 The sections after it hold only what is particular to one command: the check's hints and its other rules, the site's versions and previews, and loops of symlinks.
-The exact problem lines and hints are in [commands.md](../behavior/commands.md#check).
+The exact problem lines and hints are in [check.md](../behavior/commands/check.md#what-the-check-reports).
 
 ## The kinds of symlink
 
@@ -476,5 +477,5 @@ Feature: Symlink loops
 ## See also
 
 - [behavior/doc-symlinks.md](../behavior/doc-symlinks.md) — DSR-39, the rule on symlinks to docs, directories and other files.
-- [behavior/commands.md](../behavior/commands.md#check) — the problem lines and hints of the check.
-- [commands.md](commands.md) — links to a symlinked doc on the site.
+- [behavior/commands/check.md](../behavior/commands/check.md#what-the-check-reports) — the problem lines and hints of the check.
+- [commands/build.md](commands/build.md#links-whose-target-is-not-found) — links to a symlinked doc on the site.

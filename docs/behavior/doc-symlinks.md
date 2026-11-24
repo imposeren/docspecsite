@@ -9,7 +9,9 @@ components: [checks, site]
 tags: [requirements, checks, versioning]
 related:
   - behavior/requirements.md
-  - behavior/commands.md
+  - behavior/commands/check.md
+  - behavior/commands/build.md
+  - behavior/commands/backlinks.md
   - scenarios/doc-symlinks.md
   - architecture/docs-tooling.md
 ---
@@ -23,7 +25,7 @@ What a symlink is depends only on what it leads to, never on its own name: the c
 A symlink that leads to another file, such as an image, or to a directory without docs is allowed, and the site gets the files it leads to.
 
 This is a limit of docspecsite, not a rule of the docs method ([meta/index.md](../meta/index.md)), which says nothing about symlinks.
-The limit comes from how the tool reads and renders docs, like the reserved paths (the doc paths docspecsite keeps for its generated pages) and the UTF-8 rule (every doc is readable UTF-8 text) ([DSR-20](commands.md#checks)).
+The limit comes from how the tool reads and renders docs, like the reserved paths (the doc paths docspecsite keeps for its generated pages) and the UTF-8 rule (every doc is readable UTF-8 text) ([DSR-20](commands/check.md#requirements)).
 
 ## Requirements
 
@@ -33,14 +35,14 @@ This requirement is part of the [DSR-n](../meta/glossary.md#dsr-n) numbering lis
 
 - **DSR-39** A symlink under `docs/` is judged by what it leads to in the end, never by its own name ([How a symlink is followed](#how-a-symlink-is-followed)).
   What it leads to gives its kind, and the check, the listings and the site treat it by its kind alone ([The kinds of symlink](#the-kinds-of-symlink)).
-  It is a check problem ([DSR-20](commands.md#checks)) when it leads out of the repo, to nothing, to a doc (a `.md` file) or to a directory with a doc inside.
+  It is a check problem ([DSR-20](commands/check.md#requirements)) when it leads out of the repo, to nothing, to a doc (a `.md` file) or to a directory with a doc inside.
   The hint depends on where the symlink leads ([What the check reports](#what-the-check-reports)).
   A symlink that leads to another file, such as an image, or to a directory with no doc inside is allowed: the check does not report it, and it reaches the site as what it leads to ([Other files under docs/](#other-files-under-docs)).
   A symlink is never a doc, and nothing reached through one is: `list` and `backlinks` leave them out, the site has no pages for them, and a link to one is a broken link ([Listings and links](#listings-and-links), [On the site](#on-the-site)).
   Doc templates are not docs, and no check looks at them, so a symlink inside `docs/meta/templates/` is not reported.
-  A symlink needs no `index.md` and no entry in one ([DSR-20](commands.md#checks)).
+  A symlink needs no `index.md` and no entry in one ([DSR-20](commands/check.md#requirements)).
   A symlink may be removed or renamed: the rule that files under `docs/` are never deleted or renamed ([DSR-6](versioning-backends.md#versions-of-a-doc)) is for docs, and a symlink never was one, so the `git:staged` check passes over a path that was a symlink in the last commit.
-  The exact problem lines and hints are in [commands.md](commands.md#check).
+  The exact problem lines and hints are in [check.md](commands/check.md#what-the-check-reports).
 
 ## How a symlink is followed
 
@@ -63,7 +65,7 @@ Both do it by the same rule, which never looks at the symlink's own name:
   A directory has a doc inside when a `.md` file lies in it or in a directory below it, or when a symlink there leads to a doc or to a directory with a doc inside.
 - **The target is looked up where the command reads its other files.**
   The check looks in the working tree it checks (the files as they are now on disk).
-  The build looks in the built [revision](glossary.md) (a saved state of the project, such as a commit), or in the working tree for a preview with `--include-worktree` ([commands.md](commands.md#build)).
+  The build looks in the built [revision](glossary.md) (a saved state of the project, such as a commit), or in the working tree for a preview with `--include-worktree` ([build.md](commands/build.md#what-the-build-does)).
   In the working tree the build reads only the files that git sees (tracked files, and untracked files that git does not ignore), as for the other files it reads there, so a target that git ignores counts as one that does not exist.
 
 The diagram shows the same rule:
@@ -121,12 +123,12 @@ A symlinked directory with a doc inside is one problem, on the directory's symli
 Inside a symlinked directory that is allowed, the check reports a symlink that leads out of the repo or to nothing, at its path below the directory's symlink.
 A symlink is not checked any further as a doc: the check looks at what it leads to only to decide the problem and its hint.
 A symlink anywhere in `docs/meta/templates/`, `index.md` included, is not reported, whatever it leads to and whatever its name, since doc templates are skipped in every check.
-No symlink under `docs/` is a directory that needs an `index.md` or a child that an `index.md` lists ([commands.md](commands.md#check)).
+No symlink under `docs/` is a directory that needs an `index.md` or a child that an `index.md` lists ([check.md](commands/check.md#what-the-check-reports)).
 
 ## Listings and links
 
-A symlink of any [kind](#the-kinds-of-symlink) is not a doc, and neither is anything reached through one: `list` leaves them out, and `backlinks` says of such a path that it is not a doc ([commands.md](commands.md#backlinks)).
-When another doc links to a symlink that leads to a doc or to a directory with a doc inside, or to a `.md` file inside a symlinked directory, the check reports a broken link whose message says why, such as `broken link: docs/guides/alias.md is a symlink, not a doc` ([commands.md](commands.md#check)), and the site shows a link whose target is not found ([commands.md](commands.md#build)).
+A symlink of any [kind](#the-kinds-of-symlink) is not a doc, and neither is anything reached through one: `list` leaves them out, and `backlinks` says of such a path that it is not a doc ([backlinks.md](commands/backlinks.md#options-and-output)).
+When another doc links to a symlink that leads to a doc or to a directory with a doc inside, or to a `.md` file inside a symlinked directory, the check reports a broken link whose message says why, such as `broken link: docs/guides/alias.md is a symlink, not a doc` ([check.md](commands/check.md#what-the-check-reports)), and the site shows a link whose target is not found ([build.md](commands/build.md#what-the-build-does)).
 A link to a file that is not a doc inside a symlinked directory is not broken, also when the check reports the directory: the site copies that file ([Other files under docs/](#other-files-under-docs)).
 
 ## On the site
@@ -154,8 +156,8 @@ A `.md` file inside a symlinked directory is not among them, and neither is a sy
 
 How the build finds what a symlink leads to, and where it looks the target up, is in [How a symlink is followed](#how-a-symlink-is-followed).
 It leaves a symlink out of the site when the symlink leads out of the repo or to nothing.
-`check` reports such a symlink, so a repo that passes the check has none; when the build still meets one, it gives a warning that names the symlink: `docs/<path>: symlink to an absolute path, outside the repo or to a missing file; left out` ([commands.md](commands.md#build)).
-A link to it from a doc is then shown as a link whose target is not found ([commands.md](commands.md#build)).
+`check` reports such a symlink, so a repo that passes the check has none; when the build still meets one, it gives a warning that names the symlink: `docs/<path>: symlink to an absolute path, outside the repo or to a missing file; left out` ([build.md](commands/build.md#what-the-build-does)).
+A link to it from a doc is then shown as a link whose target is not found ([build.md](commands/build.md#what-the-build-does)).
 
 ## Symlink loops
 
@@ -167,5 +169,5 @@ And docs are never read through a symlink, so no doc is found twice through a lo
 ## See also
 
 - [scenarios/doc-symlinks.md](../scenarios/doc-symlinks.md) — exact cases for symlinks to docs, directories and images.
-- [commands.md](commands.md#checks) — DSR-20, everything the check validates.
-- [commands.md](commands.md#check) — the exact problem lines and hints.
+- [check.md](commands/check.md#requirements) — DSR-20, everything the check validates.
+- [check.md](commands/check.md#what-the-check-reports) — the exact problem lines and hints.

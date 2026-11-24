@@ -9,7 +9,8 @@ components: [site]
 tags: [requirements, rendering, versioning]
 related:
   - behavior/requirements.md
-  - behavior/commands.md
+  - behavior/commands/build.md
+  - behavior/commands/list.md
   - behavior/code-reference.md
   - behavior/versioning-backends.md
   - behavior/status-notes.md
@@ -22,7 +23,7 @@ related:
 
 `docspecsite build` turns a project's docs into a static site for people to read: every version of every doc has its own page, old versions say loudly that they are old, and each page shows where the doc sits among the others.
 Index pages group the docs by tag, component and status, and a plain-text listing of all docs is there for agents, which otherwise read the Markdown and the version control directly.
-The code reference, a part of the same site, is in [code-reference.md](code-reference.md); the `build` command and its options are in [commands.md](commands.md#build).
+The code reference, a part of the same site, is in [code-reference.md](code-reference.md); the `build` command and its options are in [build.md](commands/build.md#what-the-build-does).
 
 ## Requirements
 
@@ -37,7 +38,7 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
 - **DSR-10** Each version can show a **diff** against its previous version.
 - **DSR-11** Links inside an old version resolve to the version of the target current at that revision; if the target did not exist yet, to its latest version, marked as newer ([meta/versioning.md](../meta/versioning.md#links-in-old-versions)).
 - **DSR-12** Redirect docs **never redirect automatically**. They render as normal pages with a prominent notice: what happened (`redirect_kind`), a link to the replacement doc(s) (`redirect_to`, when there is one), and the `reason`. Their version history stays available like any other doc's.
-- **DSR-35** The site is built in **parts**, and a build renders the parts it is asked for: `docs` (the hand-written docs, their versions and diffs, the index pages and `llms.txt`) and `code` (the code reference with its entry page); by default every part the repo has ([commands.md](commands.md#build)).
+- **DSR-35** The site is built in **parts**, and a build renders the parts it is asked for: `docs` (the hand-written docs, their versions and diffs, the index pages and `llms.txt`) and `code` (the code reference with its entry page); by default every part the repo has ([build.md](commands/build.md#what-the-build-does)).
   Links into a part that is not built never dangle: a `code:` link in a docs-only site is its text in code style, and a link from the code reference to a doc in a code-only site leads to the doc's Markdown file on the repo host (plain text without `source-url`), and a link to another file of the part not built, such as an image, leads to that file on the repo host the same way.
   When the parts are built together, they link to each other as one site.
 
@@ -51,7 +52,7 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
   A doc without a status has no `status:` part: `- [<title>](<url>): <summary> (components: <components>; source: docs/<path>)` ([DSR-47](status-notes.md#requirements)).
 - **DSR-29** The rendered site is for humans. Agents use the raw Markdown and git for content, history and diffs, and lookup commands for code and the web API schema ([DSR-30](web-api-reference.md#looking-up-the-schema), [DSR-31](code-reference.md#requirements)); the tooling provides no Markdown copies of rendered pages.
 
-Listings that include ADRs (the index pages and the machine listing here, and `list`, [commands.md](commands.md#list)) sort docs by path, except that external ADRs come before the repo's own, by prefix in the order `external-adr-prefixes` lists them.
+Listings that include ADRs (the index pages and the machine listing here, and `list`, [list.md](commands/list.md#options-and-output)) sort docs by path, except that external ADRs come before the repo's own, by prefix in the order `external-adr-prefixes` lists them.
 
 ### Building
 

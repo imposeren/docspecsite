@@ -11,7 +11,7 @@ related:
   - architecture/docs-tooling.md
   - architecture/versioning.md
   - behavior/configuration.md
-  - behavior/commands.md
+  - behavior/commands/index.md
 ---
 
 # Use docspecsite in a project
@@ -80,7 +80,7 @@ How it works: [architecture/docs-tooling.md](../architecture/docs-tooling.md#how
 ## Daily use
 
 - Commit as usual; `docs-check` runs on every commit.
-- `docker compose run --rm docs list --status specified` — any docspecsite command ([behavior/commands.md](../behavior/commands.md)).
+- `docker compose run --rm docs list --status specified` — any docspecsite command ([behavior/commands/](../behavior/commands/index.md)).
 - `docker compose run --rm docs-build` builds `./site`, which `docs-serve` serves from the repo mounted read-only.
 - `docker compose run --rm docs build --include-worktree` shows uncommitted edits.
 

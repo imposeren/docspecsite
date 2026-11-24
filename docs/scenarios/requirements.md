@@ -1,13 +1,13 @@
 ---
 title: Docs system requirements — scenarios index
-summary: The index of the scenarios of the docs system requirements — each is in the scenarios doc at the same path as its behavior doc — a doc's title and docs without a build status in docs-format.md, file and directory names and links to a directory in commands.md.
+summary: The index of the scenarios of the docs system requirements — each is in the scenarios doc at the same path as its behavior doc — a doc's title and docs without a build status in docs-format.md, file and directory names and links to a directory in commands/check.md.
 layer: scenarios
 components: [checks]
 tags: [checks]
 related:
   - behavior/requirements.md
   - scenarios/docs-format.md
-  - scenarios/commands.md
+  - scenarios/commands/check.md
 ---
 
 # Docs system requirements — scenarios index
@@ -26,8 +26,8 @@ This page lists each feature and the doc that holds it.
 
 ## File and directory names
 
-- "Checking file and directory names" ([DSR-20](../behavior/commands.md#checks)): [commands.md](commands.md#file-and-directory-names).
+- "Checking file and directory names" ([DSR-20](../behavior/commands/check.md#requirements)): [check.md](commands/check.md#file-and-directory-names).
 
 ## Links to a directory
 
-- "Checking links to a directory" ([DSR-20](../behavior/commands.md#checks)): [commands.md](commands.md#links-to-a-directory).
+- "Checking links to a directory" ([DSR-20](../behavior/commands/check.md#requirements)): [check.md](commands/check.md#links-to-a-directory).

@@ -12,7 +12,9 @@ related:
   - architecture/versioning-backends.md
   - behavior/requirements.md
   - behavior/configuration.md
-  - behavior/commands.md
+  - behavior/commands/index.md
+  - behavior/commands/check.md
+  - behavior/commands/build.md
   - meta/versioning.md
 ---
 
@@ -29,7 +31,7 @@ The `backend` setting in the `[versioning]` section of `docspecsite.toml` says w
 
 | `backend` | What the project gets |
 | -- | -- |
-| `auto` (the default) | docspecsite asks each backend it knows whether it recognizes the project's folder, and uses the one that does. If none does, the site is built without versions, as with `none`; a folder inside a git repo that is not its top level is the exception: every command stops, as [commands.md](commands.md) says. If more than one does, every command stops and asks the project to set `backend`. |
+| `auto` (the default) | docspecsite asks each backend it knows whether it recognizes the project's folder, and uses the one that does. If none does, the site is built without versions, as with `none`; a folder inside a git repo that is not its top level is the exception: every command stops, as [commands/](commands/index.md#running-a-command) says. If more than one does, every command stops and asks the project to set `backend`. |
 | `git` | Versions from git, as described in [Versions of a doc](#versions-of-a-doc). |
 | `none` | No version control: each doc has only its current version, even when the folder is a git repository. |
 | a backend's own name, such as `hg` | A backend from a separately installed package, under the name that package gives it. |
@@ -57,7 +59,7 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
 - **DSR-42** Links from the site to files on the project's web host (such as GitHub or GitLab) follow **link patterns**: the code reference's links to the source code, links in docs to repo files outside the site, and, in a site built with only the code reference (`build --parts code`), links to a doc's Markdown file.
   A link pattern is the address of a file or folder on the host, with placeholders that docspecsite fills in, such as the file's path.
   Each backend has default patterns, and a project changes them in the backend's settings, for example for a host whose addresses differ from GitHub's.
-- **DSR-43** A backend can offer optional checks of its own, which `check --optional-checks <backend>:<check>` runs ([commands.md](commands.md#check)).
+- **DSR-43** A backend can offer optional checks of its own, which `check --optional-checks <backend>:<check>` runs ([check.md](commands/check.md#what-the-check-reports)).
   The git backend offers `git:staged`, which reports a problem for each doc that is marked in git as deleted or renamed in the next commit ("staged") ([DSR-6](#versions-of-a-doc)); the `docs-check` hook that runs before each commit runs it.
 
 ### Versions of a doc

@@ -18,7 +18,7 @@ class Problem:
     print as ``\\xNN``, so the report can be written to any UTF-8 stream.
 
     Docs: architecture/docs-tooling.md#problems-and-hints
-    Docs: behavior/commands.md#check
+    Docs: behavior/commands/check.md#what-the-check-reports
     """
 
     WARNING_PREFIX: ClassVar[str] = "warning: "

@@ -457,7 +457,7 @@ class SiteBuilder:
     def warn_left_out(self, path: str, reason: str) -> None:
         """Warn that input is left out of the site, when the part it belongs to is built.
 
-        Docs: behavior/commands.md#build
+        Docs: behavior/commands/build.md#what-the-build-does
 
         Args:
             path: Repo path of the doc, file or directory left out.
@@ -471,7 +471,7 @@ class SiteBuilder:
 
         No link can name such a doc, and its pages could not be linked to.
 
-        Docs: behavior/commands.md#input-that-cannot-be-used
+        Docs: behavior/commands/index.md#input-that-cannot-be-used
 
         Args:
             history: History whose docs are kept when their names are valid UTF-8.
@@ -592,7 +592,7 @@ class SiteBuilder:
         template or a Markdown file, and never when it is a symlink or its name is not valid UTF-8. A file of a part
         that is not built is not copied but is found, as :attr:`unbuilt_part_files`.
 
-        Docs: behavior/commands.md#build
+        Docs: behavior/commands/build.md#what-the-build-does
         Docs: architecture/docs-tooling.md#parts
         """
         tree_paths = (
@@ -915,7 +915,7 @@ class SiteBuilder:
 
         Returns None, and issues a warning, when the code cannot be read.
 
-        Docs: behavior/commands.md#input-that-cannot-be-used
+        Docs: behavior/commands/index.md#input-that-cannot-be-used
 
         Args:
             code_root: Directory holding the code directories: the repository root, or the code directories
@@ -1391,7 +1391,7 @@ class SiteBuilder:
         a symlink in a code directory that points to an absolute path or out of the code directories, each with a
         :class:`~docspecsite.errors.DocspecsiteWarning` naming it.
 
-        Docs: behavior/commands.md#build
+        Docs: behavior/commands/build.md#what-the-build-does
 
         Args:
             code_root: Empty directory that receives the code.
@@ -1433,7 +1433,7 @@ class SiteBuilder:
     def use_known_code_components(self, vocabulary: Vocabulary) -> None:
         """Warn about each unknown ``code-components`` id and leave it out of the settings the code pages read.
 
-        Docs: behavior/commands.md#build
+        Docs: behavior/commands/build.md#what-the-build-does
 
         Args:
             vocabulary: The vocabulary of the latest docs, whose components are the known ids.

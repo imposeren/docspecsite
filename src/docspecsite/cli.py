@@ -1,6 +1,6 @@
 """Command-line entry point of docspecsite.
 
-Docs: behavior/commands.md
+Docs: behavior/commands/index.md
 Docs: architecture/docs-tooling.md
 """
 
@@ -167,7 +167,7 @@ def run_check_command(args: argparse.Namespace) -> int:
     Returns exit status 1 when problems are found, when warnings are found and ``fail_on_warnings`` is set, or when
     ``staged`` is set outside git, else 0.
 
-    Docs: behavior/commands.md#check
+    Docs: behavior/commands/check.md#what-the-check-reports
 
     Args:
         args: Parsed ``check`` options; ``repo``, ``staged``, ``optional_checks`` (the set of
@@ -328,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     Every command stops with exit status 1 when the checked repo is a subdirectory of a git repository.
     When the reader of stdout closes the pipe, the command stops writing quietly and returns its own exit status.
 
-    Docs: behavior/commands.md#list
+    Docs: behavior/commands/index.md#output-into-a-pipe-that-closes-early
 
     Args:
         argv: Arguments after the program name, e.g. ``["check", "--staged"]``; None reads ``sys.argv``.

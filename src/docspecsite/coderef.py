@@ -78,7 +78,7 @@ class Package:
 class UnusableInput:
     """Input in the code directories that the code reference cannot use, and leaves out.
 
-    Docs: behavior/commands.md#input-that-cannot-be-used
+    Docs: behavior/commands/index.md#input-that-cannot-be-used
     """
 
     path: str
@@ -366,8 +366,8 @@ class Codebase:
         packages' code directory; one that leads to an absolute path, out of ``root`` or to nothing is left out. A
         package directory whose name Python cannot import is left out too; only these top-level names are checked.
 
-        Docs: behavior/commands.md#input-that-cannot-be-used
-        Docs: behavior/commands.md#build
+        Docs: behavior/commands/index.md#input-that-cannot-be-used
+        Docs: behavior/commands/build.md#what-the-build-does
 
         Args:
             root: Directory holding the code: the repository root, or the code extracted from the ref.

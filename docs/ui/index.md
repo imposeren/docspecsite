@@ -6,14 +6,14 @@ status: implemented
 components: []
 tags: [overview, ui]
 related:
-  - behavior/commands.md
+  - behavior/commands/index.md
   - architecture/docs-tooling.md
 ---
 
 # User interface
 
 docspecsite has no screens of its own ([meta/layers.md](../meta/layers.md#ui)).
-Its command line is specified in [behavior/commands.md](../behavior/commands.md), and the anatomy of the rendered pages in [architecture/docs-tooling.md](../architecture/docs-tooling.md#page-anatomy).
+Its command line is specified in [behavior/commands/](../behavior/commands/index.md), and the anatomy of the rendered pages in [architecture/docs-tooling.md](../architecture/docs-tooling.md#page-anatomy).
 
 ## Children
 

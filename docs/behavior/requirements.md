@@ -12,7 +12,9 @@ related:
   - behavior/docs-format.md
   - behavior/site.md
   - behavior/code-reference.md
-  - behavior/commands.md
+  - behavior/commands/check.md
+  - behavior/commands/list.md
+  - behavior/commands/backlinks.md
   - behavior/distribution.md
   - behavior/configuration.md
   - behavior/versioning-backends.md
@@ -48,7 +50,7 @@ A new DSR-n is listed under the section whose subject it matches, or under Other
 ## Navigation and indexes
 
 - **DSR-14**, **DSR-15**, **DSR-16**, **DSR-29** Page navigation, the index pages and the status board, the machine listing, and the site being for humans: [site.md](site.md#navigation-and-indexes).
-- **DSR-17**, **DSR-28** The `list` and `backlinks` query commands: [commands.md](commands.md#queries).
+- **DSR-17**, **DSR-28** The `list` and `backlinks` query commands: [list.md](commands/list.md#requirements), [backlinks.md](commands/backlinks.md#requirements).
 - **DSR-30** The web API schema lookup a project provides: [web-api-reference.md](web-api-reference.md#looking-up-the-schema).
 - **DSR-31** The code lookup a project provides: [code-reference.md](code-reference.md#requirements).
 
@@ -59,7 +61,7 @@ A new DSR-n is listed under the section whose subject it matches, or under Other
 
 ## Checks
 
-- **DSR-20**, **DSR-51**, **DSR-36** What the check validates, hints under problems, and the code check: [commands.md](commands.md#checks).
+- **DSR-20**, **DSR-51**, **DSR-36** What the check validates, hints under problems, and the code check: [check.md](commands/check.md#requirements).
 - **DSR-52**, **DSR-33** A doc's title, and how ADR files are named: [docs-format.md](docs-format.md#requirements).
 - **DSR-53** Docs in a layer without a build status, today the scenario docs: their build status, milestone, priority and status notes ignored, a warning for `implemented`, and the docs they give cases for in `related`: [docs-format.md](docs-format.md#layers-without-a-build-status).
 - **DSR-21** The `docs-check` prek hook: [distribution.md](distribution.md#requirements).

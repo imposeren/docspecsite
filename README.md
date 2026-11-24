@@ -41,7 +41,7 @@ The full guide: [docs/guides/using-docspecsite.md](docs/guides/using-docspecsite
 ## Docs
 
 docspecsite is itself docs-driven: its spec is in [docs/](docs/index.md).
-Start with [what it does](docs/behavior/index.md), [its commands](docs/behavior/commands.md) and [how it works](docs/architecture/docs-tooling.md).
+Start with [what it does](docs/behavior/index.md), [its commands](docs/behavior/commands/index.md) and [how it works](docs/architecture/docs-tooling.md).
 
 ## Develop
 

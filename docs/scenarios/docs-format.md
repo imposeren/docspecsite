@@ -6,7 +6,7 @@ components: [checks]
 tags: [checks]
 related:
   - behavior/docs-format.md
-  - behavior/commands.md
+  - behavior/commands/check.md
   - scenarios/status-notes.md
   - architecture/docs-tooling.md
 ---
@@ -14,8 +14,8 @@ related:
 # Docs format — scenarios
 
 These scenarios pin down two rules of [Docs format](../behavior/docs-format.md): where a doc's title is, and what sets a scenario doc apart, since it has no [build status](../meta/glossary.md#build-status).
-The exact problem lines and hints are in [commands.md](../behavior/commands.md#check).
-The other rules of the docs format are pinned down by [commands.md](../behavior/commands.md) and the tests.
+The exact problem lines and hints are in [check.md](../behavior/commands/check.md#what-the-check-reports).
+The other rules of the docs format are pinned down by [commands/check.md](../behavior/commands/check.md) and the tests.
 
 ## A doc's title
 
@@ -337,6 +337,6 @@ Feature: Checking the docs a scenario doc gives cases for
 ## See also
 
 - [behavior/docs-format.md](../behavior/docs-format.md#requirements) — DSR-52, the rule on a doc's title.
-- [behavior/commands.md](../behavior/commands.md#check) — the problem lines and hints of the check.
+- [behavior/commands/check.md](../behavior/commands/check.md#what-the-check-reports) — the problem lines and hints of the check.
 - [behavior/docs-format.md](../behavior/docs-format.md#layers-without-a-build-status) — DSR-53, the docs without a build status.
 - [scenarios/status-notes.md](status-notes.md) — how the title and the sections below it get their status, and how a doc without a status is listed and shown.

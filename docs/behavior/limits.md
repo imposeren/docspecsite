@@ -8,7 +8,7 @@ priority: should
 components: [checks, site, code-reference]
 tags: [limits, utf-8, checks, rendering]
 related:
-  - behavior/commands.md
+  - behavior/commands/index.md
   - behavior/requirements.md
 ---
 
@@ -19,7 +19,7 @@ Each limit below is a deliberate choice; changing one starts from a new spec.
 
 ## Text that is not UTF-8
 
-File names and file contents that are not valid UTF-8 are handled only in the cases [Input that cannot be used](commands.md#input-that-cannot-be-used) lists.
+File names and file contents that are not valid UTF-8 are handled only in the cases [Input that cannot be used](commands/index.md#input-that-cannot-be-used) lists.
 Anywhere else, such input is not supported: a command may leave the thing out without a word, warn, or stop.
 Known cases:
 

@@ -76,7 +76,7 @@ flowchart LR
 - **`auto`** asks each registered backend class whether it can handle the checked repo, through a class-level detection method that needs no settings: git, when the `git` program is found and the directory is the top level of a git work tree; a Mercurial plugin, when `.hg/` exists.
   Exactly one → that backend; none → `none`; several → an error naming them, which stops every command (exit code 1).
   A built-in backend whose [Python optional dependencies](glossary.md) are not installed (its imports fail) is left out of `auto`; when named explicitly, the missing dependencies are its error.
-  To keep today's behavior for a subdirectory of a git repo, git's detection tells "inside a git work tree, not at its top level" apart from "no git repo": the former stops every command with today's error, also under `auto` ([behavior/commands.md](../behavior/commands.md)).
+  To keep today's behavior for a subdirectory of a git repo, git's detection tells "inside a git work tree, not at its top level" apart from "no git repo": the former stops every command with today's error, also under `auto` ([behavior/commands/](../behavior/commands/index.md#running-a-command)).
 - **An explicit name or path is strict:** the selected backend's own check that it can handle the repo failing is an error that stops every command; nothing falls back.
 - **An unknown name or a path that cannot be loaded** is a settings problem on `backend`: `check` reports it and goes on with `auto`; `list`, `build` and `backlinks` stop with an error naming the setting.
 - Each backend class has a fixed **name**, the one it is registered under by its package; its settings table is `[versioning.<name>]` and its checks are `<name>:<check>`, also when it is loaded by import path.
@@ -92,10 +92,10 @@ Whether it is a protocol or an abstract base class is the builder's call too.
 | name | The backend's name: its settings table and its checks' namespace. |
 | detection | Class-level: whether it can handle a directory (for `auto`), without settings. |
 | settings | Parses its `[versioning.<name>]` table into its own settings object, returning problems the way `ProjectConfigParser` does. |
-| capabilities | Whether it has history (versioned pages, picker, diffs, banners), whether it accepts a revision (`--ref`) and which one it builds without `--ref` ([commands.md](../behavior/commands.md#build)), whether it has a working-copy version (`--include-worktree`). |
+| capabilities | Whether it has history (versioned pages, picker, diffs, banners), whether it accepts a revision (`--ref`) and which one it builds without `--ref` ([build.md](../behavior/commands/build.md#what-the-build-does)), whether it has a working-copy version (`--include-worktree`). |
 | history | For the built revision (and, when asked, the working tree): each doc's versions, newest first; the doc texts; the set of doc paths at the built revision. A backend never returns a symlink as a doc: a path that is a symlink in a version has no such version, a path that is a symlink at the built revision has no committed versions at all, and a `.md` file reached through a symlinked directory is no doc ([DSR-39](../behavior/doc-symlinks.md#on-the-site)). When the working tree is read, a path that is a symlink at the built revision but a regular doc in the working tree is a new uncommitted doc with the working-copy version as its only version, and a path that is a regular doc at the built revision but a symlink in the working tree has no working-copy version and keeps its committed versions. |
 | files | The code directories at the built revision, extracted for griffe, and, when the working tree is read, which code files differ from the built revision. The non-Markdown files under `docs/` (assets). A symlink there counts by what it leads to, whatever its name, by the one rule for following a symlink ([docs-tooling.md](docs-tooling.md#history-model)): one that leads to another file is given as that file, read where the other files are read (when the working tree is read, among the files the backend sees there), never as its link text, and one that leads to a directory as the non-Markdown files inside it, at their paths below the symlink, with the symlinks inside followed by the same rule. A symlink that leads to a doc is left out. A symlink that leads out of the repo or to nothing is left out and named, so that the build can give the warning for it ([DSR-39](../behavior/doc-symlinks.md#other-files-under-docs)). |
-| repo file paths | The paths of the repo files a link can lead to, which core's link resolution takes as found ([commands.md](../behavior/commands.md#build)): the files at the built revision and, when the working tree is read, the non-Markdown files under `docs/` there. The assets given through a symlink are among them under the paths they are given at; the path of a symlink that leads to a doc is not, nor is that of a symlink left out of the files. |
+| repo file paths | The paths of the repo files a link can lead to, which core's link resolution takes as found ([build.md](../behavior/commands/build.md#what-the-build-does)): the files at the built revision and, when the working tree is read, the non-Markdown files under `docs/` there. The assets given through a symlink are among them under the paths they are given at; the path of a symlink that leads to a doc is not, nor is that of a symlink left out of the files. |
 | link patterns | Default `file-link` and `dir-link` patterns and the `{revision}` value of the built revision. |
 | optional checks | Its checks by name; each runs on the checked repo and returns problems in `check`'s form. |
 
@@ -135,7 +135,7 @@ Both classes are public API: their method signatures follow the release rules ([
 3. The version's position is that tag's position, so [DSR-11](../behavior/site.md#rendering) resolution in a version at tag `v2` finds the target's version at `v2`; its id and short id stay the commit's, so URLs equal those of commits mode.
 4. Whether commits after the newest tag are versions stays open ([behavior](../behavior/versioning-backends.md#not-decided-yet)).
 
-**Default revision:** without `--ref` the git backend builds `HEAD`, the checked-out commit, whether or not the working tree is read (`--include-worktree`) ([commands.md](../behavior/commands.md#build)).
+**Default revision:** without `--ref` the git backend builds `HEAD`, the checked-out commit, whether or not the working tree is read (`--include-worktree`) ([build.md](../behavior/commands/build.md#what-the-build-does)).
 
 **Symlinks:** the git backend tells a symlink by its tree entry's mode in a revision, and by the file itself in the working tree.
 It reads a symlink's target where it reads the other files: in the tree of the built revision, or among the working-tree files git sees (tracked, or untracked and not ignored), which gives the rules of the history and files rows of the [contract](#contract).
@@ -155,7 +155,7 @@ It reads a symlink's target where it reads the other files: in the tree of the b
 ## Interfaces
 
 - Settings: [behavior/configuration.md](../behavior/configuration.md#versioning).
-- Commands: `--ref`, `--include-worktree` and `--optional-checks` per backend ([behavior/commands.md](../behavior/commands.md)).
+- Commands: `--ref`, `--include-worktree` and `--optional-checks` per backend ([behavior/commands/](../behavior/commands/index.md)).
 - Entry-point group `docspecsite.versioning`: name → backend class; a third-party package declares it in `[project.entry-points."docspecsite.versioning"]` of its `pyproject.toml`.
 
 ## Operational notes

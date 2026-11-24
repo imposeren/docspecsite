@@ -14,7 +14,11 @@ related:
   - behavior/site.md
   - behavior/code-reference.md
   - behavior/distribution.md
-  - behavior/commands.md
+  - behavior/commands/index.md
+  - behavior/commands/check.md
+  - behavior/commands/list.md
+  - behavior/commands/backlinks.md
+  - behavior/commands/build.md
   - behavior/configuration.md
   - architecture/decisions/DSS-0001-custom-per-doc-history-renderer.md
   - architecture/decisions/DSS-0002-single-python-toolchain.md
@@ -22,7 +26,9 @@ related:
   - architecture/quality-gate.md
   - architecture/versioning-backends.md
   - behavior/status-notes.md
-  - scenarios/commands.md
+  - scenarios/commands/index.md
+  - scenarios/commands/check.md
+  - scenarios/commands/build.md
   - behavior/doc-symlinks.md
 ---
 
@@ -31,7 +37,7 @@ related:
 **docspecsite** is a small Python package that implements the [docs system requirements](../behavior/requirements.md).
 Those requirements are numbered `DSR-1`, `DSR-2`, … (DSR = "docs system requirement"), and this page cites them by number, e.g. "(DSR-3)" means "this satisfies requirement DSR-3 in that doc".
 It reads a repo's `docs/` and their history, through a versioning backend ([versioning-backends.md](versioning-backends.md)), and writes a static site to `site/` (gitignored).
-Its commands are `check`, `list`, `backlinks` and `build` ([behavior/commands.md](../behavior/commands.md)).
+Its commands are `check`, `list`, `backlinks` and `build` ([behavior/commands/](../behavior/commands/index.md)).
 Why a custom tool rather than MkDocs/Sphinx: [DSS-0001](decisions/DSS-0001-custom-per-doc-history-renderer.md) (an [architecture decision record](../meta/glossary.md#adr)).
 
 ## Repository layout
@@ -76,7 +82,7 @@ Every command reads the working-tree file from disk, never through the version c
 The settings say where the repo's code is (`code-dirs`), so docspecsite does not depend on how a project lays out or builds its code.
 One matcher in `ProjectConfig` decides which directories are code directories, both for the working tree and for the files of a ref, so `check` and `build` find the same packages; `.` (the repo root) makes `build` extract the whole tree.
 Unknown settings and invalid values are reported, never silently ignored.
-`ProjectConfig` is the one owner of whether an id in the `code-components` setting is known: its check takes the component vocabulary and returns the known components of each key together with the unknown entries. `check` reports the unknown entries on `docspecsite.toml`, `SiteBuilder` warns about them when it builds the `code` part, and `ProjectConfig`'s lookup of a module's components reads only the checked mapping, so no code page gets an unknown component (the problem: [behavior/configuration.md](../behavior/configuration.md#settings); the warning: [behavior/commands.md](../behavior/commands.md#build)).
+`ProjectConfig` is the one owner of whether an id in the `code-components` setting is known: its check takes the component vocabulary and returns the known components of each key together with the unknown entries. `check` reports the unknown entries on `docspecsite.toml`, `SiteBuilder` warns about them when it builds the `code` part, and `ProjectConfig`'s lookup of a module's components reads only the checked mapping, so no code page gets an unknown component (the problem: [behavior/configuration.md](../behavior/configuration.md#settings); the warning: [behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)).
 
 ## ADR IDs
 
@@ -95,18 +101,18 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
 - Ordered version list: `git rev-list --first-parent <ref>` (linear, newest first).
 - Versions of a doc: commits from that list that touch its path (`git log --first-parent --format=%H%x00%cI%x00%s <ref> -- <path>`) ([DSR-4](../behavior/versioning-backends.md#versions-of-a-doc), [DSR-5](../behavior/versioning-backends.md#versions-of-a-doc)).
 - Content of a version: `git show <commit>:<path>`, decoded as UTF-8 with a leading byte order mark dropped, as `check` reads the working tree.
-- Paths in git's output are kept as their bytes, so a name that is not valid UTF-8 still maps back to its file ([behavior/commands.md](../behavior/commands.md#input-that-cannot-be-used)).
+- Paths in git's output are kept as their bytes, so a name that is not valid UTF-8 still maps back to its file ([behavior/commands/](../behavior/commands/index.md#input-that-cannot-be-used)).
 - git runs at the top level of the checked repo, and its `log` output is read with `--no-show-signature`, so a user's `log.showSignature` cannot put gpg output into it.
 - Version-aware link resolution ([DSR-11](../behavior/site.md#rendering)), in core and for every backend: in doc A's version X, a link to B resolves to B's newest version whose position in the backend's linear order is at or after X's position (i.e. not newer than X); with git commits mode the position is the commit's place in the first-parent list.
   If B has none, link to B's latest and add a "newer doc" marker.
   A body link to a target that is not found is text with the "not found" marker, whatever kind of file it names (one marker, since the build cannot tell a deleted doc from a typo or a missing image); `related` and `redirect_to` entries and `Docs:` lines in code do not use this marker.
-  [behavior/commands.md](../behavior/commands.md#build) defines which targets are found.
+  [behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does) defines which targets are found.
   `SiteBuilder` puts the found repo file paths together and gives them to the `Resolver` (`docspecsite.urls`): the files of the built revision's tree and, with `--include-worktree`, the non-Markdown files under `docs/` that git sees in the working tree, both read by `Git`.
   The paths of the symlinks that lead to a doc, and of the symlinks and other files left out of the site are not among them; the files that a followed symlinked directory gives are, at their paths below the symlink ([Output layout](#output-layout)).
   The marker is shown in every version; the warning is given only for the latest version of the linking doc.
 - Uncommitted working-tree changes are rendered as an extra "working copy (uncommitted)" version only when `--include-worktree` is given (useful while writing; never in CI).
   A working-tree file counts as changed when git hashes it, with its line-ending conversion and clean filters applied, to a blob other than the one in the ref's tree.
-  The `build` command in `docspecsite.cli` decides which revision is built when `--ref` is not given: `HEAD`, the checked-out commit, with or without `--include-worktree` ([behavior/commands.md](../behavior/commands.md#build)); `History` and `SiteBuilder` always get a ref.
+  The `build` command in `docspecsite.cli` decides which revision is built when `--ref` is not given: `HEAD`, the checked-out commit, with or without `--include-worktree` ([behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)); `History` and `SiteBuilder` always get a ref.
 - A symlink is never a doc, whatever it leads to ([DSR-39](../behavior/doc-symlinks.md#on-the-site)), and `History` never returns one.
   `Git` says of each path whether it is a symlink where it is read: in the built revision's tree (by the tree entry's mode, `120000`), in each change of the history and in the working tree.
   From that, `History` leaves out a version in which the path is a symlink; a path that is a symlink at the built revision is no doc of the site, with no pages in any version; a path that is a regular file at the built revision keeps the versions in which it was one.
@@ -130,7 +136,7 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
 - `check` reports each symlink that leads out of the repo, to nothing, to a doc or to a directory with a doc inside once, with its target read from the link, and skips the symlinks inside `docs/meta/templates/`, as it skips templates in every check.
   It never reads outside the repo, and takes its kinds and the hint from the rule for following a symlink (the bullet above).
   A reported directory is one problem; inside a directory that is not reported, a symlink that leads out of the repo or to nothing is reported at its path below the directory's symlink.
-  The index check takes no symlink as a directory that needs an `index.md` or as a child to list, and the link check gives a link to a symlink that leads to a doc, to a reported directory or to a `.md` file inside a symlinked directory its own message ([behavior/commands.md](../behavior/commands.md#check)).
+  The index check takes no symlink as a directory that needs an `index.md` or as a child to list, and the link check gives a link to a symlink that leads to a doc, to a reported directory or to a `.md` file inside a symlinked directory its own message ([behavior/commands/check.md](../behavior/commands/check.md#what-the-check-reports)).
   The staged check in `Checker` passes over a path that is a symlink in the tree of `HEAD`.
 - The rules on symlinks, found targets, the default revision and changed code files ([Code reference](#code-reference)) are stated here for the parts that hold them today.
   The backend contract keeps the same rules in its rows, for the git parts of `History` and `Git` as the git backend ([versioning-backends.md](versioning-backends.md#contract)).
@@ -165,7 +171,7 @@ flowchart TD
   A `status` of the wrong shape gives no values, so the doc is left off the status board like one with an unknown status; a doc with no values matches no `list --status`, has an empty text column and `null` in JSON, no `status:` part in `llms.txt` and no badge.
 - **Front-matter check.** `FrontMatterCheck` reports an invalid `status` (DSR-44), and a single-only value in a list and a value listed twice, with hints (DSR-46), and checks the milestone and the priority, all from the doc's `DocStatus`.
   For a doc in a layer of that table, `status` is not a required field, and a `status` whose values were all left out counts as not written; any other `status` is checked by the same rules as in every doc.
-  It gives the [DSR-53](../behavior/docs-format.md#layers-without-a-build-status) warning when the left-out values hold `implemented`, as a `Problem` marked as a warning; `check` prints the warnings after the problems and, with `--strict`, exits with 1 when there is any, with the counts unchanged ([behavior/commands.md](../behavior/commands.md#check)).
+  It gives the [DSR-53](../behavior/docs-format.md#layers-without-a-build-status) warning when the left-out values hold `implemented`, as a `Problem` marked as a warning; `check` prints the warnings after the problems and, with `--strict`, exits with 1 when there is any, with the counts unchanged ([behavior/commands/check.md](../behavior/commands/check.md#what-the-check-reports)).
 - **Title and sections.** `docspecsite.markdown.MarkdownText` is the one place that decides which heading is the doc's title: the first level-1 heading at the top level, in either style.
   The title check and the section notes both take the title from it, so they never disagree.
   Every other top-level heading opens a section, and sections form no tree: a section's status is its own status note's, else the first value, and nothing is compared between a heading and the headings above or below it.
@@ -203,12 +209,12 @@ site/
 ```
 
 Some doc paths are **reserved**, because their page would take the URL of a generated page: `status.md`, every doc under `tags/` and `components/`, every doc under `reference/code/` other than `index.md`, and every doc under `<path>/v/` when `<path>.md` is a doc (where that doc's version and diff pages go).
-`check` reports a doc at a reserved path ([DSR-20](../behavior/commands.md#checks)); the build keeps the generated page and reports the doc's page as an error.
+`check` reports a doc at a reserved path ([DSR-20](../behavior/commands/check.md#requirements)); the build keeps the generated page and reports the doc's page as an error.
 
 `SiteBuilder` copies the non-Markdown files under `docs/` (images and the like; doc templates are left out) into the site at their own path: from the tree of the built revision, or with `--include-worktree` from the working tree, where only the files git sees count.
 A symlink there counts by what it leads to, whatever its name, which the builder finds by the rule for following a symlink ([History model](#history-model)).
 One that leads to another file arrives as that file, never as its link text, and one that leads to a directory as the non-Markdown files inside it, at their paths below the symlink, with the symlinks inside followed by the same rule ([DSR-39](../behavior/doc-symlinks.md#other-files-under-docs)).
-A symlink that leads to a doc is left out without a word, since `check` reports it; one that leads out of the repo or to nothing is left out with a warning ([behavior/commands.md](../behavior/commands.md#build)).
+A symlink that leads to a doc is left out without a word, since `check` reports it; one that leads out of the repo or to nothing is left out with a warning ([behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)).
 The paths copied this way are the docs files the `Resolver` takes as found ([History model](#history-model)).
 
 `site/.docspecsite-manifest` lists the files of the last build, so the next build removes only files it wrote itself.
@@ -218,7 +224,7 @@ The paths copied this way are the docs files the `Resolver` takes as found ([His
 The site is built in parts ([DSR-35](../behavior/site.md#rendering)): `docs` is everything above except `reference/code/`, and `code` is `reference/code/` (module pages and the entry page `reference/code/index.html`).
 The build carries the set of parts it builds, and every link that crosses parts asks whether its target's part is in that set: the docs' resolver for `code:` links and the index entries of code modules (`llms.txt` lists docs only, [DSR-16](../behavior/site.md#navigation-and-indexes)), the code pages for `Docs:` lines, "described in" lists, links to docs and the page chrome (breadcrumb, components, status badge).
 A link into a part that is not built becomes text, or, from the code reference to a doc, a link to the doc's Markdown file through the backend's `file-link` pattern (with git by default `<source-url>/blob/<commit>/docs/…`).
-A link to another file of a part that is not built (such as an image) is linked on the repository host like a file outside `docs/`, with no warning of its own; without a `source-url` it is plain text, and the one warning about the missing `source-url` applies as for any repo link ([behavior/commands.md](../behavior/commands.md#build)).
+A link to another file of a part that is not built (such as an image) is linked on the repository host like a file outside `docs/`, with no warning of its own; without a `source-url` it is plain text, and the one warning about the missing `source-url` applies as for any repo link ([behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)).
 A code-only build also writes the entry page as `index.html`, with its links relative to the root.
 Since the entry page has no old versions, a link to it from an old version of a doc leads to its latest page with the "current code" marker, like an old version's `code:` link.
 A build never reuses pages of an earlier build with other parts: a page's links depend on the parts, and the manifest leaves `--out` holding only what this build wrote.
@@ -260,7 +266,7 @@ The link's target keeps the role's target with its `~` and `Text <target>` form,
 `<class>.__init__` falls back to the class when the class's `__init__` is not on the page.
 The link text is set once the target is resolved: the found element's full dotted path, its last part with `~`, or the given text.
 From there a role goes through the same link rewriting and markers as a `code:` link; code blocks are never touched, and a role name outside the Python ones is left as text.
-`check --optional-checks code` ([DSR-36](../behavior/commands.md#checks)) loads the code from the working tree and looks up each docstring's `Docs:` lines, roles and `code:` links with the same lookup as the pages, without rendering anything; plain `check` does not look at docstrings.
+`check --optional-checks code` ([DSR-36](../behavior/commands/check.md#requirements)) loads the code from the working tree and looks up each docstring's `Docs:` lines, roles and `code:` links with the same lookup as the pages, without rendering anything; plain `check` does not look at docstrings.
 `Docs:` docstring lines become links, and "described in" lists come from `code:` fields ([DSR-13](../behavior/code-reference.md#requirements), [DSR-19](../behavior/code-reference.md#requirements)).
 The HTTP API reference is not built yet ([behavior/web-api-reference.md](../behavior/web-api-reference.md)).
 
@@ -268,7 +274,7 @@ The HTTP API reference is not built yet ([behavior/web-api-reference.md](../beha
 
 > **Built.**
 
-`docspecsite.problems.Problem` holds a problem's location, its message and an optional hint ([DSR-51](../behavior/commands.md#checks)).
+`docspecsite.problems.Problem` holds a problem's location, its message and an optional hint ([DSR-51](../behavior/commands/check.md#requirements)).
 It prints as the problem line, then, when it has a hint, the hint line (`  hint: <hint>`); `check --no-hints` prints the problem line only.
 The message keeps one form per kind of problem, so the problem line is stable for scripts; how to fix the case goes into the hint.
 
@@ -276,11 +282,11 @@ The message keeps one form per kind of problem, so the problem line is stable fo
 
 > **Built.**
 
-Errors in `docspecsite build` stay local to the page they occur in ([behavior/commands.md](../behavior/commands.md#build)).
+Errors in `docspecsite build` stay local to the page they occur in ([behavior/commands/build.md](../behavior/commands/build.md#what-the-build-does)).
 An expected failure (a doc version that is not valid UTF-8, a doc at a reserved path) is an error line for that page.
 Code that cannot be loaded is a warning instead, since it affects no single page: the code reference is built without modules, and `code:` links get the "no longer exists" marker.
 Any other exception is a bug in docspecsite: it is reported as a Python warning of category `docspecsite.InternalErrorWarning`, raised while the exception is being handled, so the warning carries the original traceback.
-The build's own warnings (such as unresolvable links) are Python warnings of category `docspecsite.DocspecsiteWarning`; the check's warnings are not: they are problems marked as warnings ([Statuses and status notes](#statuses-and-status-notes), [behavior/commands.md](../behavior/commands.md#check)).
+The build's own warnings (such as unresolvable links) are Python warnings of category `docspecsite.DocspecsiteWarning`; the check's warnings are not: they are problems marked as warnings ([Statuses and status notes](#statuses-and-status-notes), [behavior/commands/check.md](../behavior/commands/check.md#what-the-check-reports)).
 Both build warning categories go through Python's warning filters, so `PYTHONWARNINGS` can turn them into errors. Python reads it before docspecsite can be imported, so a filter names the built-in base category and the module that issues the warning: `PYTHONWARNINGS=error::RuntimeWarning:docspecsite.build` stops the build at the first internal error, with its traceback (useful while working on docspecsite).
 With `--strict`, the build sets `error` filters for both warning categories.
 
@@ -288,7 +294,7 @@ With `--strict`, the build sets `error` filters for both warning categories.
 
 > **Built.**
 
-The CLI entry point (`docspecsite.cli`) catches a closed pipe on stdout (`BrokenPipeError`), stops writing, also on the final flush, and exits with the exit code the command computed, so `list` and `backlinks` into `head` print no traceback ([behavior/commands.md](../behavior/commands.md#list)).
+The CLI entry point (`docspecsite.cli`) catches a closed pipe on stdout (`BrokenPipeError`), stops writing, also on the final flush, and exits with the exit code the command computed, so `list` and `backlinks` into `head` print no traceback ([behavior/commands/](../behavior/commands/index.md#output-into-a-pipe-that-closes-early)).
 
 ## Incremental builds
 

@@ -295,7 +295,7 @@ class Resolver:
     ) -> None:
         """Prepare to resolve links against the docs, found files and code of the ref.
 
-        Docs: behavior/commands.md#build
+        Docs: behavior/commands/build.md#what-the-build-does
 
         Args:
             history: Doc versions at the build ref; decide which docs exist, which version a link from an old version

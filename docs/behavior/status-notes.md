@@ -12,7 +12,8 @@ related:
   - scenarios/status-notes.md
   - behavior/requirements.md
   - behavior/docs-format.md
-  - behavior/commands.md
+  - behavior/commands/check.md
+  - behavior/commands/list.md
   - behavior/site.md
   - architecture/docs-tooling.md
   - meta/lifecycle.md
@@ -73,7 +74,7 @@ These requirements are part of the [DSR-n](../meta/glossary.md#dsr-n) numbering 
 
 - **DSR-46** The check reports a problem in each case below.
   None of these concerns a status note or a build status that [DSR-53](docs-format.md#layers-without-a-build-status) ignores.
-  Each problem names the statuses involved and carries a hint ([DSR-51](commands.md#checks)).
+  Each problem names the statuses involved and carries a hint ([DSR-51](commands/check.md#requirements)).
   A problem about a status note is reported on the status note's line, a problem about the `status` list on the doc's first line, where the front matter starts.
   Problems and hints name a section by its heading quoted with its `#` marks, exactly as written in the file (`"## Import"`), so a heading with the same words at another level is not mistaken for it, and the quoted text can be searched for in the file.
   A heading written without `#` marks, underlined with `===` or `---` on the next line, is quoted by its first line as written.
@@ -164,5 +165,5 @@ A milestone counts as reached only when all its docs with priority `must` have t
 ## See also
 
 - [scenarios/status-notes.md](../scenarios/status-notes.md) — exact cases for the check, `list` and the site.
-- [commands.md](commands.md) — the `check` and `list` output.
+- [commands/check.md](commands/check.md) and [commands/list.md](commands/list.md) — the `check` and `list` output.
 - [architecture/docs-tooling.md](../architecture/docs-tooling.md#statuses-and-status-notes) — how docspecsite reads statuses and status notes.
