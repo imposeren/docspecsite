@@ -13,9 +13,9 @@ from docspecsite.query import (
     format_backlinks,
     format_list,
     format_text_field,
-    make_status_json_value,
     resolve_doc_path,
 )
+from docspecsite.schema import STATUSES
 
 _NO_CONFIG = ProjectConfig((), "", {})
 
@@ -90,6 +90,51 @@ def test_format_list_json_roundtrip() -> None:
     assert items[2]["milestone"] is None
 
 
+def test_format_list_json_keeps_milestone_and_priority_as_written() -> None:
+    doc = make_doc("guides/p.md", milestone=5, priority=["must"])
+    [item] = json.loads(format_list([doc], "json"))
+    assert (item["milestone"], item["priority"]) == (5, ["must"])
+    assert DocSet([doc]).select(Filters(milestone="5"), _NO_CONFIG) == []
+
+
+def _make_scenario_doc(**front_matter: object) -> Doc:
+    fields = {
+        "title": "Import — scenarios",
+        "summary": "Exact cases for importing.",
+        "status": "implemented",
+        "milestone": "later",
+        "priority": "must",
+        **front_matter,
+    }
+    return make_doc("scenarios/import.md", **fields)
+
+
+def test_list_reads_the_doc_as_one_without_a_status() -> None:
+    docs = DocSet([_make_scenario_doc(), make_doc("behavior/import.md", status="implemented")])
+    for status in STATUSES:
+        assert "scenarios/import.md" not in [d.path for d in docs.select(Filters(status=status), _NO_CONFIG)]
+    [scenario_doc] = docs.select(Filters(layer="scenarios"), _NO_CONFIG)
+    assert (
+        format_list([scenario_doc], "text") == "scenarios/import.md\t\tImport — scenarios\tExact cases for importing.\n"
+    )
+    assert json.loads(format_list([scenario_doc], "json"))[0]["status"] is None
+
+
+def test_list_reads_the_doc_as_one_without_a_milestone_or_a_priority() -> None:
+    docs = DocSet([_make_scenario_doc()])
+    assert docs.select(Filters(milestone="later"), _NO_CONFIG) == []
+    assert docs.select(Filters(priority="must"), _NO_CONFIG) == []
+    [item] = json.loads(format_list(list(docs), "json"))
+    assert (item["milestone"], item["priority"]) == (None, None)
+
+
+def test_a_draft_scenario_doc_is_listed_as_a_draft() -> None:
+    docs = DocSet([_make_scenario_doc(status=["draft", "specified"])])
+    selected = docs.select(Filters(status="draft"), _NO_CONFIG)
+    assert [d.path for d in selected] == ["scenarios/import.md"]
+    assert format_list(selected, "text").split("\t")[1] == "draft"
+
+
 def test_format_list_text_status_list() -> None:
     line = format_list([make_doc("guides/p.md", status=["implemented", "specified"])], "text")
     assert line.split("\t")[1] == "implemented,specified"
@@ -122,12 +167,11 @@ def test_format_list_json_status_shapes() -> None:
 
 def test_status_text_and_json_forms() -> None:
     one, two, none = DocStatus(("implemented",)), DocStatus(("implemented", "specified")), DocStatus(())
-    assert [format_text_field(make_status_json_value(s)) for s in (one, two, none)] == [
+    assert [format_text_field(s.make_json_value()) for s in (one, two, none)] == [
         "implemented",
         "implemented,specified",
         "",
     ]
-    assert [make_status_json_value(s) for s in (one, two, none)] == ["implemented", ["implemented", "specified"], None]
 
 
 def test_backlinks_kinds() -> None:

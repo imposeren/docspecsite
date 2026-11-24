@@ -2,7 +2,7 @@
 title: Docs format
 summary: What a doc is to docspecsite — a Markdown file with YAML front matter in docs/, readable without the tooling, whose title is its one level-1 heading right after the front matter; how ADR files are named; and the scenario docs, whose build status docspecsite ignores and which name the docs they give cases for.
 layer: behavior
-status: [implemented, specified]
+status: implemented
 milestone: first-release
 priority: must
 components: [checks, site]
@@ -46,8 +46,6 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
   When `docspecsite.toml` is not valid TOML, the prefixes are unknown and this rule is skipped.
 
 ### Layers without a build status
-
-> **Not built yet.**
 
 A doc's [build status](../meta/glossary.md#build-status) says how far the code has caught up with it: `specified`, `changed` or `implemented`.
 Some layers have none: the method lists them ([meta/lifecycle.md](../meta/lifecycle.md#layers-without-a-build-status)), and today it lists only `scenarios`, whose cases belong to rules that behavior and ui docs own.

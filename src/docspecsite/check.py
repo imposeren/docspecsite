@@ -22,9 +22,13 @@ from .docs import (
     DIR_INDEX_NAME,
     DOC_SUFFIX,
     DOCS_DIR,
+    LAYERS_WITHOUT_BUILD_STATUS,
     Doc,
+    derive_dir_layer,
+    derive_doc_path,
     is_dir_index,
     is_in_templates_dir,
+    is_str_list,
     is_template,
     make_dir_index_path,
 )
@@ -36,7 +40,6 @@ from .problems import DocCheck, Problem
 from .schema import (
     STATUS_NOTES,
     FrontMatterValidator,
-    format_status_yaml,
     is_valid_status,
     make_status_edit_hint,
 )
@@ -326,14 +329,16 @@ class StatusNoteCheck(DocCheck):
         note, the first by line; each later one is a problem whose status still counts as given. A section status note
         is a problem in a doc with a single status, when its status is not listed, or when it gives the doc's first
         status. Each listed value after the first must be given by a status note. The full rules are the project's
-        requirement DS-46.
+        requirement DS-46. A doc in a layer without a build status is not checked either: its status notes are
+        ordinary notes.
 
         Docs: behavior/status-notes.md#requirements
+        Docs: behavior/docs-format.md#layers-without-a-build-status
 
         Args:
             doc: Parsed doc whose ``status`` and body are compared; problems are located in its file.
         """
-        if not is_valid_status(doc.status):
+        if not doc.status.is_build_tracked or not is_valid_status(doc.status):
             return []
         return DocStatusNotes(doc, self).find_problems()
 
@@ -429,14 +434,14 @@ class DocStatusNotes:
             self.report(message, hint, note)
             return
         if kind.status not in status.values:
-            message = f'{self.describe_note(kind)} in a doc whose "status" is "{format_status_yaml(status)}"'
+            message = f'{self.describe_note(kind)} in a doc whose "status" is "{status.format_yaml()}"'
             self.report(message, f"{addition_hint}, or {removal_hint}", note)
             return
         if kind.status != status.values[0]:
             return
         message = (
             f'{self.describe_note(kind)} gives the status the section "{note.heading.first_line}" already has '
-            f'from "status: {format_status_yaml(status)}"'
+            f'from "status: {status.format_yaml()}"'
         )
         self.report(
             message, f'remove the "{kind.label}" status note from the section "{note.heading.first_line}"', note
@@ -539,6 +544,85 @@ class TitleCheck(DocCheck):
         if title:
             return f'add the title "# {title}" right after the front matter'
         return 'add a "#" title heading right after the front matter'
+
+
+class RelatedOwnersCheck(DocCheck):
+    """The check that a doc in a layer without a build status names in ``related`` a current doc whose rules it gives
+    cases for.
+
+    Docs: behavior/docs-format.md#layers-without-a-build-status
+    Docs: behavior/commands.md#docs-without-a-build-status
+    Docs: architecture/docs-tooling.md#statuses-and-status-notes
+    """
+
+    # Messages
+    NO_CURRENT_OWNER_MESSAGE = '"related" names no {layers} doc that is neither deprecated nor redirect'
+    ADD_OWNERS_HINT = 'add to "related" the {layers} docs whose rules this doc gives cases for'
+    DEPRECATE_DOC_HINT = ', or write "status: deprecated" if they are all deprecated'
+
+    # Arguments of __init__
+    doc_set: DocSet
+    """See :meth:`__init__`."""
+
+    def __init__(self, doc_set: DocSet) -> None:
+        """Prepare the check of the ``related`` lists of docs.
+
+        Args:
+            doc_set: The loaded docs, in which the docs that a ``related`` list names are looked up.
+        """
+        self.doc_set = doc_set
+
+    def check(self, doc: Doc) -> list[Problem]:
+        """Return the problems of a doc's ``related`` list: one if it names no current doc it gives cases for.
+
+        Only a doc in a layer without a build status is checked, and only when it is current or a draft; an
+        ``index.md``, a ``deprecated`` or ``redirect`` doc, a doc whose ``status`` the front-matter check rejects and
+        a doc without a ``related`` list of strings are not. A ``related`` entry counts when it names a doc of the
+        loaded docs in one of those layers that is neither ``deprecated`` nor ``redirect``. The problem is on the
+        doc's first line; its hint offers deprecating the doc when a named doc of those layers is ``deprecated``.
+
+        Args:
+            doc: Parsed doc whose ``related`` list is checked.
+        """
+        owner_layers = LAYERS_WITHOUT_BUILD_STATUS.get(derive_dir_layer(doc.path))
+        if owner_layers is None or is_dir_index(doc.path) or not self.is_checked(doc):
+            return []
+        owners = self.find_named_owners(doc, owner_layers)
+        if any(not owner.status.is_retired for owner in owners):
+            return []
+        layers = " or ".join(owner_layers)
+        hint = self.ADD_OWNERS_HINT.format(layers=layers)
+        if any(owner.status.is_deprecated for owner in owners):
+            hint += self.DEPRECATE_DOC_HINT
+        return [Problem(doc.path, 1, self.NO_CURRENT_OWNER_MESSAGE.format(layers=layers), hint=hint)]
+
+    @staticmethod
+    def is_checked(doc: Doc) -> bool:
+        """Return whether the rule applies to a doc: it has a ``related`` list of strings and is current or a draft.
+
+        Args:
+            doc: Doc in a layer without a build status.
+        """
+        if doc.front_matter is None or not is_str_list(doc.front_matter.get("related")):
+            return False
+        return not doc.status.is_written or doc.status.values == ("draft",)
+
+    def find_named_owners(self, doc: Doc, owner_layers: tuple[str, ...]) -> list[Doc]:
+        """Return the docs of the given layers that a doc's ``related`` list names, in list order.
+
+        An entry is read as the link check reads it; one that names no doc of :attr:`doc_set` is left out.
+
+        Args:
+            doc: Doc whose ``related`` list is read.
+            owner_layers: Layers whose docs are kept.
+        """
+        owners: list[Doc] = []
+        for ref in DocLinks(doc).build_front_matter_refs():
+            path = derive_doc_path(ref.target) if ref.kind == "related" else None
+            owner = self.doc_set.by_path.get(path) if path is not None else None
+            if owner is not None and derive_dir_layer(owner.path) in owner_layers:
+                owners.append(owner)
+        return owners
 
 
 class OptionalCheck(Choice):
@@ -720,21 +804,22 @@ class Checker:
     def make_doc_checks(self) -> list[DocCheck]:
         """Return the checks of single docs available for the loaded settings and code.
 
-        The front matter, the links, the status notes and the titles are always checked; the code links only when the
-        code is loaded.
+        The front matter, the links, the status notes, the titles and the ``related`` lists of docs without a build
+        status are always checked; the code links only when the code is loaded.
         """
         doc_checks: list[DocCheck] = [
             self.front_matter_validator,
             self.link_check,
             self.status_note_check,
             TitleCheck(),
+            RelatedOwnersCheck(self.doc_set),
         ]
         if self.codebase is not None:
             doc_checks.append(CodeLinkCheck(self.codebase))
         return doc_checks
 
     def run(self, include_staged: bool, optional_checks: frozenset[OptionalCheck] = frozenset()) -> list[Problem]:
-        """Run all checks of the docs and return the problems found, sorted and without duplicates.
+        """Run all checks of the docs and return the problems found, sorted and without duplicates, warnings last.
 
         Of problems that differ only in their hints, the first found is kept.
 
@@ -774,7 +859,7 @@ class Checker:
             problems.extend(self.find_staged_deletes_renames())
         # Read last: the checks above load the settings and the code, which records their problems.
         problems.extend(self.loading_problems)
-        return sorted(dict.fromkeys(problems), key=lambda p: (p.path, p.line_number or 0, p.message))
+        return sorted(dict.fromkeys(problems), key=lambda p: (p.is_warning, p.path, p.line_number or 0, p.message))
 
     def check_code_components(self) -> list[Problem]:
         """Check that every id in the settings' ``code-components`` is in the component vocabulary; return the problems.

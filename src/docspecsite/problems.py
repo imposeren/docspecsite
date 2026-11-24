@@ -2,6 +2,7 @@
 
 import abc
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from .docs import Doc
 from .text import show_name_bytes
@@ -11,12 +12,17 @@ from .text import show_name_bytes
 class Problem:
     """A problem found in a doc or source file by a docs check.
 
-    It prints as ``<path>[:<line>]: <message>``, then, when it has a hint, ``  hint: <hint>`` on the next line; bytes
+    It prints as ``<path>[:<line>]: <message>``, then, when it has a hint, ``  hint: <hint>`` on the next line; a
+    warning prints as ``warning: <path>[:<line>]: <message>``, without a hint. Bytes
     of a file name that are not UTF-8 (kept in :attr:`path`, :attr:`message` and :attr:`hint` as surrogate escapes)
     print as ``\\xNN``, so the report can be written to any UTF-8 stream.
 
     Docs: architecture/docs-tooling.md#problems-and-hints
+    Docs: behavior/commands.md#check
     """
+
+    WARNING_PREFIX: ClassVar[str] = "warning: "
+    """Text before the report of a warning, which tells it from a problem."""
 
     path: str
     """Path of the file with the problem, relative to ``docs/`` unless :attr:`under_docs` is false."""
@@ -30,6 +36,9 @@ class Problem:
     under_docs: bool = True
     """Whether :attr:`path` is relative to ``docs/`` rather than to the repo root."""
 
+    is_warning: bool = False
+    """Whether this is a warning: something that breaks no rule but deserves a look."""
+
     hint: str | None = field(default=None, compare=False)
     """How to fix this particular problem, for the user; None when there is no hint. Comparisons ignore it."""
 
@@ -40,6 +49,8 @@ class Problem:
     def format_report(self, *, show_hint: bool) -> str:
         """Return the problem as printed: its location and message, then optionally its hint on an indented line.
 
+        A warning starts with ``warning: `` and never has a hint line.
+
         Docs: architecture/docs-tooling.md#problems-and-hints
 
         Args:
@@ -48,6 +59,8 @@ class Problem:
         where = f"docs/{self.path}" if self.under_docs else self.path
         if self.line_number is not None:
             where += f":{self.line_number}"
+        if self.is_warning:
+            return show_name_bytes(f"{self.WARNING_PREFIX}{where}: {self.message}")
         report = f"{where}: {self.message}"
         if show_hint and self.hint is not None:
             report += f"\n  hint: {self.hint}"

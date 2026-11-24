@@ -43,8 +43,6 @@ These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering li
 
 ### Navigation and indexes
 
-> **Changed, not built yet.** The machine listing shows an empty `status:` part for a doc without a status.
-
 - **DS-14** Each page shows: breadcrumb (up), children (down), `related` and computed **backlinks** (across), status (every status of a partly built doc and none for a doc without a status: [DS-49](status-notes.md#requirements)), components and tags.
 - **DS-15** Generated index pages: per tag, per component, and a **status board** grouping docs by `status`, then by `milestone` (in roadmap order) and `priority`; a partly built doc is listed under each of its statuses ([DS-48](status-notes.md#requirements)).
   The milestone groups come in roadmap order, then each other milestone by the code points of its name, then the docs without a milestone. Within a milestone, the priority groups come in the order `must`, `should`, `could`, then each other value (one that `check` reports, [meta/front-matter.md](../meta/front-matter.md#fields), such as `Must` with a capital or `high`) in a group of its own named by that value, by code point (so `Must` before `high`), and last the docs without a priority. A doc with such a value is still listed, so that it never drops off the board while its front matter is being fixed.

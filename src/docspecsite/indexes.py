@@ -13,7 +13,7 @@ from typing import Self
 from .config import ProjectConfig
 from .docs import DocStatus, make_string_tuple
 from .pages import Page, PageLink
-from .query import format_text_field, make_status_json_value
+from .query import format_text_field
 from .schema import LAYERS, PRIORITIES, STATUSES
 from .text import collapse_to_one_line
 from .urls import STATUS_PAGE, encode_href_path, is_usable_tag, make_component_url, make_relative_url, make_tag_url
@@ -37,18 +37,12 @@ class IndexEntry:
     """One-line summary shown in the listings; empty when the doc has none."""
 
     status: DocStatus
-    """Status of the doc; the status board lists the entry under each of its values from
-    :data:`~docspecsite.schema.STATUSES` and leaves out other values."""
+    """Status of the doc, with the milestone and the priority that group it on the status board; the board lists the
+    entry under each of its values from :data:`~docspecsite.schema.STATUSES` and leaves out other values."""
 
     layer: str
     """Layer from :data:`~docspecsite.schema.LAYERS`, or another value ``llms.txt`` leaves out; empty when the doc has
     none."""
-
-    milestone: str | None
-    """Milestone that groups the entry on the status board; None when the doc has none."""
-
-    priority: str | None
-    """Priority that groups the entry on the status board; None when the doc has none."""
 
     tags: tuple[str, ...]
     """Tags whose index pages list the entry."""
@@ -66,17 +60,13 @@ class IndexEntry:
             front_matter: Parsed front matter of the doc; values that are not text are converted to text, list
                 fields that are not lists give no values.
         """
-        milestone = front_matter.get("milestone")
-        priority = front_matter.get("priority")
         return cls(
             path=path,
             url=url,
             title=str(front_matter.get("title", path)),
             summary=str(front_matter.get("summary", "")),
-            status=DocStatus.from_front_matter(front_matter),
+            status=DocStatus.from_front_matter(front_matter, path),
             layer=str(front_matter.get("layer", "")),
-            milestone=None if milestone is None else str(milestone),
-            priority=None if priority is None else str(priority),
             tags=make_string_tuple(front_matter.get("tags")),
             components=make_string_tuple(front_matter.get("components")),
         )
@@ -191,7 +181,8 @@ class IndexRenderer:
         Args:
             entry: Doc listed on the status board.
         """
-        return self.NO_MILESTONE if entry.milestone is None else entry.milestone
+        milestone = entry.status.milestone
+        return self.NO_MILESTONE if milestone is None else milestone
 
     def find_priority_group(self, entry: IndexEntry) -> str:
         """Return the name of the status board's priority group of an entry, a fixed name without one.
@@ -201,7 +192,8 @@ class IndexRenderer:
         Args:
             entry: Doc listed on the status board.
         """
-        return self.NO_PRIORITY if entry.priority is None else entry.priority
+        priority = entry.status.priority
+        return self.NO_PRIORITY if priority is None else priority
 
     @staticmethod
     def order_groups(used: set[str], known: Sequence[str], none_name: str) -> list[str]:
@@ -278,7 +270,9 @@ class IndexRenderer:
 
         It is a plain-text list of the docs, grouped by layer; a doc whose ``layer`` is not a known layer is left out.
         Each line stays one valid Markdown link: the URL is percent-encoded and ``\\``, ``[`` and ``]`` in the title
-        are escaped.
+        are escaped. A doc without a status has no ``status:`` part.
+
+        Docs: behavior/site.md#navigation-and-indexes
 
         Args:
             site_summary: Summary of the home doc, written as the quote under the heading; may be empty.
@@ -294,10 +288,12 @@ class IndexRenderer:
             llms_lines += ["", f"## {layer}", ""]
             for entry in layer_entries:
                 components_text = ", ".join(entry.components) or "none"
-                status_text = format_text_field(make_status_json_value(entry.status))
                 title = self.LINK_TEXT_SPECIALS.sub(r"\\\g<0>", collapse_to_one_line(entry.title))
+                status_part = (
+                    f"status: {format_text_field(entry.status.make_json_value())}; " if entry.status.values else ""
+                )
                 llms_lines.append(
                     f"- [{title}]({encode_href_path(entry.url)}): {collapse_to_one_line(entry.summary)} "
-                    f"(status: {status_text}; components: {components_text}; source: docs/{entry.path})"
+                    f"({status_part}components: {components_text}; source: docs/{entry.path})"
                 )
         return "\n".join(llms_lines) + "\n"

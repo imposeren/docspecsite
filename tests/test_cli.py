@@ -8,7 +8,15 @@ import warnings
 from pathlib import Path
 
 import pytest
-from conftest import make_commit, run_git, write_doc, write_guides, write_roles_module
+from conftest import (
+    SCENARIO_IMPLEMENTED_WARNING,
+    make_commit,
+    run_git,
+    write_doc,
+    write_guides,
+    write_roles_module,
+    write_scenario_docs,
+)
 
 from docspecsite.build import BuildResult
 from docspecsite.cli import main
@@ -70,6 +78,64 @@ def test_cli_check_exit_codes(docs_tree: Path, capsys: pytest.CaptureFixture[str
     assert captured.out.startswith("docs/meta/a.md:")
     assert "nope.md does not exist" in captured.out
     assert "problem" in captured.err
+
+
+def test_a_warning_alone_does_not_fail_the_check(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_scenario_docs(docs_tree, status="implemented")
+    assert main(["--repo", str(docs_tree), "check"]) == 0
+    out, err = capsys.readouterr()
+    assert out.splitlines() == [SCENARIO_IMPLEMENTED_WARNING]
+    assert err == "1 warning(s)\n"
+
+
+def _write_meta_doc(root: Path, body: str, **front_matter: object) -> None:
+    write_doc(
+        root, "meta/index.md", "# Meta\n\n## Children\n\n- [vocabulary.md](vocabulary.md) — V.\n- [a.md](a.md) — A.\n"
+    )
+    write_doc(root, "meta/a.md", body, **front_matter)
+
+
+def test_warnings_come_after_the_problems(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_scenario_docs(docs_tree, status="implemented")
+    _write_meta_doc(docs_tree, "# A\n\n[x](nope.md)\n")
+    assert main(["--repo", str(docs_tree), "check"]) == 1
+    out, err = capsys.readouterr()
+    lines = out.splitlines()
+    assert len(lines) == 2
+    assert lines[0].startswith("docs/meta/a.md:")
+    assert lines[1] == SCENARIO_IMPLEMENTED_WARNING
+    assert err == "1 problem(s)\n1 warning(s)\n"
+
+
+def test_strict_makes_a_warning_fail_the_check(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_scenario_docs(docs_tree, status="implemented")
+    assert main(["--repo", str(docs_tree), "check", "--strict"]) == 1
+    out, err = capsys.readouterr()
+    assert out.splitlines() == [SCENARIO_IMPLEMENTED_WARNING]
+    assert err == "1 warning(s)\n"
+
+
+def test_strict_passes_without_warnings_or_problems(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_scenario_docs(docs_tree)
+    assert main(["--repo", str(docs_tree), "check", "--strict"]) == 0
+    assert capsys.readouterr() == ("", "")
+
+
+def test_strict_with_problems_and_warnings_prints_both_counts(
+    docs_tree: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_scenario_docs(docs_tree, status="implemented")
+    _write_meta_doc(docs_tree, "# A\n", status=["draft", "specified"])
+    assert main(["--repo", str(docs_tree), "check", "--strict"]) == 1
+    out, err = capsys.readouterr()
+    assert "  hint: " in out
+    assert out.splitlines()[-1] == SCENARIO_IMPLEMENTED_WARNING
+    assert err == "1 problem(s)\n1 warning(s)\n"
+    assert main(["--repo", str(docs_tree), "check", "--strict", "--no-hints"]) == 1
+    out, err = capsys.readouterr()
+    assert "hint:" not in out
+    assert out.splitlines()[-1] == SCENARIO_IMPLEMENTED_WARNING
+    assert err == "1 problem(s)\n1 warning(s)\n"
 
 
 def test_cli_check_no_hints(docs_tree: Path, capsys: pytest.CaptureFixture[str]) -> None:

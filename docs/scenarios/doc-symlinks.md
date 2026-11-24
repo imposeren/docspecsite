@@ -2,7 +2,6 @@
 title: Symlinked docs — scenarios
 summary: Exact cases for symlinks under docs/, judged by what they lead to — first, for each kind of symlink, what the check, the listings and the site do with it, also inside a symlinked directory; then what is particular to the check (hints, indexes, templates, links, removing a symlink), to the site (versions, previews, the built revision) and to loops of symlinks.
 layer: scenarios
-status: draft
 components: [checks, site]
 tags: [checks, versioning]
 related:

@@ -2,13 +2,16 @@
 
 import posixpath
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import Self, TypeGuard
+from types import MappingProxyType
+from typing import ClassVar, Literal, Self, TypeGuard
 
 import yaml
 
 from .markdown import FrontMatterSplit, MarkdownText, split_source_lines
+
+type RoadmapField = Literal["milestone", "priority"]
 
 DOCS_DIR = "docs/"
 """Directory of the docs, as a prefix of repository-relative POSIX paths."""
@@ -17,40 +20,158 @@ DOC_SUFFIX = ".md"
 """File name suffix of a doc."""
 DIR_INDEX_NAME = "index.md"
 """File name of a directory's index doc."""
+ROOT_LAYER = "root"
+"""Layer of a doc directly in ``docs/``."""
+LIST_STATUSES = ("implemented", "specified", "changed")
+"""The build statuses, which say how far the code has caught up with a doc; also the values a status list may hold.
+
+Docs: behavior/status-notes.md#requirements
+"""
+LAYERS_WITHOUT_BUILD_STATUS: Mapping[str, tuple[str, ...]] = MappingProxyType({"scenarios": ("behavior", "ui")})
+"""Each layer without a build status, mapped to the layers whose docs its docs must name in ``related``.
+
+A method rule, not a setting.
+
+Docs: behavior/docs-format.md#layers-without-a-build-status
+Docs: architecture/docs-tooling.md#statuses-and-status-notes
+"""
 
 
 @dataclass(frozen=True)
 class DocStatus:
-    """The ``status`` of a doc: one value, or a list of them (for example ``[implemented, specified]``).
+    """The ``status`` of a doc, one value or a list of them, with the doc's ``milestone`` and ``priority`` fields.
+
+    In a layer without a build status, the build statuses, the milestone and the priority are left out, so every
+    reader sees the doc as if they were not written.
 
     Docs: behavior/status-notes.md#requirements
+    Docs: behavior/docs-format.md#layers-without-a-build-status
     Docs: architecture/docs-tooling.md#statuses-and-status-notes
     """
 
-    values: tuple[str, ...]
-    """The values as written, in doc order, duplicates kept; empty when the field is missing or of the wrong shape."""
+    ROADMAP_FIELDS: ClassVar[tuple[RoadmapField, ...]] = ("milestone", "priority")
+    """Front-matter fields that place a doc on the roadmap, read with the status."""
+
+    written_values: tuple[str, ...]
+    """The values as written, in doc order, duplicates and left-out build statuses kept; empty when the field is
+    missing or of the wrong shape."""
+
+    front_matter: Mapping[str, object] = field(default_factory=dict, hash=False)
+    """The doc's front matter, from which the milestone and the priority are read; empty when the status was not
+    read from a doc."""
+
+    is_written: bool = True
+    """Whether the front matter has ``status`` and not all of its values were left out."""
+
+    is_build_tracked: bool = True
+    """Whether the layer of the doc's directory has a build status."""
 
     @classmethod
-    def from_front_matter(cls, front_matter: Mapping[str, object]) -> Self:
-        """Read the status of front matter.
+    def from_front_matter(cls, front_matter: Mapping[str, object], path: str) -> Self:
+        """Read the status, milestone and priority of a doc's front matter.
 
-        A string is one value and a list of strings is its items; anything else (a missing field, a number, a
-        mapping, a list with a non-string item) gives no values.
+        A string status is one value and a list of strings is its items; anything else (a missing field, a number, a
+        mapping, a list with a non-string item) gives no values. In a layer without a build status, which the doc's
+        directory decides whatever its ``layer`` field says, the build statuses, the milestone and the priority are
+        left out.
 
         Args:
-            front_matter: Parsed front matter of a doc; only its ``status`` field is read.
+            front_matter: Parsed front matter of a doc; its ``status``, ``milestone`` and ``priority`` fields are
+                read, the mapping is kept for the last two.
+            path: Doc path relative to ``docs/``, whose directory gives the layer.
         """
         raw = front_matter.get("status")
         if isinstance(raw, str):
-            return cls((raw,))
-        if is_str_list(raw):
-            return cls(tuple(raw))
-        return cls(())
+            written_values: tuple[str, ...] = (raw,)
+        elif is_str_list(raw):
+            written_values = tuple(raw)
+        else:
+            written_values = ()
+        status = cls(
+            written_values,
+            front_matter,
+            is_build_tracked=derive_dir_layer(path) not in LAYERS_WITHOUT_BUILD_STATUS,
+        )
+        is_written = "status" in front_matter and not (status.ignored_values and not status.values)
+        return replace(status, is_written=is_written)
+
+    @property
+    def values(self) -> tuple[str, ...]:
+        """The values as written, in doc order, duplicates kept; in a layer without a build status, the build statuses
+        are left out."""
+        return tuple(value for value in self.written_values if not self.is_ignored(value))
+
+    @property
+    def ignored_values(self) -> tuple[str, ...]:
+        """Build statuses left out of :attr:`values` in a layer without a build status, in doc order; read only for the
+        warning about them."""
+        return tuple(value for value in self.written_values if self.is_ignored(value))
+
+    def is_ignored(self, value: str) -> bool:
+        """Return whether a written value is left out of :attr:`values`: a build status in a layer without one.
+
+        Args:
+            value: One value of the ``status`` field.
+        """
+        return not self.is_build_tracked and value in LIST_STATUSES
+
+    @property
+    def roadmap_front_matter(self) -> Mapping[str, object]:
+        """The front matter the milestone and the priority are read from: the doc's own, empty in a layer without a
+        build status."""
+        return self.front_matter if self.is_build_tracked else {}
 
     @property
     def is_single(self) -> bool:
         """Whether the status has exactly one value, written as a string or as a one-value list."""
         return len(self.values) == 1
+
+    @property
+    def is_redirect(self) -> bool:
+        """Whether the doc is a redirect doc: its status is ``redirect`` alone."""
+        return self.values == ("redirect",)
+
+    @property
+    def is_deprecated(self) -> bool:
+        """Whether the doc is deprecated: its status is ``deprecated`` alone."""
+        return self.values == ("deprecated",)
+
+    @property
+    def is_retired(self) -> bool:
+        """Whether the doc is ``deprecated`` or a ``redirect``: it no longer describes the system."""
+        return self.is_deprecated or self.is_redirect
+
+    @property
+    def milestone(self) -> str | None:
+        """The milestone as text; None when the doc has none, it is null, or the layer has no build status."""
+        return self._read_roadmap_text("milestone")
+
+    @property
+    def priority(self) -> str | None:
+        """The priority as text; None when the doc has none, it is null, or the layer has no build status."""
+        return self._read_roadmap_text("priority")
+
+    def _read_roadmap_text(self, name: RoadmapField) -> str | None:
+        """Return a roadmap field's value as text; None when it is missing or null.
+
+        Args:
+            name: The roadmap field to read.
+        """
+        value = self.roadmap_front_matter.get(name)
+        return None if value is None else str(value)
+
+    def make_json_value(self) -> str | list[str] | None:
+        """Return the JSON value of the status: a string for one value, a list for more, None for none."""
+        if self.is_single:
+            return self.values[0]
+        return list(self.values) if self.values else None
+
+    def format_yaml(self) -> str:
+        """Return the YAML value of the field as written: ``implemented`` for one value, ``[implemented, specified]``
+        for more; left-out build statuses are kept."""
+        if len(self.written_values) == 1:
+            return self.written_values[0]
+        return f"[{', '.join(self.written_values)}]"
 
     def add_value(self, value: str) -> Self:
         """Return the status with one more value at the end.
@@ -58,7 +179,7 @@ class DocStatus:
         Args:
             value: Value to append.
         """
-        return type(self)((*self.values, value))
+        return replace(self, written_values=(*self.written_values, value))
 
     def remove_value(self, value: str) -> Self:
         """Return the status without any occurrence of a value.
@@ -66,11 +187,17 @@ class DocStatus:
         Args:
             value: Value to drop.
         """
-        return type(self)(tuple(kept_value for kept_value in self.values if kept_value != value))
+        return replace(self, written_values=tuple(kept for kept in self.written_values if kept != value))
 
     def remove_duplicates(self) -> Self:
-        """Return the status with each value once, at its first place."""
-        return type(self)(tuple(dict.fromkeys(self.values)))
+        """Return the status with each of its values once, at its first place; left-out values stay as written."""
+        seen: set[str] = set()
+        written_values: list[str] = []
+        for value in self.written_values:
+            if self.is_ignored(value) or value not in seen:
+                written_values.append(value)
+                seen.add(value)
+        return replace(self, written_values=tuple(written_values))
 
 
 @dataclass(frozen=True)
@@ -123,13 +250,14 @@ class Doc:
 
     @cached_property
     def status(self) -> DocStatus:
-        """The front matter's ``status``; no values when the front matter did not load."""
-        return DocStatus.from_front_matter(self.front_matter or {})
+        """The front matter's ``status``, ``milestone`` and ``priority``; nothing written when the front matter did not
+        load."""
+        return DocStatus.from_front_matter(self.front_matter or {}, self.path)
 
     @property
     def is_redirect(self) -> bool:
         """Whether the doc is a redirect doc; see :func:`is_redirect`."""
-        return is_redirect(self.front_matter or {})
+        return self.status.is_redirect
 
     @classmethod
     def parse(cls, path: str, text: str, split: FrontMatterSplit | None = None) -> Self:
@@ -159,15 +287,26 @@ class Doc:
         return cls(path, {str(k): v for k, v in front_matter.items()}, body, body_line, None)
 
 
-def is_redirect(front_matter: Mapping[str, object]) -> bool:
+def is_redirect(front_matter: Mapping[str, object], path: str) -> bool:
     """Return whether front matter belongs to a redirect doc (``status: redirect`` or ``[redirect]``).
 
-    A redirect doc is kept in place of a doc that moved or went away.
+    A redirect doc is kept in place of a doc that moved or went away. In a layer without a build status, build
+    statuses next to ``redirect`` are left out.
 
     Args:
         front_matter: Parsed front matter of a doc; only its ``status`` field is read.
+        path: Doc path relative to ``docs/``, whose directory gives the layer.
     """
-    return DocStatus.from_front_matter(front_matter).values == ("redirect",)
+    return DocStatus.from_front_matter(front_matter, path).is_redirect
+
+
+def derive_dir_layer(path: str) -> str:
+    """Return the layer of a doc's directory: its top-level directory, or ``root`` for a file directly in ``docs/``.
+
+    Args:
+        path: Doc path relative to ``docs/``.
+    """
+    return path.split("/")[0] if "/" in path else ROOT_LAYER
 
 
 def make_string_tuple(value: object, *, strings_only: bool = False) -> tuple[str, ...]:

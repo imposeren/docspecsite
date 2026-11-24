@@ -2,7 +2,6 @@
 title: Partly built docs — scenarios
 summary: Exact cases for partly built docs — a status list with status notes that the check accepts or reports with hints, `list` filtering and output, and the statuses shown on the site — and how a doc without a status, such as an agreed scenario doc, is listed and shown.
 layer: scenarios
-status: draft
 components: [checks, queries, site]
 tags: [status, checks]
 related:

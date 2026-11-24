@@ -2,7 +2,6 @@
 title: Where versions come from — scenarios
 summary: Exact cases for choosing where versions come from — automatic choice, git, no version control, a backend from another package, versions from tags only, link patterns and backend checks.
 layer: scenarios
-status: draft
 components: [versioning]
 tags: [versioning, configuration]
 related:

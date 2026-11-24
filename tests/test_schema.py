@@ -1,11 +1,11 @@
 import datetime
 
 import pytest
-from conftest import make_doc
+from conftest import SCENARIO_IMPLEMENTED_WARNING, make_doc
 
 from docspecsite.docs import Doc, DocStatus
 from docspecsite.problems import Problem
-from docspecsite.schema import FrontMatterValidator, format_status_yaml, is_valid_status, make_status_edit_hint
+from docspecsite.schema import FrontMatterValidator, is_valid_status, make_status_edit_hint
 from docspecsite.vocabulary import Vocabulary
 
 VOCAB = Vocabulary(
@@ -114,6 +114,12 @@ def test_good_tags() -> None:
 def test_milestone_and_priority() -> None:
     assert collect_messages(make_doc(milestone="foundation", priority="must")) == []
     assert_one(make_doc(milestone="later"), 'unknown milestone "later"')
+
+
+def test_a_null_milestone_or_priority_is_still_a_problem() -> None:
+    fields = make_doc().front_matter or {}
+    assert_one(Doc("meta/x.md", {**fields, "milestone": None}, "", 1, None), 'unknown milestone "None"')
+    assert_one(Doc("meta/x.md", {**fields, "priority": None}, "", 1, None), '"priority" must be one of')
 
 
 def test_redirect_valid() -> None:
@@ -317,6 +323,94 @@ def test_status_of_wrong_shape(status: object) -> None:
     assert collect_hints(checked) == [None]
 
 
-def test_format_status_yaml() -> None:
-    assert format_status_yaml(DocStatus(("implemented",))) == "implemented"
-    assert format_status_yaml(DocStatus(("implemented", "specified"))) == "[implemented, specified]"
+def make_scenario_doc(**front_matter: object) -> Doc:
+    fields = {"status": None, "related": ["behavior/import.md"], **front_matter}
+    return make_doc("scenarios/import.md", **fields)
+
+
+def test_an_agreed_scenario_doc_without_a_status_passes() -> None:
+    assert collect_problems(make_scenario_doc()) == []
+
+
+@pytest.mark.parametrize("status", ["draft", ["draft"], "deprecated"])
+def test_a_scenario_doc_may_be_a_draft_deprecated_or_a_redirect(status: object) -> None:
+    assert collect_problems(make_scenario_doc(status=status)) == []
+
+
+def test_a_redirect_scenario_doc_passes() -> None:
+    redirect = make_scenario_doc(status="redirect", redirect_kind="removed", reason="Gone.")
+    assert collect_problems(redirect) == []
+
+
+@pytest.mark.parametrize(
+    ("status", "hints"),
+    [
+        (
+            ["draft", "deprecated", "implemented"],
+            [
+                (
+                    'write "status: draft", or remove "draft" from "status" so it reads '
+                    '"status: [deprecated, implemented]"'
+                ),
+                (
+                    'write "status: deprecated", or remove "deprecated" from "status" so it reads '
+                    '"status: [draft, implemented]"'
+                ),
+            ],
+        ),
+        (
+            ["draft", "draft", "implemented"],
+            ['remove the duplicate "draft" from "status" so it reads "status: [draft, implemented]"'],
+        ),
+    ],
+)
+def test_a_status_hint_in_a_scenario_doc_keeps_the_ignored_values(status: list[str], hints: list[str]) -> None:
+    problems = collect_problems(make_scenario_doc(status=status))
+    assert [p.hint for p in problems if not p.is_warning] == hints
+
+
+def test_an_implemented_status_gives_one_warning() -> None:
+    problems = collect_problems(make_scenario_doc(status="implemented"))
+    assert [str(p) for p in problems] == [SCENARIO_IMPLEMENTED_WARNING]
+    assert all(p.is_warning for p in problems)
+
+
+@pytest.mark.parametrize(
+    "status", [["implemented"], ["implemented", "changed"], ["draft", "implemented"], ["implemented", "implemented"]]
+)
+def test_an_implemented_status_in_a_list_gives_one_warning(status: list[str]) -> None:
+    problems = collect_problems(make_scenario_doc(status=status))
+    assert [str(p) for p in problems] == [SCENARIO_IMPLEMENTED_WARNING]
+    assert all(p.is_warning for p in problems)
+
+
+@pytest.mark.parametrize("status", ["specified", "changed", ["specified", "changed"]])
+def test_other_build_statuses_are_ignored_without_a_warning(status: object) -> None:
+    assert collect_problems(make_scenario_doc(status=status)) == []
+
+
+@pytest.mark.parametrize("raw_status", [None, []])
+def test_a_status_written_with_no_value_is_still_a_problem(raw_status: object) -> None:
+    def collect_written_messages(path: str) -> list[str]:
+        fields = make_doc(path, related=["behavior/import.md"]).front_matter or {}
+        return collect_messages(Doc(path, {**fields, "status": raw_status}, "", 1, None))
+
+    expected = collect_written_messages("behavior/import.md")
+    assert expected
+    assert collect_written_messages("scenarios/import.md") == expected
+
+
+def test_a_milestone_and_a_priority_in_a_scenario_doc_are_ignored() -> None:
+    assert collect_problems(make_scenario_doc(milestone="someday", priority="high")) == []
+
+
+def test_the_directory_decides_the_layer_of_a_scenario_doc() -> None:
+    problems = collect_problems(make_scenario_doc(status="implemented", layer="behavior"))
+    assert [str(p) for p in problems] == [
+        'docs/scenarios/import.md:1: layer "behavior" does not match the directory (expected "scenarios")',
+        SCENARIO_IMPLEMENTED_WARNING,
+    ]
+
+
+def test_docs_of_other_layers_still_need_a_status() -> None:
+    assert_one(make_doc("behavior/import.md", status=None), 'missing required field "status"')

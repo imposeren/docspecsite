@@ -2,7 +2,6 @@
 title: Docs system requirements — scenarios index
 summary: The index of the scenarios of the docs system requirements — each is in the scenarios doc at the same path as its behavior doc — a doc's title and docs without a build status in docs-format.md, file and directory names and links to a directory in commands.md.
 layer: scenarios
-status: draft
 components: [checks]
 tags: [checks]
 related:

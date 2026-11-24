@@ -2,7 +2,6 @@
 title: Scenarios
 summary: Overview of Given/When/Then scenarios that pin down docspecsite's exact behavior, written for new behavior; the behavior docs and the tests cover the rest.
 layer: scenarios
-status: draft
 components: []
 tags: [overview, gherkin]
 related:

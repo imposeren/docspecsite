@@ -29,6 +29,7 @@ from docspecsite.indexes import IndexRenderer
 from docspecsite.markdown import FrontMatterSplit, MarkdownText
 from docspecsite.pages import Page, PageLink, Templates
 from docspecsite.parts import Part
+from docspecsite.urls import make_version_url
 
 _LINK = re.compile(r'(?:href|src)="([^"]*)"')
 _EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -314,6 +315,19 @@ def test_build_page_without_usable_status(repo: HistoryRepo, tmp_path: Path) -> 
     make_commit(root, "add n", "2026-11-07T12:00:00+00:00")
     run_build(root, "main", tmp_path / "site")
     assert 'class="status status-' not in _read(tmp_path / "site", "meta/n.html")
+
+
+def test_an_older_version_is_read_the_same_way(repo: HistoryRepo, tmp_path: Path) -> None:
+    root, _ = repo
+    write_doc(root, "scenarios/import.md", "# Import\n", status=["implemented", "specified"])
+    old_sha = make_commit(root, "add import", "2026-11-07T12:00:00+00:00")
+    write_doc(root, "scenarios/import.md", "# Import\n\nMore.\n", status=None)
+    make_commit(root, "agree import", "2026-11-08T12:00:00+00:00")
+    site_dir = tmp_path / "site"
+    run_build(root, "main", site_dir)
+    for page in ("scenarios/import.html", make_version_url("scenarios/import.md", _shorten_sha(old_sha))):
+        assert 'class="status status-' not in _read(site_dir, page), page
+    assert "scenarios/import.html" not in _read(site_dir, "status.html")
 
 
 def test_write_site_ignores_manifest_entries_outside_out(tmp_path: Path) -> None:

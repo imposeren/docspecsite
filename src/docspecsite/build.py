@@ -1147,7 +1147,7 @@ class SiteBuilder:
         return Page(
             url=url,
             title=str(front_matter.get("title", version.path)),
-            statuses=DocStatus.from_front_matter(front_matter).values,
+            statuses=DocStatus.from_front_matter(front_matter, version.path).values,
             components=make_string_tuple(front_matter.get("components")),
             tags=make_string_tuple(front_matter.get("tags")),
             body_html="",
@@ -1184,7 +1184,7 @@ class SiteBuilder:
         current_url = self.make_version_page_url(version)
         picker = tuple(PickerEntry(entry.label, entry.url, entry.url == current_url) for entry in picker_entries)
         redirect = None
-        if is_redirect(front_matter):
+        if is_redirect(front_matter, version.path):
             kind = str(front_matter.get("redirect_kind", ""))
             redirect = RedirectNotice(
                 RedirectNotice.REDIRECT_LABELS.get(kind, kind),
@@ -1468,8 +1468,6 @@ class SiteBuilder:
                 summary="",
                 status=DocStatus(("implemented",)),
                 layer="reference",
-                milestone=None,
-                priority=None,
                 tags=(),
                 components=self.config.find_components(m.path),
             )

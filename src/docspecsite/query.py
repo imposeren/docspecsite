@@ -76,29 +76,23 @@ class Filters:
         return True
 
 
-def make_status_json_value(status: DocStatus) -> str | list[str] | None:
-    """Return the JSON value of a status: a string for one value, a list for more, None for none.
-
-    Args:
-        status: Status to convert.
-    """
-    if status.is_single:
-        return status.values[0]
-    return list(status.values) if status.values else None
-
-
 def read_list_field(doc: Doc, field: str) -> object:
     """Return a doc's value of a front-matter field as listings show it and filters match it.
 
-    ``status`` is read as the doc's status: a string for one value, a list for more, None for none. Any other field
-    is the value as written.
+    ``status`` is read as the doc's status: a string for one value, a list for more, None for none. ``milestone`` and
+    ``priority`` are the values as written, None in a layer without a build status. Any other field is the value as
+    written.
+
+    Docs: behavior/status-notes.md#requirements
 
     Args:
         doc: Doc to read; a doc whose front matter did not load has None for every field.
         field: Name of the front-matter field, such as ``title`` or ``status``.
     """
     if field == "status":
-        return make_status_json_value(doc.status)
+        return doc.status.make_json_value()
+    if field in DocStatus.ROADMAP_FIELDS:
+        return doc.status.roadmap_front_matter.get(field)
     return (doc.front_matter or {}).get(field)
 
 

@@ -14,6 +14,7 @@ from conftest import (
     write_doc,
     write_guides,
     write_roles_module,
+    write_scenario_docs,
 )
 from markdown_it.token import Token
 
@@ -23,6 +24,11 @@ from docspecsite.docset import DocSet
 from docspecsite.git import GitError
 from docspecsite.markdown import MarkdownText
 from docspecsite.problems import Problem
+
+RELATED_PROBLEM = (
+    'docs/scenarios/import.md:1: "related" names no behavior or ui doc that is neither deprecated nor redirect'
+)
+RELATED_HINT = '  hint: add to "related" the behavior or ui docs whose rules this doc gives cases for'
 
 
 def find_link_problems(root: Path) -> list[str]:
@@ -893,3 +899,99 @@ def test_body_parsed_once_with_code_check(code_tree: Path, monkeypatch: pytest.M
     assert checker.run(include_staged=False) == []
     bodies = Counter(doc.body for doc in checker.doc_set)
     assert {body: parsed_texts[body] for body in bodies} == bodies
+
+
+def find_scenario_problems(root: Path) -> list[str]:
+    return find_problems_at(root, "scenarios/import.md")
+
+
+@pytest.mark.parametrize(
+    "related",
+    [
+        ["behavior/import.md"],
+        ["ui/import.md"],
+        ["architecture/components.md", "behavior/import.md"],
+        ["behavior/import.md#import"],
+        ["behavior/draft.md"],
+    ],
+)
+def test_a_current_behavior_or_ui_doc_in_related_passes(docs_tree: Path, related: list[str]) -> None:
+    write_scenario_docs(docs_tree, related=related)
+    write_doc(docs_tree, "ui/import.md", "# Import\n")
+    write_doc(docs_tree, "behavior/draft.md", "# Draft\n", status="draft")
+    assert find_scenario_problems(docs_tree) == []
+
+
+def test_an_empty_related_list(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree, status="draft", related=[])
+    assert find_scenario_problems(docs_tree) == [f"{RELATED_PROBLEM}\n{RELATED_HINT}"]
+
+
+def test_a_related_list_with_docs_of_other_layers_only(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree, related=["architecture/components.md", "scenarios/export.md"])
+    write_doc(docs_tree, "scenarios/export.md", "# Export\n", status=None, related=["behavior/import.md"])
+    assert [p.splitlines()[0] for p in find_scenario_problems(docs_tree)] == [RELATED_PROBLEM]
+
+
+def test_a_related_list_with_a_deprecated_behavior_doc_only(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree, related=["behavior/old.md"])
+    write_doc(docs_tree, "behavior/old.md", "# Old\n", status="deprecated")
+    assert find_scenario_problems(docs_tree) == [
+        f'{RELATED_PROBLEM}\n{RELATED_HINT}, or write "status: deprecated" if they are all deprecated'
+    ]
+
+
+def test_a_related_list_with_a_redirect_behavior_doc_only(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree, related=["behavior/old.md"])
+    write_doc(docs_tree, "behavior/old.md", "# Old\n", status="redirect", redirect_kind="removed", reason="Gone.")
+    assert find_scenario_problems(docs_tree) == [f"{RELATED_PROBLEM}\n{RELATED_HINT}"]
+
+
+def test_a_related_entry_that_is_not_a_doc_does_not_count(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree, related=["behavior/gone.md"])
+    problems = [p.splitlines()[0] for p in find_scenario_problems(docs_tree)]
+    assert RELATED_PROBLEM in problems
+    assert any("behavior/gone.md does not exist" in p for p in problems)
+
+
+def test_a_missing_related_list_is_a_missing_field(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree, related=None)
+    assert find_scenario_problems(docs_tree) == ['docs/scenarios/import.md:1: missing required field "related"']
+
+
+def test_a_related_field_that_is_not_a_list(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree, related="behavior/import.md")
+    assert find_scenario_problems(docs_tree) == ['docs/scenarios/import.md:1: "related" must be a list of strings']
+
+
+@pytest.mark.parametrize("case", ["deprecated", "redirect", "index", "behavior", "rejected status"])
+def test_docs_the_rule_does_not_apply_to(docs_tree: Path, case: str) -> None:
+    write_scenario_docs(docs_tree)
+    path = {"index": "scenarios/index.md", "behavior": "behavior/import.md"}.get(case, "scenarios/import.md")
+    front_matter_by_case = {
+        "deprecated": {"status": "deprecated"},
+        "redirect": {"status": "redirect", "redirect_kind": "removed", "reason": "Gone."},
+        "rejected status": {"status": ["draft", "deprecated"]},
+    }
+    front_matter = front_matter_by_case.get(case, {})
+    file = write_doc(docs_tree, path, "# Doc\n", related=[], **front_matter)
+    if case == "index":
+        edit_text(file, lambda text: text + "\n## Children\n\n- [import.md](import.md) — Import.\n")
+    assert not any('"related" names' in p for p in find_problems_at(docs_tree, path))
+
+
+@pytest.mark.parametrize("related", [["behavior/"], ["../README.md"]])
+def test_a_related_entry_naming_a_directory_or_a_path_outside_docs_does_not_count(
+    docs_tree: Path, related: list[str]
+) -> None:
+    write_scenario_docs(docs_tree, related=related)
+    (docs_tree / "README.md").write_text("Readme.\n", encoding="utf-8")
+    assert RELATED_PROBLEM in [p.splitlines()[0] for p in find_scenario_problems(docs_tree)]
+
+
+def test_a_scenario_doc_whose_front_matter_does_not_load_gets_only_its_loading_problem(docs_tree: Path) -> None:
+    write_scenario_docs(docs_tree)
+    (docs_tree / "docs/scenarios/import.md").write_text("---\nstatus: [\n---\n\n# Import\n", encoding="utf-8")
+    problems = find_scenario_problems(docs_tree)
+    assert len(problems) == 1
+    assert "front matter is not valid YAML" in problems[0]

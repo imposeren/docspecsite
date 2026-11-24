@@ -202,3 +202,16 @@ def test_two_status_notes_in_one_section(label: str, status: str) -> None:
 
 def test_unknown_label_passes() -> None:
     assert check_doc("# I\n\n## A\n\n> **Deprecated soon.** Use the new import.\n", "implemented") == []
+
+
+def test_status_notes_in_a_scenario_doc_are_ordinary_notes() -> None:
+    doc = make_doc(
+        "scenarios/import.md", "# Import\n\n> **Built.**\n\n## Export\n\n> **Not built yet.**\n", 10, status="draft"
+    )
+    assert StatusNoteCheck(STATUS_NOTES).check(doc) == []
+
+
+def test_a_status_note_in_a_scenario_doc_with_ignored_statuses_is_ordinary() -> None:
+    body = "# Import\n\n## Export\n\n> **Changed, not built yet.**\n"
+    doc = make_doc("scenarios/import.md", body, 10, status=["implemented", "changed"])
+    assert StatusNoteCheck(STATUS_NOTES).check(doc) == []

@@ -10,7 +10,7 @@ import re
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from .docs import Doc, DocStatus, is_dir_index, is_redirect, is_str_list
+from .docs import LIST_STATUSES, ROOT_LAYER, Doc, DocStatus, derive_dir_layer, is_dir_index, is_str_list
 from .problems import DocCheck, Problem
 from .vocabulary import Vocabulary
 
@@ -18,7 +18,7 @@ ADR_DIR = "architecture/decisions/"
 ADR_NAME_PATTERN = re.compile(r"^(?P<prefix>[A-Z]+)-\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.md$")
 
 LAYERS = (
-    "root",
+    ROOT_LAYER,
     "meta",
     "behavior",
     "scenarios",
@@ -33,11 +33,6 @@ STATUSES = ("draft", "specified", "changed", "implemented", "deprecated", "redir
 
 Docs: meta/lifecycle.md
 """
-LIST_STATUSES = ("implemented", "specified", "changed")
-"""Statuses that may be combined in a status list.
-
-Docs: behavior/status-notes.md#requirements
-"""
 STATUS_NOTES: Mapping[str, str] = MappingProxyType(
     {"Not built yet.": "specified", "Changed, not built yet.": "changed", "Built.": "implemented"}
 )
@@ -51,7 +46,7 @@ PRIORITIES = ("must", "should", "could")
 def is_valid_status(status: DocStatus) -> bool:
     """Return whether a status is one known value, or a list of two or more distinct values that may be combined.
 
-    The known values are :data:`STATUSES`, those that may be combined :data:`LIST_STATUSES`.
+    The known values are :data:`STATUSES`, those that may be combined :data:`~docspecsite.docs.LIST_STATUSES`.
 
     Docs: behavior/status-notes.md#requirements
 
@@ -62,17 +57,6 @@ def is_valid_status(status: DocStatus) -> bool:
     if status.is_single:
         return values[0] in STATUSES
     return bool(values) and len(set(values)) == len(values) and all(value in LIST_STATUSES for value in values)
-
-
-def format_status_yaml(status: DocStatus) -> str:
-    """Return the YAML value of a status: ``implemented`` for one value, ``[implemented, specified]`` for more.
-
-    Args:
-        status: Status to write.
-    """
-    if status.is_single:
-        return status.values[0]
-    return f"[{', '.join(status.values)}]"
 
 
 def make_status_edit_hint(edit: str, status: DocStatus) -> str:
@@ -86,7 +70,7 @@ def make_status_edit_hint(edit: str, status: DocStatus) -> str:
         edit: The change, as the words that come before ``"status"``, such as ``remove "draft" from``.
         status: Status the doc has after the change.
     """
-    return f'{edit} "status" so it reads "status: {format_status_yaml(status)}"'
+    return f'{edit} "status" so it reads "status: {status.format_yaml()}"'
 
 
 def is_adr(path: str) -> bool:
@@ -169,7 +153,7 @@ class FrontMatterCheck:
     """Required fields whose value must be a list of strings."""
 
     REQUIRED_FIELDS = ("title", "summary", "layer", "status", *REQUIRED_LISTS)
-    """Fields every doc's front matter must have."""
+    """Fields every doc's front matter must have; ``status`` only in a layer with a build status."""
 
     REQUIRED_STRINGS = ("title", "summary")
     """Required fields whose value must be non-empty text."""
@@ -180,6 +164,12 @@ class FrontMatterCheck:
 
     TAG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
     """Pattern of a valid tag: lowercase words joined by hyphens."""
+
+    # Messages
+    IGNORED_IMPLEMENTED_MESSAGE = (
+        '"implemented" in "status" is ignored: the "{layer}" layer has no build status, and the value can mislead a '
+        "reader once the doc that owns the rules changes and nobody updates it"
+    )
 
     # Allowed values
     DECISIONS = ("proposed", "accepted", "superseded")
@@ -233,16 +223,12 @@ class FrontMatterCheck:
         """
         return isinstance(value, str) and value.strip() != ""
 
-    @staticmethod
-    def derive_expected_layer(path: str) -> str:
-        """Return the layer a doc must declare in its front matter.
-
-        That is the top-level directory of the path, or ``root`` for a file directly in ``docs/``.
-
-        Args:
-            path: Doc path relative to ``docs/``, whose first directory names the layer.
-        """
-        return path.split("/")[0] if "/" in path else "root"
+    def get_required_fields(self) -> tuple[str, ...]:
+        """Return the fields the doc's front matter must have: :attr:`REQUIRED_FIELDS`, without ``status`` in a layer
+        without a build status."""
+        if self.doc.status.is_build_tracked:
+            return self.REQUIRED_FIELDS
+        return tuple(field for field in self.REQUIRED_FIELDS if field != "status")
 
     def find_problems(self) -> list[Problem]:
         """Return the front matter's rule violations as problems, all on line 1 of the doc.
@@ -250,7 +236,8 @@ class FrontMatterCheck:
         A check covers one doc once: call this a single time per :class:`FrontMatterCheck`.
         """
         front_matter = self.front_matter
-        for field in self.REQUIRED_FIELDS:
+        status = self.doc.status
+        for field in self.get_required_fields():
             if field not in front_matter:
                 self.report(f'missing required field "{field}"')
         for field in self.REQUIRED_STRINGS:
@@ -260,12 +247,12 @@ class FrontMatterCheck:
             if field in front_matter and not is_str_list(front_matter[field]):
                 self.report(f'"{field}" must be a list of strings')
 
-        self.check_enum("layer", LAYERS)
+        self.check_enum("layer", LAYERS, front_matter)
         self.check_status()
-        self.check_enum("priority", PRIORITIES)
+        self.check_enum("priority", PRIORITIES, status.roadmap_front_matter)
 
         layer = front_matter.get("layer")
-        expected_layer = self.derive_expected_layer(self.doc.path)
+        expected_layer = derive_dir_layer(self.doc.path)
         if layer in LAYERS and layer != expected_layer:
             self.report(f'layer "{layer}" does not match the directory (expected "{expected_layer}")')
 
@@ -280,41 +267,49 @@ class FrontMatterCheck:
                 if not self.TAG_PATTERN.match(tag):
                     self.report(f'tag "{tag}" must be lowercase words separated by "-"')
 
-        if "milestone" in front_matter and front_matter["milestone"] not in self.vocab.milestones:
-            self.report(f'unknown milestone "{front_matter["milestone"]}" (milestones are listed in roadmap.md)')
+        roadmap_front_matter = status.roadmap_front_matter
+        if "milestone" in roadmap_front_matter and roadmap_front_matter["milestone"] not in self.vocab.milestones:
+            self.report(
+                f'unknown milestone "{roadmap_front_matter["milestone"]}" (milestones are listed in roadmap.md)'
+            )
 
         self.check_redirect_rules()
         self.check_adr_rules()
+        self.check_ignored_statuses()
         return self.problems
 
-    def report(self, message: str, hint: str | None = None) -> None:
-        """Record a violation as a problem on line 1 of the doc.
+    def report(self, message: str, hint: str | None = None, *, is_warning: bool = False) -> None:
+        """Record a violation, or a warning, as a problem on line 1 of the doc.
 
         Args:
             message: What is wrong, for the user.
             hint: How to fix this particular case; None for no hint.
+            is_warning: Whether it is a warning rather than a broken rule.
         """
-        self.problems.append(Problem(self.doc.path, 1, message, hint=hint))
+        self.problems.append(Problem(self.doc.path, 1, message, is_warning=is_warning, hint=hint))
 
-    def check_enum(self, field: str, allowed: tuple[str, ...]) -> None:
+    def check_enum(self, field: str, allowed: tuple[str, ...], fields: Mapping[str, object]) -> None:
         """Record a violation if the field is present with a value outside the allowed ones.
 
         Args:
             field: Name of the front-matter field to check; nothing is recorded when the doc lacks it.
             allowed: Values the field may take; the message lists them.
+            fields: The fields to read it from: the front matter, or the one the doc's status reads the milestone
+                and the priority from.
         """
-        if field in self.front_matter and self.front_matter[field] not in allowed:
+        if field in fields and fields[field] not in allowed:
             self.report(f'"{field}" must be one of: {", ".join(allowed)}')
 
     def check_status(self) -> None:
         """Record the violations of the ``status`` rules, with hints that fix them where a fix is clear.
 
-        A missing ``status`` is left to the required-field rule. A status with no values or a value outside
+        A missing ``status`` is left to the required-field rule, and one whose values were all left out, in a layer
+        without a build status, counts as not written. A status with no values or a value outside
         :data:`STATUSES` is one violation without a hint. Otherwise each single-only value combined with other values
         is one violation, then each value listed more than once, in doc order.
         """
         status = self.doc.status
-        if "status" not in self.front_matter or is_valid_status(status):
+        if not status.is_written or is_valid_status(status):
             return
         if not status.values or any(value not in STATUSES for value in status.values):
             self.report(
@@ -338,10 +333,20 @@ class FrontMatterCheck:
                     hint=make_status_edit_hint(f'remove the duplicate "{value}" from', distinct_status),
                 )
 
+    def check_ignored_statuses(self) -> None:
+        """Record the warning about an ignored ``implemented`` status, once, in a layer without a build status.
+
+        Docs: behavior/docs-format.md#layers-without-a-build-status
+        Docs: behavior/commands.md#docs-without-a-build-status
+        """
+        if "implemented" in self.doc.status.ignored_values:
+            layer = derive_dir_layer(self.doc.path)
+            self.report(self.IGNORED_IMPLEMENTED_MESSAGE.format(layer=layer), is_warning=True)
+
     def check_redirect_rules(self) -> None:
         """Record any violations of the rules for ``redirect_*`` fields and ``reason``."""
         front_matter = self.front_matter
-        if not is_redirect(front_matter):
+        if not self.doc.is_redirect:
             for field in ("redirect_kind", "redirect_to"):
                 if field in front_matter:
                     self.report(f'"{field}" is only allowed with status: redirect')

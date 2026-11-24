@@ -2,7 +2,6 @@
 title: Commands — scenarios
 summary: Exact cases for the revision a build shows by default, for the source links of changed code in a preview and of a symlinked code directory, for body links whose target is found or not found, for input that docspecsite cannot use, for unknown components in `code-components`, for the backlinks of a doc template, for output into a pipe that closes early, for the characters that file names may not contain, for the anchors of links to a directory, and for warnings in the check and `check --strict`.
 layer: scenarios
-status: draft
 components: [site, code-reference, checks, queries]
 tags: [cli, rendering]
 related:

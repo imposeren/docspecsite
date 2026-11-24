@@ -540,7 +540,7 @@ class PageLinks:
                 target_version = contemporary
                 url = make_version_url(path, contemporary.short_id)
         front_matter = self.resolver.front_matter_of(target_version) or {}
-        if is_redirect(front_matter):
+        if is_redirect(front_matter, target_version.path):
             markers.append(MARKERS["moved"])
         return RenderedLink(make_relative_url(url + suffix, self.page_url), tuple(markers))
 

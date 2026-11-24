@@ -137,6 +137,8 @@ The git backend, with `versions = "commits"` (the default), builds it as follows
 
 ## Statuses and status notes
 
+> **Built.**
+
 A doc's `status` is one value or, for a partly built doc, a list ([behavior/status-notes.md](../behavior/status-notes.md), DS-44 to DS-49); in a [layer without a build status](../meta/lifecycle.md#layers-without-a-build-status), today the scenarios layer, docspecsite ignores the build statuses, the `milestone` and `priority` fields and status notes ([DS-53](../behavior/docs-format.md#layers-without-a-build-status)).
 The status is parsed once into one type that every reader uses; the section notes are read from the Markdown parser's block structure; and the checks compare them with the rules: the front-matter check, the status note check, the check of a scenario doc's `related` list, and the title check that keeps each doc's title in its place (DS-52).
 
@@ -271,6 +273,8 @@ It prints as the problem line, then, when it has a hint, the hint line (`  hint:
 The message keeps one form per kind of problem, so the problem line is stable for scripts; how to fix the case goes into the hint.
 
 ## Errors and warnings
+
+> **Built.**
 
 Errors in `docspecsite build` stay local to the page they occur in ([behavior/commands.md](../behavior/commands.md#build)).
 An expected failure (a doc version that is not valid UTF-8, a doc at a reserved path) is an error line for that page.

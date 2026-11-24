@@ -2,7 +2,7 @@
 title: Partly built docs
 summary: A doc that is only partly built lists several statuses and gives the sections that differ a status note; docspecsite checks that the list and the status notes agree, finds such a doc under each of its statuses, and shows all of them on the site.
 layer: behavior
-status: [implemented, changed]
+status: implemented
 code: [docspecsite.docs.DocStatus, docspecsite.check.StatusNoteCheck, docspecsite.markdown.MarkdownText.get_section_notes, docspecsite.problems.Problem]
 milestone: later
 priority: should
@@ -46,8 +46,6 @@ These are the texts docspecsite ships; a project can set its own in its settings
 Text may follow the status note on the same line, such as what still works the old way.
 
 ## Requirements
-
-> **Changed, not built yet.** The build statuses and status notes of a scenario doc count like those of any other doc, and `llms.txt` shows an empty `status:` part for a doc without a status.
 
 These requirements are part of the [DS-n](../meta/glossary.md#ds-n) numbering listed in [requirements.md](requirements.md):
 

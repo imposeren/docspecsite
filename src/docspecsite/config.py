@@ -12,9 +12,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import ClassVar
 
-from .docs import is_str_list, make_string_tuple
+from .docs import LIST_STATUSES, is_str_list, make_string_tuple
 from .errors import DocspecsiteError, DocspecsiteWarning
-from .schema import ADR_DIR, ADR_NAME_PATTERN, LIST_STATUSES, STATUS_NOTES
+from .schema import ADR_DIR, ADR_NAME_PATTERN, STATUS_NOTES
 from .text import decode_text
 
 

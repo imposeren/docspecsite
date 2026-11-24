@@ -27,7 +27,7 @@ def _build_index_pages(
     return [make() for make in makers.values()]
 
 
-def test_tag_and_component_pages() -> None:
+def test_tag_and_component_htmls() -> None:
     entries = [
         _make_entry("b.md", tags=["x"], components=["storage/files"]),
         _make_entry("a.md", tags=["x"]),
@@ -141,6 +141,43 @@ def test_status_board_milestone_order() -> None:
         p for p in _build_index_pages(entries, [], ("first", "second"), site_title="Docs") if p.url == "status.html"
     )
     assert re.findall(r"<h3>(.*?)</h3>", page.body_html) == ["first", "second", "Alpha", "zeta", "no milestone"]
+
+
+def _make_scenario_entry(**front_matter: object) -> IndexEntry:
+    fields = {
+        "title": "Import — scenarios",
+        "layer": "scenarios",
+        "components": ["checks"],
+        "status": "implemented",
+        "milestone": "later",
+        "priority": "must",
+        **front_matter,
+    }
+    return _make_entry("scenarios/import.md", **fields)
+
+
+def test_the_machine_listing_leaves_out_the_status_of_a_doc_without_one() -> None:
+    llms = IndexRenderer([_make_scenario_entry()], [], _NO_CONFIG, "Docs", _NO_VOCABULARY).render_llms_txt("All.")
+    assert (
+        "- [Import — scenarios](scenarios/import.html): S (components: checks; source: docs/scenarios/import.md)\n"
+        in llms
+    )
+    assert "status:" not in llms
+
+
+def test_a_doc_without_a_status_is_not_on_the_status_board() -> None:
+    pages = {p.url: p for p in _build_index_pages([_make_scenario_entry()], [], ("later",), site_title="Docs")}
+    assert "scenarios/import.html" not in pages["status.html"].body_html
+    component_html = pages["components/checks.html"].body_html
+    assert "import.html" in component_html
+    assert 'class="status' not in component_html
+
+
+def test_a_draft_scenario_doc_is_on_the_status_board() -> None:
+    entries = [_make_scenario_entry(status=["draft", "implemented"])]
+    page = next(p for p in _build_index_pages(entries, [], ("later",), site_title="Docs") if p.url == "status.html")
+    assert re.findall(r"<h[234]>(.*?)</h[234]>", page.body_html) == ["draft", "no milestone", "none"]
+    assert 'href="scenarios/import.html"' in page.body_html
 
 
 def test_llms_txt_escapes_url_and_title() -> None:

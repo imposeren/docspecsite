@@ -2,7 +2,6 @@
 title: Docs format — scenarios
 summary: Exact cases for the docs check's rule on a doc's title (text before it, a doc without one, a second level-1 heading, docs whose front matter does not load) and the heading a page without one shows, and for scenario docs, whose build status, milestone, priority and status notes are ignored and which name the docs they give cases for.
 layer: scenarios
-status: draft
 components: [checks]
 tags: [checks]
 related:

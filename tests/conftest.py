@@ -99,6 +99,10 @@ ROOT_INDEX_WITH_GUIDES = (
     "## Children\n\n- [roadmap.md](roadmap.md) — M.\n- [meta/index.md](meta/index.md) — R.\n"
     "- [architecture/index.md](architecture/index.md) — A.\n- [guides/](guides/index.md) — G.\n"
 )
+SCENARIO_IMPLEMENTED_WARNING = (
+    'warning: docs/scenarios/import.md:1: "implemented" in "status" is ignored: the "scenarios" layer has no build '
+    "status, and the value can mislead a reader once the doc that owns the rules changes and nobody updates it"
+)
 
 
 class HistoryRepo(NamedTuple):
@@ -205,6 +209,33 @@ def docs_tree(tmp_path: Path) -> Path:
     )
     write_doc(tmp_path, "architecture/components.md", _COMPONENTS)
     return tmp_path
+
+
+def write_scenario_docs(root: Path, **front_matter: object) -> None:
+    """Add a behavior doc and a scenario doc that gives cases for it to a ``docs_tree``, keeping its check clean.
+
+    The scenario doc ``scenarios/import.md`` has no ``status`` and names ``behavior/import.md`` in ``related``.
+
+    Args:
+        root: Repo root of a ``docs_tree``.
+        **front_matter: Fields of the scenario doc overriding these; ``None`` removes that field.
+    """
+    write_doc(
+        root,
+        "index.md",
+        "# Docs\n\n## Children\n\n"
+        "- [roadmap.md](roadmap.md) — Milestones.\n"
+        "- [meta/index.md](meta/index.md) — Rules.\n"
+        "- [architecture/index.md](architecture/index.md) — How it is built.\n"
+        "- [behavior/](behavior/index.md) — What it does.\n"
+        "- [scenarios/](scenarios/index.md) — Exact cases.\n",
+    )
+    write_doc(root, "behavior/index.md", "# Behavior\n\n## Children\n\n- [import.md](import.md) — Import.\n")
+    write_doc(root, "behavior/import.md", "# Import\n")
+    write_doc(root, "scenarios/index.md", "# Scenarios\n\n## Children\n\n- [import.md](import.md) — Import.\n")
+    write_doc(
+        root, "scenarios/import.md", "# Import\n", **{"status": None, "related": ["behavior/import.md"], **front_matter}
+    )
 
 
 def run_git(root: Path, *args: str, env: Mapping[str, str] | None = None, input: str | None = None) -> str:

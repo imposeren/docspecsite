@@ -100,6 +100,12 @@ class CommandParser:
             action="store_false",
             help="leave out the hint lines under the problems",
         )
+        check_parser.add_argument(
+            "--strict",
+            dest="fail_on_warnings",
+            action="store_true",
+            help="exit with 1 on warnings too (for CI)",
+        )
         check_parser.set_defaults(handler=run_check_command)
 
         list_parser = commands.add_parser(
@@ -156,14 +162,17 @@ class CommandParser:
 
 
 def run_check_command(args: argparse.Namespace) -> int:
-    """Run the ``check`` command and print its problems.
+    """Run the ``check`` command and print its problems, then its warnings, and their counts on stderr.
 
-    Returns exit status 1 when problems are found or ``staged`` is set outside git, else 0.
+    Returns exit status 1 when problems are found, when warnings are found and ``fail_on_warnings`` is set, or when
+    ``staged`` is set outside git, else 0.
+
+    Docs: behavior/commands.md#check
 
     Args:
         args: Parsed ``check`` options; ``repo``, ``staged``, ``optional_checks`` (the set of
-            :class:`~docspecsite.check.OptionalCheck` to run as well) and ``show_hints`` (whether to print the hint
-            lines under the problems) are used.
+            :class:`~docspecsite.check.OptionalCheck` to run as well), ``show_hints`` (whether to print the hint
+            lines under the problems) and ``fail_on_warnings`` (whether warnings fail the check too) are used.
     """
     try:
         problems = Checker(args.repo).run(include_staged=args.staged, optional_checks=args.optional_checks)
@@ -172,10 +181,13 @@ def run_check_command(args: argparse.Namespace) -> int:
         return 1
     for problem in problems:
         print(problem.format_report(show_hint=args.show_hints))
-    if problems:
-        print(f"{len(problems)} problem(s)", file=sys.stderr)
-        return 1
-    return 0
+    warning_count = sum(problem.is_warning for problem in problems)
+    problem_count = len(problems) - warning_count
+    if problem_count:
+        print(f"{problem_count} problem(s)", file=sys.stderr)
+    if warning_count:
+        print(f"{warning_count} warning(s)", file=sys.stderr)
+    return 1 if problem_count or (args.fail_on_warnings and warning_count) else 0
 
 
 def run_list_command(args: argparse.Namespace) -> int:
