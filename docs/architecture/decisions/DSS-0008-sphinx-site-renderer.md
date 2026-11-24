@@ -3,7 +3,7 @@ title: "DSS-0008: Sphinx as the site renderer, behind a renderer seam"
 summary: The site is rendered by Sphinx with MyST-Parser, sphinx-autoapi and the furo theme, always installed, behind a small renderer seam whose temporary `internal` renderer keeps today's custom renderer selectable until a later release removes it; supersedes DSS-0001.
 layer: architecture
 status: specified
-decision: proposed
+decision: accepted
 date: 2026-11-24
 components: [site, code-reference, distribution]
 tags: [adr, rendering, tooling]
