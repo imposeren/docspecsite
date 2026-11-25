@@ -37,7 +37,8 @@ filterwarnings = ["error"]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "S101", "BLE001", "PLW0603", "N", "ISC", "TID252",
+# Ruff's default rule set (no `select`), extended with the project's own rules.
+extend-select = ["E", "F", "W", "I", "UP", "B", "S101", "BLE001", "PLW0603", "N", "ISC", "TID252",
     "D1", "D205", "D212", "D417", "PLC0415", "ERA001", "TD003"]
 
 [tool.ruff.lint.per-file-ignores]
