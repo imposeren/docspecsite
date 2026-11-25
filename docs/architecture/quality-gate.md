@@ -48,8 +48,6 @@ Hooks run on what a commit stages.
 
 ### Ruff rule sets
 
-> **Changed, not built yet.** The configuration does not select `D1`, `D205`, `D212`, `D417`, `PLC0415`, `ERA001` and `TD003` yet.
-
 Ruff settings live in `pyproject.toml`: line length 120, and these rule sets:
 
 | Rules | What they check |
