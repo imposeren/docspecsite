@@ -1194,7 +1194,7 @@ def test_build_code_part_needs_code_dirs(history_repo: HistoryRepo, tmp_path: Pa
 
 
 def test_build_docs_only(repo: HistoryRepo, tmp_path: Path) -> None:
-    root, shas = repo
+    root, _ = repo
     write_doc(
         root, "meta/x.md", "[x](code:sample.mod.Thing)\n", title="X doc", code=["sample.mod"], components=["core"]
     )
@@ -1532,7 +1532,7 @@ def test_build_reads_tree_once(repo: HistoryRepo, tmp_path: Path, monkeypatch: p
     for name in ("read_tree", "list_worktree_files"):
         original = getattr(Git, name)
 
-        def count_call(self: Git, *args: Any, _name: str = name, _original: Any = original) -> Any:  # noqa: ANN401
+        def count_call(self: Git, *args: Any, _name: str = name, _original: Any = original) -> Any:
             calls.append(_name)
             return _original(self, *args)
 

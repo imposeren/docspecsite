@@ -27,7 +27,7 @@ def _render(page: Page) -> str:
 
 def test_page_chrome() -> None:
     html = _render(replace(_PAGE, breadcrumb=(PageLink("Home", "index.html"),)))
-    assert re.search(r'<nav class="breadcrumb">.*?href="\.\./index\.html"', html, re.S)
+    assert re.search(r'<nav class="breadcrumb">.*?href="\.\./index\.html"', html, re.DOTALL)
     assert '<span class="status status-specified">specified</span>' in html
     assert 'href="../components/core.html"' in html
     assert 'href="../tags/x.html"' in html
@@ -214,6 +214,6 @@ def test_body_h1_moves_to_title_position() -> None:
 
 
 def test_status_link_on_every_page() -> None:
-    assert re.search(r'<nav class="site">.*?<a href="\.\./status\.html">Status</a>', _render(_PAGE), re.S)
+    assert re.search(r'<nav class="site">.*?<a href="\.\./status\.html">Status</a>', _render(_PAGE), re.DOTALL)
     root = _render(replace(_PAGE, url="index.html"))
     assert '<a href="status.html">Status</a>' in root

@@ -318,7 +318,7 @@ def edit_text(file: Path, edit: Callable[[str], str]) -> None:
 
 def extract_aside(html: str, cls: str) -> str:
     """Return the inner HTML of the first ``<aside class="<cls>">`` in ``html``."""
-    found = re.search(rf'<aside class="{cls}">(.*?)</aside>', html, re.S)
+    found = re.search(rf'<aside class="{cls}">(.*?)</aside>', html, re.DOTALL)
     assert found, cls
     return found.group(1)
 

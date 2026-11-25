@@ -108,7 +108,7 @@ class Page:
     Every URL is site-root-relative; the template makes them relative to :attr:`url`.
     """
 
-    LEADING_H1: ClassVar[re.Pattern[str]] = re.compile(r"\s*(<h1[\s>].*?</h1>)\s*", re.S)
+    LEADING_H1: ClassVar[re.Pattern[str]] = re.compile(r"\s*(<h1[\s>].*?</h1>)\s*", re.DOTALL)
     """An ``<h1>`` element at the start of a body, with the spaces around it."""
 
     url: str

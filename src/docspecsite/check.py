@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import nonmember
 from functools import cached_property
 from pathlib import Path, PurePosixPath
+from typing import ClassVar
 
 import griffe
 
@@ -647,7 +648,7 @@ class Checker:
     FORBIDDEN_NAME_CHARACTERS = ("#", "%", "?")
     """Characters a file or directory name under ``docs/`` must not contain."""
 
-    SYMLINK_ENDS_BY_KIND = {
+    SYMLINK_ENDS_BY_KIND: ClassVar[Mapping[SymlinkKind, str]] = {
         SymlinkKind.OUT_OF_REPO: "out of the repo",
         SymlinkKind.NOTHING: "to nothing",
         SymlinkKind.DOC: "to a doc",

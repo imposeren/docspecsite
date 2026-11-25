@@ -90,7 +90,7 @@ def test_render_keeps_encoded_reserved_characters_in_unchanged_links() -> None:
 
 
 def _extract_toc(html: str) -> str | None:
-    found = re.search(r'<nav class="toc">.*?</nav>', html, re.S)
+    found = re.search(r'<nav class="toc">.*?</nav>', html, re.DOTALL)
     return found.group(0) if found else None
 
 
