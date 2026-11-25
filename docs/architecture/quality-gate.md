@@ -43,6 +43,13 @@ Where hooks run:
 
 The tests are not a hook: `docker compose run --rm test` takes a while, so it runs before handing a change over for review and before every release.
 
+Hooks run on what a commit stages.
+`git rebase -i` (squash, fixup) does not run them; after a rebase, `prek run --from-ref <base> --to-ref HEAD` checks every file the branch changed.
+
+### Ruff rule sets
+
+> **Changed, not built yet.** The configuration does not select `D1`, `D205`, `D212`, `D417`, `PLC0415`, `ERA001` and `TD003` yet.
+
 Ruff settings live in `pyproject.toml`: line length 120, and these rule sets:
 
 | Rules | What they check |
@@ -58,11 +65,14 @@ Ruff settings live in `pyproject.toml`: line length 120, and these rule sets:
 | `BLE001` | No catch-all `except Exception`; a deliberate one carries a `# noqa: BLE001` with its reason. |
 | `PLW0603` | No `global` statements. |
 | `TID252` | Relative imports only one level deep (`from .x`, never `from ..x`). |
+| `D1` | Public modules, classes, functions and methods have a docstring; tests are exempt. |
+| `D205`, `D212` | A docstring's summary is one line that starts on the line of the opening quotes, followed by a blank line. |
+| `D417` | Every parameter is documented in the `Args:` section of a docstring (Google convention, set under `[tool.ruff.lint.pydocstyle]`). |
+| `PLC0415` | Imports sit at the top of the module; a deliberate import inside a function is for an optional dependency and carries a `# noqa: PLC0415` with its reason. |
+| `ERA001` | No commented-out code. |
+| `TD003` | A `TODO` comment links to an issue. |
 
 Imports come in four blank-line-separated sections: standard library, third-party, first-party (`docspecsite`, as the tests import it), and the package's own modules as single-dot relative imports (`from .x import …`; `from ..x` is not allowed).
-
-Hooks run on what a commit stages.
-`git rebase -i` (squash, fixup) does not run them; after a rebase, `prek run --from-ref <base> --to-ref HEAD` checks every file the branch changed.
 
 ## Review (before commit)
 
