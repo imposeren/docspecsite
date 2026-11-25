@@ -43,6 +43,14 @@ repos:
         pass_filenames: false
         types: [python]
 
+      # The lock matches pyproject.toml, with the dependency cooldown (DSS-0008).
+      - id: uv-lock-check
+        name: uv lock --check
+        language: system
+        entry: uv lock --check
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock)$
+
       # docspecsite checks its own docs with its own source, not a released tag.
       - id: docs-check
         name: docspecsite check --staged

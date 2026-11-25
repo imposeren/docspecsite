@@ -2,7 +2,7 @@
 title: Development environment
 summary: docker compose is the entry point for working on docspecsite — tests, lint, type check, its own docs check, build and preview run in the Dockerfile's dev target with the source mounted; uv on the host runs the commit hooks and is a shortcut for the rest.
 layer: architecture
-status: [implemented, specified]
+status: implemented
 milestone: hardening  # stand-in until docs can list several milestones (backlog: docs in several milestones); this doc's first form shipped in first-release
 priority: should
 components: [dev-environment]
@@ -32,8 +32,6 @@ So every command runs the source being worked on.
 
 ## Dependency cooldown
 
-> **Not built yet.**
-
 `pyproject.toml` sets two keys under `[tool.uv]` ([DSS-0008](decisions/DSS-0008-dependency-cooldown.md)):
 
 ```toml
@@ -47,7 +45,7 @@ exclude-newer = "14 days"
   The image and `uv sync` install what the lock holds.
 - `required-version = ">=0.13.7"`: 0.13.7 is the version whose span support was checked.
   uv 0.9.17 up to 0.13.6 stops with uv's version error instead of locking.
-  uv before 0.9.17 cannot read the span: it only warns that it cannot parse `pyproject.toml`'s settings, ignores the floor with them, and locks without the cooldown; a current uv's `uv lock --check` then reports the lock as out of date (trial locks with uv 0.9.16, 0.9.17, 0.11.0, 0.12.0 and 0.13.7, 2026-11-26).
+  uv before 0.9.17 cannot read the span: it only warns that it cannot parse `pyproject.toml`'s settings, ignores the floor with them, and locks without the cooldown; a current uv's `uv lock --check`, which the `uv-lock-check` commit hook runs ([quality-gate.md](quality-gate.md#prek-on-commit)), then reports the lock as out of date (trial locks with uv 0.9.16, 0.9.17, 0.11.0, 0.12.0 and 0.13.7, 2026-11-26).
 
 A release needed sooner (a security fix, or a requirement only a newer version meets) is let through for its package alone with an `exclude-newer-package` entry under `[tool.uv]` that gives a shorter duration, e.g. `exclude-newer-package = { setuptools = "2 days" }`, not `false`, which would lift the cooldown for that package for good.
 The entry is removed in the first `uv lock --upgrade` after that release is older than 14 days.

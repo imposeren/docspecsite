@@ -2,7 +2,7 @@
 title: "DSS-0008: A 14-day dependency cooldown in the uv project"
 summary: The project's uv settings set a relative 14-day cooldown with a uv version floor, so uv.lock only takes package versions uploaded at least two weeks before the resolution that wrote it, for direct and transitive dependencies alike.
 layer: architecture
-status: specified
+status: implemented
 decision: accepted
 date: 2026-11-26
 milestone: hardening

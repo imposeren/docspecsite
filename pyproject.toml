@@ -28,6 +28,11 @@ dev = [
     "ruff==0.17.3",
 ]
 
+[tool.uv]
+# Dependency cooldown (docs/architecture/decisions/DSS-0008-dependency-cooldown.md).
+required-version = ">=0.13.7"
+exclude-newer = "14 days"
+
 [tool.pytest]
 testpaths = ["tests"]
 filterwarnings = ["error"]

@@ -34,6 +34,7 @@ CI is not set up for docspecsite yet; until it is, the full checks below run bef
 | standard hygiene | prek's built-in hooks: trailing whitespace, EOF newline, YAML validity, large files |  |
 | `ruff-check`, `ruff-format` | Ruff lint (with import sorting) and format ([DSS-0003](decisions/DSS-0003-ruff-and-strict-pyrefly.md)) | Python style and common bugs. |
 | `pyrefly` | `uv run pyrefly check`, strict ([DSS-0003](decisions/DSS-0003-ruff-and-strict-pyrefly.md)) | Python types. |
+| `uv-lock-check` | `uv lock --check`, when `pyproject.toml` or `uv.lock` is staged | `uv.lock` matches `pyproject.toml`, dependency cooldown included: a lock written by a uv too old to read `[tool.uv]` is rejected ([DSS-0008](decisions/DSS-0008-dependency-cooldown.md)). |
 
 Where hooks run:
 
