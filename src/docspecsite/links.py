@@ -84,7 +84,7 @@ def is_empty_code_target(href: str) -> bool:
     return parse_code_target(href) == ""
 
 
-def parse_body_ref(doc_path: str, href: str, line_number: int) -> Ref | CodeRef | Problem | None:
+def parse_body_ref(doc_path: str, href: str, line_number: int) -> Ref | CodeRef | Problem | None:  # noqa: C901 - one classification of a body link by its form; the cases read as one table
     """Classify a link found in the body of a doc.
 
     Returns a :class:`Ref` for a local link, a :class:`CodeRef` for a ``code:`` link, a

@@ -72,6 +72,7 @@ The rule sets below are listed even where the default set already has some of th
 | `PLC0415` | Imports sit at the top of the module; a deliberate import inside a function is for an optional dependency and carries a `# noqa: PLC0415` with its reason. |
 | `ERA001` | No commented-out code. |
 | `TD003` | A `TODO` comment links to an issue. |
+| `C901`, `PLR0912`, `PLR0915` | Size limits per function, at ruff's defaults: McCabe complexity at most 10, at most 12 branches, at most 50 statements. A function kept over a limit carries a `# noqa: <code>` with its reason. |
 
 Imports come in four blank-line-separated sections: standard library, third-party, first-party (`docspecsite`, as the tests import it), and the package's own modules as single-dot relative imports (`from .x import …`; `from ..x` is not allowed).
 
