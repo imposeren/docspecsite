@@ -48,7 +48,12 @@ Hooks run on what a commit stages.
 
 ### Ruff rule sets
 
-Ruff settings live in `pyproject.toml`: line length 120, and these rule sets:
+> **Changed, not built yet.** `pyproject.toml` still sets `select`, which turns Ruff's default rule set off.
+
+Ruff settings live in `pyproject.toml`: line length 120, and Ruff's default rule set extended with the rule sets below (`extend-select`, never `select`, which would replace the defaults).
+The default set is the one the pinned Ruff version enables when no rules are selected: rules that catch likely bugs and outdated or needlessly complex code (from Pyflakes, flake8-bugbear, Pylint's error checks, pyupgrade, refurb, flake8-simplify, Ruff's own `RUF` rules and others), listed on [Ruff's default rules page](https://docs.astral.sh/ruff/default-rules/).
+A Ruff upgrade can add rules to it; the upgrade fixes their hits in its own commit.
+The rule sets below are listed even where the default set already has some of their rules, so they stay checked if a later default set drops them:
 
 | Rules | What they check |
 | -- | -- |
