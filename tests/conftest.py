@@ -3,7 +3,7 @@
 import os
 import re
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import NamedTuple
 
@@ -15,6 +15,18 @@ from docspecsite.config import ProjectConfig
 from docspecsite.docs import Doc
 
 type WriteDoc = Callable[..., Path]
+
+
+@pytest.fixture(autouse=True, scope="session")
+def isolated_git_config(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Run every git command of the tests without the host's git config, such as commit signing or hooks."""
+    config = tmp_path_factory.mktemp("git-config") / "gitconfig"
+    config.touch()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("GIT_CONFIG_GLOBAL", str(config))
+        patch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        yield
+
 
 _VOCABULARY = """# Vocabulary
 
