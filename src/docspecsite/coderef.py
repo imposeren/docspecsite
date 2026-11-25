@@ -9,12 +9,12 @@ import keyword
 import posixpath
 import re
 import warnings
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property, partial
 from pathlib import Path
 from types import MappingProxyType
-from typing import ClassVar, Self, assert_never
+from typing import ClassVar, Self
 
 import griffe
 from jinja2 import Template
@@ -27,7 +27,7 @@ from .links import EMPTY_CODE_TARGET_MESSAGE, is_empty_code_target, parse_code_t
 from .markdown import HtmlRenderer, Link, MarkdownText, RenderedLink
 from .pages import Page, PageLink, create_environment
 from .roles import RoleRef
-from .symlinks import CODE_DIR_TO_FILE_REASON, LEFT_OUT_SYMLINK_REASON, DiskFiles, SymlinkFollower, SymlinkKind
+from .symlinks import DiskFiles, SymlinkFollower
 from .urls import CODE_INDEX_DOC, MARKERS, encode_href_path, make_code_url, make_doc_url, make_relative_url
 
 type Pieces = tuple[Piece, ...]
@@ -378,6 +378,30 @@ class Codebase:
             CodeError: A package name is found in more than one code directory.
         """
         root = root.resolve()
+        real_code_dirs, left_out = cls._resolve_code_dirs(root, config)
+        packages: list[Package] = []
+        for repo_code_dir in real_code_dirs:
+            found = cls._find_dir_packages(root, repo_code_dir)
+            packages.extend(found.packages)
+            left_out.extend(found.left_out)
+        cls._check_unique_package_names(packages)
+        return FoundPackages(tuple(packages), tuple(left_out))
+
+    @classmethod
+    def _resolve_code_dirs(cls, root: Path, config: ProjectConfig) -> tuple[Collection[str], list[UnusableInput]]:
+        """Return the real directories the code directories are, and the code directories left out.
+
+        A code directory that is a symlink is followed under ``root`` and stands for the directory it leads to.
+
+        Args:
+            root: The resolved directory holding the code, where the code directory globs are expanded.
+            config: Settings whose :attr:`~docspecsite.config.ProjectConfig.code_dirs` globs are expanded and whose
+                :meth:`~docspecsite.config.ProjectConfig.is_code_dir` decides which matches are code directories.
+
+        Returns:
+            The repo paths (POSIX, ``.`` for the root) of the real code directories, each once, in the order of the
+            sorted matches; and the symlinked code directories left out, with the reason for each.
+        """
         follower = SymlinkFollower(DiskFiles(root))
         candidates: set[Path] = set()
         for code_dir_glob in config.code_dirs:
@@ -390,31 +414,53 @@ class Codebase:
                 continue
             if follower.files.is_symlink(repo_code_dir):
                 target = follower.follow(repo_code_dir)
-                match target.kind:
-                    case SymlinkKind.OUT_OF_REPO | SymlinkKind.NOTHING:
-                        left_out.append(UnusableInput(repo_code_dir, LEFT_OUT_SYMLINK_REASON))
-                    case SymlinkKind.DIRECTORY:
-                        real_code_dirs[target.found_path] = None
-                    case SymlinkKind.DOC | SymlinkKind.OTHER_FILE:
-                        left_out.append(UnusableInput(repo_code_dir, CODE_DIR_TO_FILE_REASON))
-                    case _:
-                        assert_never(target.kind)
+                reason = target.get_code_dir_left_out_reason()
+                if reason is None:
+                    real_code_dirs[target.found_path] = None
+                else:
+                    left_out.append(UnusableInput(repo_code_dir, reason))
             elif code_dir.is_dir():
                 real_code_dirs[repo_code_dir] = None
+        return real_code_dirs.keys(), left_out
+
+    @classmethod
+    def _find_dir_packages(cls, root: Path, repo_code_dir: str) -> FoundPackages:
+        """Return the packages of one real code directory, by name, and the package directories left out.
+
+        A package directory whose name Python cannot import is left out.
+
+        Args:
+            root: The resolved directory holding the code.
+            repo_code_dir: Repo path (POSIX, ``.`` for the root) of the code directory, a real directory under
+                ``root``.
+        """
         packages: list[Package] = []
-        for repo_code_dir in real_code_dirs:
-            for package_dir in sorted((root / repo_code_dir).iterdir()):
-                if not (package_dir.is_dir() and (package_dir / "__init__.py").is_file()):
-                    continue
-                if cls.is_package_name(package_dir.name):
-                    packages.append(Package(package_dir.name, package_dir, repo_code_dir))
-                else:
-                    left_out.append(
-                        UnusableInput(
-                            posixpath.normpath(posixpath.join(repo_code_dir, package_dir.name)),
-                            cls.INVALID_PACKAGE_NAME_REASON.format(name=package_dir.name),
-                        )
+        left_out: list[UnusableInput] = []
+        for package_dir in sorted((root / repo_code_dir).iterdir()):
+            if not (package_dir.is_dir() and (package_dir / "__init__.py").is_file()):
+                continue
+            if cls.is_package_name(package_dir.name):
+                packages.append(Package(package_dir.name, package_dir, repo_code_dir))
+            else:
+                left_out.append(
+                    UnusableInput(
+                        posixpath.normpath(posixpath.join(repo_code_dir, package_dir.name)),
+                        cls.INVALID_PACKAGE_NAME_REASON.format(name=package_dir.name),
                     )
+                )
+        return FoundPackages(tuple(packages), tuple(left_out))
+
+    @staticmethod
+    def _check_unique_package_names(packages: Sequence[Package]) -> None:
+        """Check that no package name is found in more than one code directory.
+
+        Args:
+            packages: The packages found, in code directory order.
+
+        Raises:
+            CodeError: A package name is found in more than one code directory; the first such name in sorted order
+                is named.
+        """
         # Repo paths of the code directories holding each package name, in code directory order.
         code_dirs_by_name: dict[str, list[str]] = {}
         for package in packages:
@@ -422,7 +468,6 @@ class Codebase:
         for name, repo_code_dirs in sorted(code_dirs_by_name.items()):
             if len(repo_code_dirs) > 1:
                 raise CodeError("package %s is in more than one code directory: %s", name, ", ".join(repo_code_dirs))
-        return FoundPackages(tuple(packages), tuple(left_out))
 
     @staticmethod
     def is_package_name(name: str) -> bool:

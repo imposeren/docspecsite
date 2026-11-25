@@ -55,7 +55,6 @@ from .pages import (
 )
 from .parts import Part
 from .symlinks import (
-    CODE_DIR_TO_FILE_REASON,
     LEFT_OUT_SYMLINK_REASON,
     GitSeenFiles,
     SymlinkFollower,
@@ -1404,16 +1403,12 @@ class SiteBuilder:
                 read_dirs[code_dir] = None
                 continue
             target = self.tree_symlink_follower.follow(code_dir)
-            match target.kind:
-                case SymlinkKind.OUT_OF_REPO | SymlinkKind.NOTHING:
-                    self.warn_left_out(code_dir, LEFT_OUT_SYMLINK_REASON)
-                case SymlinkKind.DIRECTORY:
-                    read_dirs[target.found_path] = None
-                    targets_by_link[code_dir] = target.found_path
-                case SymlinkKind.DOC | SymlinkKind.OTHER_FILE:
-                    self.warn_left_out(code_dir, CODE_DIR_TO_FILE_REASON)
-                case _:
-                    assert_never(target.kind)
+            reason = target.get_code_dir_left_out_reason()
+            if reason is None:
+                read_dirs[target.found_path] = None
+                targets_by_link[code_dir] = target.found_path
+            else:
+                self.warn_left_out(code_dir, reason)
         if not read_dirs:
             return
         for path in self.git.write_files(self.history.head, list(read_dirs), code_root):

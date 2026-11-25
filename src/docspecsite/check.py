@@ -946,49 +946,67 @@ class Checker:
             if index_doc is None:
                 problems.append(Problem(directory.path, None, "directory has no index.md"))
                 continue
-            # Keyed by the listed child's path relative to docs/: whether any of its entries has a description,
-            # and the file line of its first entry without one.
-            is_described_by_path: dict[str, bool] = {}
-            first_bare_line_number_by_path: dict[str, int] = {}
-            for entry in index_doc.body_markdown.list_entries(self.CHILDREN_HEADING):
-                for target in entry.targets:
-                    target_path = target.partition("#")[0].partition("?")[0]
-                    if not target_path or ":" in target_path:
-                        continue
-                    listed_path = posixpath.normpath(posixpath.join(directory.path, target_path))
-                    listed_path = listed_path.removesuffix("/index.md")
-                    has_text = bool(entry.text)
-                    is_described_by_path[listed_path] = is_described_by_path.get(listed_path, False) or has_text
-                    if not has_text:
-                        line_number = index_doc.get_file_line_number(entry.line_number)
-                        first_bare_line_number_by_path.setdefault(listed_path, line_number)
+            listed_children = self._read_listed_children(directory.path, index_doc)
             children = sorted(
                 [*((name, True) for name in directory.dir_names), *((name, False) for name in directory.file_names)]
             )
             for name, is_dir in children:
-                child_path = posixpath.join(directory.path, name)
                 if not is_utf8_name(name):
                     continue
-                if is_dir:
-                    entry_name = f"{name}/"
-                elif Path(name).suffix == DOC_SUFFIX and not is_dir_index(name):
-                    child_doc = self.doc_set.by_path.get(child_path)
-                    if child_doc is not None and child_doc.is_redirect:
-                        continue
-                    entry_name = name
-                else:
+                child_path = posixpath.join(directory.path, name)
+                entry_name = self._get_required_entry_name(child_path, is_dir=is_dir)
+                if entry_name is None:
                     continue
-                if child_path not in is_described_by_path:
+                if child_path not in listed_children:
                     problems.append(Problem(index_path, None, f"child {entry_name} is not listed"))
-                elif not is_described_by_path[child_path]:
+                elif (bare_line_number := listed_children[child_path]) is not None:
                     problems.append(
-                        Problem(
-                            index_path,
-                            first_bare_line_number_by_path[child_path],
-                            f"child {entry_name} is listed without a description",
-                        )
+                        Problem(index_path, bare_line_number, f"child {entry_name} is listed without a description")
                     )
         return problems
+
+    def _read_listed_children(self, directory_path: str, index_doc: Doc) -> dict[str, int | None]:
+        """Return the children an index lists under its ``## Children`` heading, by path relative to ``docs/``.
+
+        Args:
+            directory_path: Path of the index's directory relative to ``docs/``, which its links are relative to.
+            index_doc: The directory's ``index.md``.
+
+        Returns:
+            For each listed child, the 1-based file line number of its first entry without a description, or None
+            once any of its entries has one.
+        """
+        listed_children: dict[str, int | None] = {}
+        for entry in index_doc.body_markdown.list_entries(self.CHILDREN_HEADING):
+            for target in entry.targets:
+                target_path = target.partition("#")[0].partition("?")[0]
+                if not target_path or ":" in target_path:
+                    continue
+                listed_path = posixpath.normpath(posixpath.join(directory_path, target_path))
+                listed_path = listed_path.removesuffix("/index.md")
+                if entry.text:
+                    listed_children[listed_path] = None
+                elif listed_path not in listed_children:
+                    listed_children[listed_path] = index_doc.get_file_line_number(entry.line_number)
+        return listed_children
+
+    def _get_required_entry_name(self, child_path: str, *, is_dir: bool) -> str | None:
+        """Return the name a child must be listed under in its directory's index, or None when it needs no entry.
+
+        A directory is listed as ``<name>/`` and a doc by its file name; an ``index.md``, a redirect doc and a file
+        that is not a doc need no entry.
+
+        Args:
+            child_path: Path of the child relative to ``docs/``.
+            is_dir: Whether the child is a directory.
+        """
+        name = posixpath.basename(child_path)
+        if is_dir:
+            return f"{name}/"
+        if Path(name).suffix != DOC_SUFFIX or is_dir_index(name):
+            return None
+        child_doc = self.doc_set.by_path.get(child_path)
+        return None if child_doc is not None and child_doc.is_redirect else name
 
     def check_names(self) -> list[Problem]:
         """Check that no name under ``docs/`` breaks links to the rendered page; return the problems.

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
-from typing import Protocol, override
+from typing import Protocol, assert_never, override
 
 from .docs import DOC_SUFFIX, DOCS_DIR
 from .git import TreeEntry
@@ -208,6 +208,21 @@ class SymlinkTarget:
         if self.path is None:
             raise ValueError(f"a symlink chain that leads {self.kind} has no path")
         return self.path
+
+    def get_code_dir_left_out_reason(self) -> str | None:
+        """Return why a code directory that is a symlink leading here is left out, or None when it leads to a directory.
+
+        Docs: behavior/commands/index.md#input-that-cannot-be-used
+        """
+        match self.kind:
+            case SymlinkKind.OUT_OF_REPO | SymlinkKind.NOTHING:
+                return LEFT_OUT_SYMLINK_REASON
+            case SymlinkKind.DIRECTORY:
+                return None
+            case SymlinkKind.DOC | SymlinkKind.OTHER_FILE:
+                return CODE_DIR_TO_FILE_REASON
+            case _:
+                assert_never(self.kind)
 
 
 class _ChainEndError(Exception):

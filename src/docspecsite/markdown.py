@@ -722,18 +722,7 @@ class HtmlRenderer:
                 continue
             elif child.type == "link_close":
                 rendered_link, content_start = open_links.pop()
-                if rendered_link.code_text is not None:
-                    code_token = Token("code_inline", "code", 0)
-                    code_token.content = rendered_link.code_text
-                    rewritten_tokens[content_start:] = [code_token]
-                if rendered_link.href is not None:
-                    rewritten_tokens.append(child)
-                elif rendered_link.use_code_style:
-                    self.wrap_in_code(rewritten_tokens, content_start)
-                if rendered_link.markers:
-                    markers_token = Token("html_inline", "", 0)
-                    markers_token.content = self.render_markers_html(rendered_link.markers)
-                    rewritten_tokens.append(markers_token)
+                self._close_link(rendered_link, rewritten_tokens, content_start, child)
                 continue
             elif child.type == "image":
                 raw = str(child.attrGet("src") or "")
@@ -743,6 +732,30 @@ class HtmlRenderer:
                     child.attrSet("src", self.make_out_href(raw, decoded, rendered_link.href))
             rewritten_tokens.append(child)
         inline.children = rewritten_tokens
+
+    def _close_link(
+        self, rendered_link: RenderedLink, tokens: list[Token], content_start: int, close_token: Token
+    ) -> None:
+        """Finish one link at its close token, in the inline tokens being rewritten, as :meth:`rewrite_inline` says.
+
+        Args:
+            rendered_link: How the link renders, as :attr:`resolve_link` returned it for the link's target.
+            tokens: Inline tokens rewritten so far, ending with the link's content; changed in place.
+            content_start: Index in ``tokens`` of the link's first content token.
+            close_token: The link's ``link_close`` token, kept when the link has an href.
+        """
+        if rendered_link.code_text is not None:
+            code_token = Token("code_inline", "code", 0)
+            code_token.content = rendered_link.code_text
+            tokens[content_start:] = [code_token]
+        if rendered_link.href is not None:
+            tokens.append(close_token)
+        elif rendered_link.use_code_style:
+            self.wrap_in_code(tokens, content_start)
+        if rendered_link.markers:
+            markers_token = Token("html_inline", "", 0)
+            markers_token.content = self.render_markers_html(rendered_link.markers)
+            tokens.append(markers_token)
 
     @staticmethod
     def wrap_in_code(tokens: list[Token], start: int) -> None:

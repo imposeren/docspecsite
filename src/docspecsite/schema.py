@@ -231,8 +231,22 @@ class FrontMatterCheck:
 
         A check covers one doc once: call this a single time per :class:`FrontMatterCheck`.
         """
+        self.check_field_types()
+        self.check_enum("layer", Layer, self.front_matter)
+        self.check_status()
+        self.check_enum("priority", Priority, self.doc.status.roadmap_front_matter)
+        self.check_layer()
+        self.check_components()
+        self.check_tags()
+        self.check_milestone()
+        self.check_redirect_rules()
+        self.check_adr_rules()
+        self.check_ignored_statuses()
+        return self.problems
+
+    def check_field_types(self) -> None:
+        """Record each required field that is missing, and each text or list field whose value has the wrong type."""
         front_matter = self.front_matter
-        status = self.doc.status
         for field in self.get_required_fields():
             if field not in front_matter:
                 self.report(f'missing required field "{field}"')
@@ -243,36 +257,36 @@ class FrontMatterCheck:
             if field in front_matter and not is_str_list(front_matter[field]):
                 self.report(f'"{field}" must be a list of strings')
 
-        self.check_enum("layer", Layer, front_matter)
-        self.check_status()
-        self.check_enum("priority", Priority, status.roadmap_front_matter)
-
-        layer = front_matter.get("layer")
+    def check_layer(self) -> None:
+        """Record a violation if a valid ``layer`` is not the one the doc's directory decides."""
+        layer = self.front_matter.get("layer")
         expected_layer = derive_dir_layer(self.doc.path)
         if layer in Layer and layer != expected_layer:
             self.report(f'layer "{layer}" does not match the directory (expected "{expected_layer}")')
 
-        components = front_matter.get("components")
+    def check_components(self) -> None:
+        """Record each component in ``components`` that the vocabulary does not know."""
+        components = self.front_matter.get("components")
         if is_str_list(components):
             for component in components:
                 if component not in self.vocab.components:
                     self.report(f'unknown component "{component}" (add it to architecture/components.md)')
-        tags = front_matter.get("tags")
+
+    def check_tags(self) -> None:
+        """Record each tag in ``tags`` that is not lowercase words joined by hyphens."""
+        tags = self.front_matter.get("tags")
         if is_str_list(tags):
             for tag in tags:
                 if not self.TAG_PATTERN.match(tag):
                     self.report(f'tag "{tag}" must be lowercase words separated by "-"')
 
-        roadmap_front_matter = status.roadmap_front_matter
+    def check_milestone(self) -> None:
+        """Record a violation if the doc names a milestone that the vocabulary does not know."""
+        roadmap_front_matter = self.doc.status.roadmap_front_matter
         if "milestone" in roadmap_front_matter and roadmap_front_matter["milestone"] not in self.vocab.milestones:
             self.report(
                 f'unknown milestone "{roadmap_front_matter["milestone"]}" (milestones are listed in roadmap.md)'
             )
-
-        self.check_redirect_rules()
-        self.check_adr_rules()
-        self.check_ignored_statuses()
-        return self.problems
 
     def report(self, message: str, hint: str | None = None, *, is_warning: bool = False) -> None:
         """Record a violation, or a warning, as a problem on line 1 of the doc.
@@ -355,7 +369,15 @@ class FrontMatterCheck:
             self.report(f'"redirect_kind" must be one of: {", ".join(self.REDIRECT_KINDS)}')
         if not self.is_non_blank_str(front_matter.get("reason")):
             self.report('status: redirect needs "reason" (one sentence)')
-        target = front_matter.get("redirect_to")
+        self.check_redirect_target(kind)
+
+    def check_redirect_target(self, kind: object) -> None:
+        """Record a violation if ``redirect_to`` is missing, present or of the wrong form for the redirect's kind.
+
+        Args:
+            kind: The doc's ``redirect_kind`` value as YAML loaded it; None when the doc has none.
+        """
+        target = self.front_matter.get("redirect_to")
         if kind == "removed":
             if target is not None:
                 self.report('redirect_kind: removed has no replacement, so no "redirect_to"')
@@ -405,7 +427,15 @@ class FrontMatterCheck:
             self.report('ADR needs "date" (YYYY-MM-DD)')
         elif not self.is_iso_date(date):
             self.report('"date" must be YYYY-MM-DD')
-        superseded_by = front_matter.get("superseded_by")
+        self.check_superseded_by(decision)
+
+    def check_superseded_by(self, decision: object) -> None:
+        """Record a violation if ``superseded_by`` is missing from a superseded ADR, or present in any other.
+
+        Args:
+            decision: The ADR's ``decision`` value as YAML loaded it; None when it has none.
+        """
+        superseded_by = self.front_matter.get("superseded_by")
         if decision == "superseded":
             if not self.is_non_blank_str(superseded_by):
                 self.report('decision: superseded needs "superseded_by"')
