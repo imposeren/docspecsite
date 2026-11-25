@@ -42,3 +42,4 @@ Each line gives the ADR's `decision` and `status`, then its title ([meta/lifecyc
 - [DSS-0005](DSS-0005-entry-points-for-backends.md) — proposed, specified — Entry points for versioning backends
 - [DSS-0006](DSS-0006-history-level-backend-contract.md) — proposed, specified — History-level backend contract with a layered git backend
 - [DSS-0007](DSS-0007-git-command-line.md) — proposed, specified — git through its command line, not a git library
+- [DSS-0008](DSS-0008-dependency-cooldown.md) — accepted, specified — A 14-day dependency cooldown in the uv project
