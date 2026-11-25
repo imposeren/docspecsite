@@ -234,8 +234,10 @@ class MarkdownText:
 
     @cached_property
     def source_lines(self) -> list[str]:
-        """The lines of the text as written, split at the line breaks Markdown knows (``\\n``, ``\\r\\n`` and
-        ``\\r``), so that line ``n`` of a token's ``map`` is item ``n``."""
+        """The lines of the text as written, split at the line breaks Markdown knows.
+
+        The breaks are ``\\n``, ``\\r\\n`` and ``\\r``, so that line ``n`` of a token's ``map`` is item ``n``.
+        """
         return split_source_lines(self.text)
 
     def split_front_matter(self) -> FrontMatterSplit:

@@ -549,8 +549,9 @@ class TitleCheck(DocCheck):
 
 
 class RelatedOwnersCheck(DocCheck):
-    """The check that a doc in a layer without a build status names in ``related`` a current doc whose rules it gives
-    cases for.
+    """The check that a doc without a build status names a current doc whose rules it gives cases for.
+
+    Such a doc names that doc in ``related``.
 
     Docs: behavior/docs-format.md#layers-without-a-build-status
     Docs: behavior/commands/check.md#docs-without-a-build-status

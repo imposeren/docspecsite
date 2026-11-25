@@ -72,8 +72,9 @@ Docs: architecture/docs-tooling.md#statuses-and-status-notes
 
 
 class Priority(StrEnum):
-    """A doc's ``priority`` within its milestone, from the most to the least important; the status board groups docs
-    in this order.
+    """A doc's ``priority`` within its milestone, from the most to the least important.
+
+    The status board groups docs in this order.
 
     Docs: meta/front-matter.md#fields
     """
@@ -147,14 +148,18 @@ class DocStatus:
 
     @property
     def values(self) -> tuple[str, ...]:
-        """The values as written, in doc order, duplicates kept; in a layer without a build status, the build statuses
-        are left out."""
+        """The values as written, in doc order, duplicates kept.
+
+        In a layer without a build status, the build statuses are left out.
+        """
         return tuple(value for value in self.written_values if not self.is_ignored(value))
 
     @property
     def ignored_values(self) -> tuple[str, ...]:
-        """Build statuses left out of :attr:`values` in a layer without a build status, in doc order; read only for the
-        warning about them."""
+        """Build statuses left out of :attr:`values` in a layer without a build status, in doc order.
+
+        They are read only for the warning about them.
+        """
         return tuple(value for value in self.written_values if self.is_ignored(value))
 
     def is_ignored(self, value: str) -> bool:
@@ -167,8 +172,10 @@ class DocStatus:
 
     @property
     def roadmap_front_matter(self) -> Mapping[str, object]:
-        """The front matter the milestone and the priority are read from: the doc's own, empty in a layer without a
-        build status."""
+        """The front matter the milestone and the priority are read from.
+
+        It is the doc's own, empty in a layer without a build status.
+        """
         return self.front_matter if self.is_build_tracked else {}
 
     @property
@@ -217,8 +224,10 @@ class DocStatus:
         return list(self.values) if self.values else None
 
     def format_yaml(self) -> str:
-        """Return the YAML value of the field as written: ``implemented`` for one value, ``[implemented, specified]``
-        for more; left-out build statuses are kept."""
+        """Return the YAML value of the field as written.
+
+        It is ``implemented`` for one value and ``[implemented, specified]`` for more; left-out build statuses are kept.
+        """
         if len(self.written_values) == 1:
             return self.written_values[0]
         return f"[{', '.join(self.written_values)}]"
@@ -300,8 +309,10 @@ class Doc:
 
     @cached_property
     def status(self) -> DocStatus:
-        """The front matter's ``status``, ``milestone`` and ``priority``; nothing written when the front matter did not
-        load."""
+        """The front matter's ``status``, ``milestone`` and ``priority``.
+
+        Nothing is written when the front matter did not load.
+        """
         return DocStatus.from_front_matter(self.front_matter or {}, self.path)
 
     @property

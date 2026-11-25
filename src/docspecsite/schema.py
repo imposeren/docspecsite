@@ -218,8 +218,10 @@ class FrontMatterCheck:
         return isinstance(value, str) and value.strip() != ""
 
     def get_required_fields(self) -> tuple[str, ...]:
-        """Return the fields the doc's front matter must have: :attr:`REQUIRED_FIELDS`, without ``status`` in a layer
-        without a build status."""
+        """Return the fields the doc's front matter must have.
+
+        They are :attr:`REQUIRED_FIELDS`, without ``status`` in a layer without a build status.
+        """
         if self.doc.status.is_build_tracked:
             return self.REQUIRED_FIELDS
         return tuple(field for field in self.REQUIRED_FIELDS if field != "status")

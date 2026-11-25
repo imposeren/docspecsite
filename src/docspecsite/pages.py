@@ -227,6 +227,7 @@ class Templates:
     """Jinja environment loading the package's templates, with docspecsite's filters."""
 
     def __init__(self) -> None:
+        """Create the Jinja environment and register the page filters and globals."""
         self.environment = create_environment()
         # Jinja leaves ``filters`` and ``globals`` unannotated, so their inferred value types are the unions of the
         # built-in ones.
